@@ -86,3 +86,18 @@ func TestBundleTextContextIncludesStructuredSections(t *testing.T) {
 		}
 	}
 }
+
+func TestInferGraphRequirements(t *testing.T) {
+	short := Bundle{Content: "short"}
+	if got := InferGraphRequirements(short); got.MinNodes != 2 || got.MinEdges != 1 {
+		t.Fatalf("short reqs = %#v", got)
+	}
+	mid := Bundle{Content: strings.Repeat("中", 3000)}
+	if got := InferGraphRequirements(mid); got.MinNodes != 4 || got.MinEdges != 3 {
+		t.Fatalf("mid reqs = %#v", got)
+	}
+	long := Bundle{Content: strings.Repeat("长", 9000)}
+	if got := InferGraphRequirements(long); got.MinNodes != 6 || got.MinEdges != 5 {
+		t.Fatalf("long reqs = %#v", got)
+	}
+}

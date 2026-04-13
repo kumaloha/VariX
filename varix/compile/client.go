@@ -63,9 +63,10 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	if c == nil {
 		return Record{}, fmt.Errorf("compile client is nil")
 	}
-	output, err := c.compileAttempt(ctx, bundle, BuildInstruction()+"\n\n"+BuildPrompt(bundle))
+	reqs := InferGraphRequirements(bundle)
+	output, err := c.compileAttempt(ctx, bundle, BuildInstruction(reqs)+"\n\n"+BuildPrompt(bundle), reqs)
 	if err != nil {
-		output, err = c.compileAttempt(ctx, bundle, BuildInstruction()+"\n\n"+BuildPrompt(bundle)+"\n\n上一次返回未满足要求。请重试，并确保：1）graph 至少 2 个节点和 1 条边；2）details 不为空对象；3）严格使用允许的节点和边类型。")
+		output, err = c.compileAttempt(ctx, bundle, BuildInstruction(reqs)+"\n\n"+BuildPrompt(bundle)+fmt.Sprintf("\n\n上一次返回未满足要求。请重试，并确保：1）graph 至少 %d 个节点和 %d 条边；2）details 不为空对象；3）严格使用允许的节点和边类型；4）如果是长文，必须拆出更多中间事实、隐含条件和结论。", reqs.MinNodes, reqs.MinEdges), reqs)
 		if err != nil {
 			return Record{}, err
 		}
@@ -81,7 +82,7 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	}, nil
 }
 
-func (c *Client) compileAttempt(ctx context.Context, bundle Bundle, prompt string) (Output, error) {
+func (c *Client) compileAttempt(ctx context.Context, bundle Bundle, prompt string, reqs GraphRequirements) (Output, error) {
 	reqBody, err := BuildQwen36Request(bundle, prompt)
 	if err != nil {
 		return Output{}, err
@@ -91,7 +92,14 @@ func (c *Client) compileAttempt(ctx context.Context, bundle Bundle, prompt strin
 	if err != nil {
 		return Output{}, err
 	}
-	return ParseOutput(rawResp)
+	out, err := ParseOutput(rawResp)
+	if err != nil {
+		return Output{}, err
+	}
+	if err := out.ValidateWithThresholds(reqs.MinNodes, reqs.MinEdges); err != nil {
+		return Output{}, err
+	}
+	return out, nil
 }
 
 func (c *Client) createChatCompletion(ctx context.Context, payload ChatCompletionRequest) (string, error) {

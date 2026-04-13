@@ -261,6 +261,79 @@ func TestSyndicationHTTPClientFetchByID_HydratesQuotedTweetLongformTextFromGraph
 	}
 }
 
+func TestExtractGraphQLArticlePlainText(t *testing.T) {
+	payload := map[string]any{
+		"data": map[string]any{
+			"tweetResult": map[string]any{
+				"result": map[string]any{
+					"article": map[string]any{
+						"article_results": map[string]any{
+							"result": map[string]any{
+								"plain_text": "full article body",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if got := extractGraphQLArticlePlainText(payload); got != "full article body" {
+		t.Fatalf("extractGraphQLArticlePlainText() = %q, want full article body", got)
+	}
+}
+
+func TestSyndicationHTTPClientFetchByID_PrefersGraphQLArticlePlainText(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case strings.Contains(req.URL.Host, "cdn.syndication.twimg.com"):
+			body := `{
+				"id_str":"2026305745872998803",
+				"text":"preview text",
+				"created_at":"2026-02-24T14:38:31Z",
+				"user":{"screen_name":"RayDalio","name":"Ray Dalio","id_str":"62603893"},
+				"article":{"title":"Investing In Light Of The Big Cycle","preview_text":"Preview body","rest_id":"2026295690318454784"}
+			}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		case strings.Contains(req.URL.Path, "/TweetResultByRestId"):
+			body := `{"data":{"tweetResult":{"result":{"article":{"article_results":{"result":{"plain_text":"full article body from graphql"}}}}}}}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		case strings.Contains(req.URL.Path, "/TweetDetail"):
+			body := `{"data":{"threaded_conversation_with_injections_v2":{"instructions":[]}}}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		default:
+			t.Fatalf("unexpected request: %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	s := NewSyndicationHTTPClient(client)
+	s.authToken = "auth-token"
+	s.ct0 = "ct0-token"
+
+	items, err := s.FetchByID(context.Background(), "2026305745872998803")
+	if err != nil {
+		t.Fatalf("FetchByID() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if items[0].Content != "full article body from graphql" {
+		t.Fatalf("Content = %q, want graphql article plaintext", items[0].Content)
+	}
+}
+
 func TestExtractSelfThreadIDsFromDetail(t *testing.T) {
 	payload := map[string]any{
 		"data": map[string]any{

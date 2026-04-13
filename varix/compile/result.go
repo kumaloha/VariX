@@ -105,14 +105,18 @@ type Record struct {
 }
 
 func (o Output) Validate() error {
+	return o.ValidateWithThresholds(2, 1)
+}
+
+func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 	if strings.TrimSpace(o.Summary) == "" {
 		return fmt.Errorf("summary is required")
 	}
-	if len(o.Graph.Nodes) < 2 {
-		return fmt.Errorf("graph must contain at least 2 nodes")
+	if len(o.Graph.Nodes) < minNodes {
+		return fmt.Errorf("graph must contain at least %d nodes", minNodes)
 	}
-	if len(o.Graph.Edges) < 1 {
-		return fmt.Errorf("graph must contain at least 1 edge")
+	if len(o.Graph.Edges) < minEdges {
+		return fmt.Errorf("graph must contain at least %d edges", minEdges)
 	}
 	nodeIDs := map[string]struct{}{}
 	for _, node := range o.Graph.Nodes {

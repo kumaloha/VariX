@@ -48,6 +48,10 @@ func BuildBundle(raw types.RawContent) Bundle {
 	}
 }
 
+func (b Bundle) ApproxTextLength() int {
+	return len([]rune(b.TextContext()))
+}
+
 func (b Bundle) TextContext() string {
 	sections := make([]string, 0, 5)
 	if trimmed := strings.TrimSpace(b.Content); trimmed != "" {
