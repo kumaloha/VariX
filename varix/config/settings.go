@@ -11,6 +11,7 @@ type Settings struct {
 	ConfigDir     string
 	PromptsDir    string
 	ContentDir    string
+	AssetsDir     string
 	ContentDBPath string
 	StoreBackend  string
 	PollInterval  time.Duration
@@ -22,6 +23,7 @@ func DefaultSettings(projectRoot string) Settings {
 		ConfigDir:     filepath.Join(projectRoot, "config"),
 		PromptsDir:    filepath.Join(projectRoot, "prompts"),
 		ContentDir:    filepath.Join(projectRoot, "data", "content"),
+		AssetsDir:     filepath.Join(projectRoot, "data", "assets"),
 		ContentDBPath: filepath.Join(projectRoot, "data", "content.db"),
 		StoreBackend:  "sqlite",
 		PollInterval:  15 * time.Minute,

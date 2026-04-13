@@ -353,6 +353,16 @@ func (s *SQLiteStore) init() error {
 			PRIMARY KEY(platform, external_id),
 			FOREIGN KEY(platform, external_id) REFERENCES raw_captures(platform, external_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS compiled_outputs (
+			platform TEXT NOT NULL,
+			external_id TEXT NOT NULL,
+			root_external_id TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			compiled_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(platform, external_id)
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {

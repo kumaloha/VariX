@@ -27,6 +27,9 @@ func run(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if args[0] == "ingest" {
 		return runIngestCommand(args[1:], projectRoot, stdout, stderr)
 	}
+	if args[0] == "compile" {
+		return runCompileCommand(args[1:], projectRoot, stdout, stderr)
+	}
 	if isIngestCommand(args[0]) {
 		return runIngestCommand(args, projectRoot, stdout, stderr)
 	}

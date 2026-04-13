@@ -36,10 +36,15 @@ type Enricher interface {
 	Annotate(items []types.RawContent) []types.RawContent
 }
 
+type AttachmentLocalizer interface {
+	Localize(ctx context.Context, items []types.RawContent) []types.RawContent
+}
+
 type Service struct {
 	store      Store
 	dispatcher Dispatcher
 	enricher   Enricher
+	localizer  AttachmentLocalizer
 	now        func() time.Time
 }
 
@@ -63,11 +68,16 @@ type PollWarning struct {
 	Detail  string      `json:"detail"`
 }
 
-func New(store Store, dispatcher Dispatcher, enricher Enricher) *Service {
+func New(store Store, dispatcher Dispatcher, enricher Enricher, localizer ...AttachmentLocalizer) *Service {
+	var attachmentLocalizer AttachmentLocalizer
+	if len(localizer) > 0 {
+		attachmentLocalizer = localizer[0]
+	}
 	return &Service{
 		store:      store,
 		dispatcher: dispatcher,
 		enricher:   enricher,
+		localizer:  attachmentLocalizer,
 		now: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -209,6 +219,7 @@ func (s *Service) FetchURL(ctx context.Context, rawURL string) ([]types.RawConte
 		return nil, err
 	}
 	items = s.hydrateReferences(ctx, items)
+	items = s.localize(ctx, items)
 	items = s.annotate(items)
 	items = s.preserveStoredProvenance(ctx, items)
 	if err := s.persistRawCaptures(ctx, items); err != nil {
@@ -308,6 +319,7 @@ func (s *Service) Poll(ctx context.Context) (types.PollReport, []types.RawConten
 				continue
 			}
 			rawItems = s.hydrateReferences(ctx, rawItems)
+			rawItems = s.localize(ctx, rawItems)
 			rawItems = s.annotate(rawItems)
 			// When a source returns empty results without error (e.g., Twitter 404/tombstone),
 			// mark the discovery identity as processed to avoid retrying permanently gone items.
@@ -420,6 +432,13 @@ func (s *Service) annotate(items []types.RawContent) []types.RawContent {
 		return items
 	}
 	return s.enricher.Annotate(items)
+}
+
+func (s *Service) localize(ctx context.Context, items []types.RawContent) []types.RawContent {
+	if s.localizer == nil {
+		return items
+	}
+	return s.localizer.Localize(ctx, items)
 }
 
 func (s *Service) hydrateReferences(ctx context.Context, items []types.RawContent) []types.RawContent {

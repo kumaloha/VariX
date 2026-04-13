@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kumaloha/VariX/varix/config"
+	"github.com/kumaloha/VariX/varix/ingest/assets"
 	"github.com/kumaloha/VariX/varix/ingest/dispatcher"
 	"github.com/kumaloha/VariX/varix/ingest/polling"
 	"github.com/kumaloha/VariX/varix/ingest/provenance"
@@ -80,7 +81,7 @@ func BuildApp(projectRoot string) (*App, error) {
 
 	return &App{
 		Settings:   settings,
-		Polling:    polling.New(store, dispatch, provenance.Enricher{}),
+		Polling:    polling.New(store, dispatch, provenance.Enricher{}, assets.New(settings.AssetsDir, httpClient)),
 		Provenance: provenance.NewService(store, provenance.NewRuleFinderWithResolver(resolver), provenance.DeterministicJudge{}),
 		Dispatcher: dispatch,
 	}, nil

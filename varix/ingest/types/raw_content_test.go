@@ -95,8 +95,13 @@ func TestRawContent_QuotesAndAttachmentsJSONRoundTrip(t *testing.T) {
 		},
 		Attachments: []Attachment{
 			{
-				Type: "photo",
-				URL:  "https://cdn.example.com/img.jpg",
+				Type:           "photo",
+				URL:            "https://cdn.example.com/img.jpg",
+				StoredPath:     "/tmp/assets/img.jpg",
+				SHA256:         "abc123",
+				MIMEType:       "image/jpeg",
+				ByteSize:       123,
+				DownloadStatus: "stored",
 			},
 			{
 				Type:       "video",
@@ -144,6 +149,12 @@ func TestRawContent_QuotesAndAttachmentsJSONRoundTrip(t *testing.T) {
 	}
 	if decoded.Attachments[0].Type != "photo" {
 		t.Errorf("Attachments[0].Type = %q, want %q", decoded.Attachments[0].Type, "photo")
+	}
+	if decoded.Attachments[0].StoredPath != "/tmp/assets/img.jpg" {
+		t.Errorf("Attachments[0].StoredPath = %q", decoded.Attachments[0].StoredPath)
+	}
+	if decoded.Attachments[0].SHA256 != "abc123" {
+		t.Errorf("Attachments[0].SHA256 = %q", decoded.Attachments[0].SHA256)
 	}
 	if decoded.Attachments[1].Transcript != "hello world" {
 		t.Errorf("Attachments[1].Transcript = %q, want %q", decoded.Attachments[1].Transcript, "hello world")

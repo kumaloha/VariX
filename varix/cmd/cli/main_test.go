@@ -101,3 +101,14 @@ func TestRunIngestFetchRequiresURL(t *testing.T) {
 		t.Fatalf("stderr = %q, want usage", stderr.String())
 	}
 }
+
+func TestRunCompileRequiresURL(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "run"}, "/tmp/project", &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run() code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "usage: varix compile run") {
+		t.Fatalf("stderr = %q, want usage", stderr.String())
+	}
+}

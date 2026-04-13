@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
 
@@ -185,5 +186,54 @@ func TestSQLiteStore_RecordPollReportPersistsRunAndTargets(t *testing.T) {
 	}
 	if targetCount != 2 {
 		t.Fatalf("poll_target_runs count = %d, want 2", targetCount)
+	}
+}
+
+func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "twitter:123",
+		Source:         "twitter",
+		ExternalID:     "123",
+		RootExternalID: "100",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary text",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "fact"},
+					{ID: "n2", Kind: compile.NodeConclusion, Text: "conclusion"},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n2", Kind: compile.EdgePositive},
+				},
+			},
+			Topics:     []string{"topic-a"},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Now().UTC(),
+	}
+
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+	got, err := store.GetCompiledOutput(context.Background(), "twitter", "123")
+	if err != nil {
+		t.Fatalf("GetCompiledOutput() error = %v", err)
+	}
+	if got.Model != "qwen3.6-plus" {
+		t.Fatalf("Model = %q", got.Model)
+	}
+	if got.Output.Summary != "summary text" {
+		t.Fatalf("Summary = %q", got.Output.Summary)
+	}
+	if got.RootExternalID != "100" {
+		t.Fatalf("RootExternalID = %q", got.RootExternalID)
 	}
 }

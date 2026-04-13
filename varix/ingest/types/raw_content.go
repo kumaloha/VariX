@@ -104,6 +104,14 @@ type ThreadSegment struct {
 type Attachment struct {
 	Type                  string                 `json:"type"`
 	URL                   string                 `json:"url"`
+	StoredPath            string                 `json:"stored_path,omitempty"`
+	SHA256                string                 `json:"sha256,omitempty"`
+	MIMEType              string                 `json:"mime_type,omitempty"`
+	ByteSize              int64                  `json:"byte_size,omitempty"`
+	ImageWidth            int                    `json:"image_width,omitempty"`
+	ImageHeight           int                    `json:"image_height,omitempty"`
+	DownloadStatus        string                 `json:"download_status,omitempty"`
+	DownloadError         string                 `json:"download_error,omitempty"`
 	PosterURL             string                 `json:"poster_url,omitempty"`
 	Transcript            string                 `json:"transcript,omitempty"`
 	Method                string                 `json:"method,omitempty"`
