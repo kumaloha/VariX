@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kumaloha/VariX/varix/bootstrap"
+	c "github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/ingest/dispatcher"
 	"github.com/kumaloha/VariX/varix/ingest/types"
+	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
 type fakeItemSource struct {
@@ -110,5 +113,95 @@ func TestRunCompileRequiresURL(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "usage: varix compile run") {
 		t.Fatalf("stderr = %q, want usage", stderr.String())
+	}
+}
+
+type fakeCompileClient struct {
+	record c.Record
+	err    error
+}
+
+func (f fakeCompileClient) Compile(_ context.Context, _ c.Bundle) (c.Record, error) {
+	return f.record, f.err
+}
+
+func TestRunCompileWritesCompiledRecordJSON(t *testing.T) {
+	prevBuildApp := buildApp
+	prevBuildCompileClient := buildCompileClient
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		buildCompileClient = prevBuildCompileClient
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		src := fakeItemSource{
+			items: []types.RawContent{{
+				Source:     "weibo",
+				ExternalID: "QAu4U9USk",
+				Content:    "hello",
+				AuthorName: "Alice",
+				URL:        "https://weibo.com/1182426800/QAu4U9USk",
+			}},
+		}
+		app := &bootstrap.App{
+			Dispatcher: dispatcher.New(
+				func(raw string) (types.ParsedURL, error) {
+					return types.ParsedURL{
+						Platform:     types.PlatformWeb,
+						ContentType:  types.ContentTypePost,
+						PlatformID:   "id-1",
+						CanonicalURL: raw,
+					}, nil
+				},
+				[]dispatcher.ItemSource{src},
+				nil,
+				nil,
+			),
+		}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+
+	buildCompileClient = func(projectRoot string) compileClient {
+		return fakeCompileClient{
+			record: c.Record{
+				UnitID:         "weibo:QAu4U9USk",
+				Source:         "weibo",
+				ExternalID:     "QAu4U9USk",
+				RootExternalID: "QAu4U9USk",
+				Model:          c.Qwen36PlusModel,
+				Output: c.Output{
+					Summary: "一句话",
+					Graph: c.ReasoningGraph{
+						Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+						Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+					},
+				},
+				CompiledAt: time.Now().UTC(),
+			},
+		}
+	}
+
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		return contentstore.NewSQLiteStore(path)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "run", "https://example.com/post"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	var got c.Record
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(stdout) error = %v", err)
+	}
+	if got.Output.Summary != "一句话" {
+		t.Fatalf("Summary = %q", got.Output.Summary)
 	}
 }

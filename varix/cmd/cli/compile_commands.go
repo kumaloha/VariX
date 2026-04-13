@@ -13,6 +13,18 @@ import (
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
+type compileClient interface {
+	Compile(ctx context.Context, bundle c.Bundle) (c.Record, error)
+}
+
+var buildCompileClient = func(projectRoot string) compileClient {
+	return c.NewClientFromConfig(projectRoot, nil)
+}
+
+var openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+	return contentstore.NewSQLiteStore(path)
+}
+
 func runCompileCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "run" {
 		fmt.Fprintln(stderr, "usage: varix compile run <url>")
@@ -39,7 +51,7 @@ func runCompileCommand(args []string, projectRoot string, stdout, stderr io.Writ
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	client := c.NewClientFromConfig(projectRoot, nil)
+	client := buildCompileClient(projectRoot)
 	if client == nil {
 		fmt.Fprintln(stderr, "compile client config missing")
 		return 1
@@ -48,7 +60,7 @@ func runCompileCommand(args []string, projectRoot string, stdout, stderr io.Writ
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	items, err := app.Polling.FetchURL(ctx, *rawURL)
+	items, err := fetchURLItems(ctx, app, *rawURL)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -65,7 +77,7 @@ func runCompileCommand(args []string, projectRoot string, stdout, stderr io.Writ
 		return 1
 	}
 
-	store, err := contentstore.NewSQLiteStore(app.Settings.ContentDBPath)
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
