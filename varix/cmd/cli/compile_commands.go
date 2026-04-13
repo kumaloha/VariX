@@ -10,6 +10,7 @@ import (
 	"time"
 
 	c "github.com/kumaloha/VariX/varix/compile"
+	"github.com/kumaloha/VariX/varix/ingest/types"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
@@ -46,6 +47,8 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	fs := flag.NewFlagSet("compile run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	rawURL := fs.String("url", "", "content url")
+	platform := fs.String("platform", "", "content platform")
+	externalID := fs.String("id", "", "content external id")
 	timeout := fs.Duration("timeout", 10*time.Minute, "compile timeout")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -53,8 +56,8 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	if strings.TrimSpace(*rawURL) == "" && fs.NArg() > 0 {
 		*rawURL = fs.Arg(0)
 	}
-	if strings.TrimSpace(*rawURL) == "" {
-		fmt.Fprintln(stderr, "usage: varix compile run <url>")
+	if strings.TrimSpace(*rawURL) == "" && (strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "") {
+		fmt.Fprintln(stderr, "usage: varix compile run --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
 
@@ -72,29 +75,40 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	items, err := fetchURLItems(ctx, app, *rawURL)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	if len(items) == 0 {
-		fmt.Fprintln(stderr, "no items fetched")
-		return 1
-	}
-
-	bundle := c.BuildBundle(items[0])
-	record, err := client.Compile(ctx, bundle)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-
 	store, err := openSQLiteStore(app.Settings.ContentDBPath)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	defer store.Close()
+
+	var raw types.RawContent
+	switch {
+	case strings.TrimSpace(*rawURL) != "":
+		items, err := fetchURLItems(ctx, app, *rawURL)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if len(items) == 0 {
+			fmt.Fprintln(stderr, "no items fetched")
+			return 1
+		}
+		raw = items[0]
+	default:
+		raw, err = store.GetRawCapture(ctx, *platform, *externalID)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
+
+	bundle := c.BuildBundle(raw)
+	record, err := client.Compile(ctx, bundle)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	if err := store.UpsertCompiledOutput(ctx, record); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
