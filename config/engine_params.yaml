@@ -6,5 +6,7 @@ llm:
     search: false
     temperature: 0
     thinking: false
-  orchestration: {}
+  orchestration:
+    source_match_judge:
+      model: qwen3-max
   prompt_roles: {}

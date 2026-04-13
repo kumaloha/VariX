@@ -370,3 +370,48 @@ func (c *capturingJudge) Judge(_ context.Context, _ types.RawContent, candidates
 	c.seen = append([]types.SourceCandidate(nil), candidates...)
 	return c.result, nil
 }
+
+func TestServiceRunOnce_DoesNotApplyDerivedFieldsWhenLookupNotFound(t *testing.T) {
+	raw := types.RawContent{
+		Source:     "youtube",
+		ExternalID: "abc123",
+		Content:    "translated interview",
+		Provenance: &types.Provenance{
+			BaseRelation:      types.BaseRelationUnknown,
+			EditorialLayer:    types.EditorialLayerUnknown,
+			Confidence:        types.ConfidenceLow,
+			NeedsSourceLookup: true,
+			SourceLookup:      types.SourceLookupState{Status: types.SourceLookupStatusPending},
+		},
+	}
+
+	store := &fakeStore{pending: []types.RawContent{raw}}
+	service := NewService(
+		store,
+		fakeFinder{candidates: []types.SourceCandidate{{URL: "https://www.cnbc.com/interview", Host: "www.cnbc.com", Kind: "embedded_link", Confidence: "high"}}},
+		fakeJudge{
+			state:          types.SourceLookupState{Status: types.SourceLookupStatusNotFound, ResolvedBy: "fake_judge", MatchKind: types.SourceMatchLikelyDerived},
+			baseRelation:   types.BaseRelationTranslation,
+			editorialLayer: types.EditorialLayerCommentary,
+			fidelity:       types.FidelityLikelyAdapted,
+		},
+	)
+
+	report, err := service.RunOnce(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("RunOnce() error = %v", err)
+	}
+	if report.NotFoundCount != 1 {
+		t.Fatalf("report = %#v, want not_found=1", report)
+	}
+	got := store.marked[0].raw.Provenance
+	if got.BaseRelation != types.BaseRelationUnknown {
+		t.Fatalf("BaseRelation = %q, want unknown", got.BaseRelation)
+	}
+	if got.EditorialLayer != types.EditorialLayerUnknown {
+		t.Fatalf("EditorialLayer = %q, want unknown", got.EditorialLayer)
+	}
+	if got.Fidelity != "" {
+		t.Fatalf("Fidelity = %q, want empty", got.Fidelity)
+	}
+}

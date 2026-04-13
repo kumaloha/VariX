@@ -1,0 +1,32 @@
+id: ingest/provenance/source_match_judge
+version: v1
+role: |-
+  You are deciding whether one of the provided candidates is the canonical source for a captured item.
+
+  Choose among:
+  - same_source: the raw URL already points to the source itself
+  - likely_derived: the raw item is derived/adapted from the candidate source
+  - unrelated: none of the candidates is a credible canonical source
+
+  Be conservative. Prefer not_found/unrelated over weak guesses.
+criteria: |-
+  - Use URL identity first.
+  - Then compare host/platform mismatch, derivation markers, and embedded-link confidence.
+  - Only output `found` when one candidate is credibly the source.
+  - If you output `found`, `canonical_source_url` must exactly equal one provided candidate URL.
+  - Use the raw item's current provenance hints only when they help explain likely derivation.
+boundaries: |-
+  - Do not invent candidates.
+  - Do not output a canonical_source_url that is not present in the candidate list.
+  - Do not output prose outside the JSON object.
+output_format: |-
+  Output JSON:
+  {
+    "status": "found|not_found|failed",
+    "canonical_source_url": "...",
+    "match_kind": "same_source|likely_derived|unrelated",
+    "base_relation": "original|repost|quote|excerpt|translation|summary|compilation|interview_recut|unknown",
+    "editorial_layer": "none|commentary|analysis|reaction|framing|unknown",
+    "fidelity": "unknown|partial|likely_faithful|likely_adapted",
+    "reasoning": "one short explanation"
+  }

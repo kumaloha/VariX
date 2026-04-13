@@ -71,6 +71,33 @@ func TestBuildApp_WiresProvenanceService(t *testing.T) {
 	}
 }
 
+func TestBuildApp_UsesDeterministicJudgeByDefault(t *testing.T) {
+	t.Setenv("INVARIX_STORE_BACKEND", "")
+	t.Setenv("INVARIX_CONTENT_DB_PATH", "")
+	t.Setenv("VARIX_PROVENANCE_JUDGE", "")
+	root := t.TempDir()
+
+	app, err := BuildApp(root)
+	if err != nil {
+		t.Fatalf("BuildApp() error = %v", err)
+	}
+	if app.Provenance == nil {
+		t.Fatal("Provenance service is nil")
+	}
+}
+
+func TestBuildApp_RejectsLLMJudgeWithoutAPIKey(t *testing.T) {
+	t.Setenv("INVARIX_STORE_BACKEND", "")
+	t.Setenv("INVARIX_CONTENT_DB_PATH", "")
+	t.Setenv("VARIX_PROVENANCE_JUDGE", "llm")
+	t.Setenv("DASHSCOPE_API_KEY", "")
+	root := t.TempDir()
+
+	if _, err := BuildApp(root); err == nil {
+		t.Fatal("BuildApp() error = nil, want missing API key error")
+	}
+}
+
 func TestBuildApp_RejectsDeprecatedJSONStoreBackend(t *testing.T) {
 	t.Setenv("INVARIX_STORE_BACKEND", "json")
 	t.Setenv("INVARIX_CONTENT_DB_PATH", "")

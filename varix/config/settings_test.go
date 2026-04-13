@@ -21,6 +21,9 @@ func TestDefaultSettings(t *testing.T) {
 	if got.StoreBackend != "sqlite" {
 		t.Fatalf("StoreBackend = %q, want %q", got.StoreBackend, "sqlite")
 	}
+	if got.ProvenanceJudge != "deterministic" {
+		t.Fatalf("ProvenanceJudge = %q, want deterministic", got.ProvenanceJudge)
+	}
 	if got.PollInterval != 15*time.Minute {
 		t.Fatalf("PollInterval = %v, want 15m", got.PollInterval)
 	}
@@ -30,6 +33,7 @@ func TestDefaultSettingsCapturesStoreEnvForValidation(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("INVARIX_STORE_BACKEND", "json")
 	t.Setenv("INVARIX_CONTENT_DB_PATH", filepath.Join(root, "custom", "content.db"))
+	t.Setenv("VARIX_PROVENANCE_JUDGE", "llm")
 
 	got := DefaultSettings(root)
 
@@ -38,5 +42,8 @@ func TestDefaultSettingsCapturesStoreEnvForValidation(t *testing.T) {
 	}
 	if got.ContentDBPath != filepath.Join(root, "custom", "content.db") {
 		t.Fatalf("ContentDBPath = %q", got.ContentDBPath)
+	}
+	if got.ProvenanceJudge != "llm" {
+		t.Fatalf("ProvenanceJudge = %q, want llm", got.ProvenanceJudge)
 	}
 }

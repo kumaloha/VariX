@@ -115,24 +115,20 @@ func sanitizeCandidates(raw types.RawContent, candidates []types.SourceCandidate
 }
 
 func applyMatchResult(prov *types.Provenance, result MatchResult) {
-	if prov == nil {
+	if prov == nil || result.Lookup.Status != types.SourceLookupStatusFound {
 		return
 	}
-	switch result.Lookup.MatchKind {
-	case types.SourceMatchSameSource:
+	if result.Lookup.MatchKind != types.SourceMatchLikelyDerived {
 		return
-	case types.SourceMatchLikelyDerived:
-		if result.BaseRelation != "" && result.BaseRelation != types.BaseRelationUnknown {
-			prov.BaseRelation = result.BaseRelation
-		}
-		if result.EditorialLayer != "" && result.EditorialLayer != types.EditorialLayerUnknown {
-			prov.EditorialLayer = result.EditorialLayer
-		}
-		if result.Fidelity != "" {
-			prov.Fidelity = result.Fidelity
-		}
-	case types.SourceMatchUnrelated:
-		return
+	}
+	if result.BaseRelation != "" && result.BaseRelation != types.BaseRelationUnknown {
+		prov.BaseRelation = result.BaseRelation
+	}
+	if result.EditorialLayer != "" && result.EditorialLayer != types.EditorialLayerUnknown {
+		prov.EditorialLayer = result.EditorialLayer
+	}
+	if result.Fidelity != "" {
+		prov.Fidelity = result.Fidelity
 	}
 }
 
