@@ -1,0 +1,10 @@
+llm:
+  provider: dashscope
+  api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+  default:
+    model: qwen3-max
+    search: false
+    temperature: 0
+    thinking: false
+  orchestration: {}
+  prompt_roles: {}
