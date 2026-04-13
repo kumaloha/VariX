@@ -477,3 +477,67 @@ func TestRunCompileSummaryPrintsHumanReadableOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestRunCompileSummaryReadsByURL(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		app.Dispatcher = dispatcher.New(
+			func(raw string) (types.ParsedURL, error) {
+				return types.ParsedURL{Platform: types.PlatformTwitter, PlatformID: "2026305745872998803", CanonicalURL: raw}, nil
+			},
+			[]dispatcher.ItemSource{fakeItemSource{}},
+			nil,
+			nil,
+		)
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "twitter:2026305745872998803",
+			Source:         "twitter",
+			ExternalID:     "2026305745872998803",
+			RootExternalID: "2026305745872998803",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "Dalio summary",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Topics:     []string{"macro"},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "summary", "--url", "https://x.com/RayDalio/status/2026305745872998803"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Summary: Dalio summary", "Nodes: 2", "Edges: 1", "Topics: macro", "Confidence: high"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q in %q", want, out)
+		}
+	}
+}
