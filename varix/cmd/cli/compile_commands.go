@@ -87,6 +87,14 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	var raw types.RawContent
 	switch {
 	case strings.TrimSpace(*rawURL) != "":
+		parsed, err := app.Dispatcher.ParseURL(ctx, *rawURL)
+		if err == nil && strings.TrimSpace(parsed.PlatformID) != "" {
+			existing, getErr := store.GetRawCapture(ctx, string(parsed.Platform), parsed.PlatformID)
+			if getErr == nil {
+				raw = existing
+				break
+			}
+		}
 		items, err := fetchURLItems(ctx, app, *rawURL)
 		if err != nil {
 			fmt.Fprintln(stderr, err)

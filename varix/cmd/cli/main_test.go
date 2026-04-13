@@ -31,6 +31,14 @@ func (f fakeItemSource) Fetch(context.Context, types.ParsedURL) ([]types.RawCont
 	return f.items, nil
 }
 
+type panicItemSource struct{}
+
+func (panicItemSource) Platform() types.Platform { return types.PlatformWeb }
+func (panicItemSource) Kind() types.Kind         { return types.KindNative }
+func (panicItemSource) Fetch(context.Context, types.ParsedURL) ([]types.RawContent, error) {
+	panic("fetch should not be called")
+}
+
 func TestRunIngestFetchWritesJSONToStdout(t *testing.T) {
 	prevBuildApp := buildApp
 	prevGetwd := getwd
@@ -292,6 +300,82 @@ func TestRunCompileReadsExistingRawCaptureByPlatformAndID(t *testing.T) {
 		t.Fatalf("json.Unmarshal(stdout) error = %v", err)
 	}
 	if got.ExternalID != "QAu4U9USk" {
+		t.Fatalf("ExternalID = %q", got.ExternalID)
+	}
+}
+
+func TestRunCompileURLPrefersStoredRawCapture(t *testing.T) {
+	prevBuildApp := buildApp
+	prevBuildCompileClient := buildCompileClient
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		buildCompileClient = prevBuildCompileClient
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		app.Dispatcher = dispatcher.New(
+			func(raw string) (types.ParsedURL, error) {
+				return types.ParsedURL{Platform: types.PlatformTwitter, PlatformID: "2026305745872998803", CanonicalURL: raw}, nil
+			},
+			[]dispatcher.ItemSource{panicItemSource{}},
+			nil,
+			nil,
+		)
+		return app, nil
+	}
+	buildCompileClient = func(projectRoot string) compileClient {
+		return fakeCompileClient{
+			record: c.Record{
+				UnitID:         "twitter:2026305745872998803",
+				Source:         "twitter",
+				ExternalID:     "2026305745872998803",
+				RootExternalID: "2026305745872998803",
+				Model:          c.Qwen36PlusModel,
+				Output: c.Output{
+					Summary: "Dalio summary",
+					Graph: c.ReasoningGraph{
+						Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+						Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+					},
+					Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+					Confidence: "high",
+				},
+				CompiledAt: time.Now().UTC(),
+			},
+		}
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.UpsertRawCapture(context.Background(), types.RawContent{
+			Source:     "twitter",
+			ExternalID: "2026305745872998803",
+			Content:    "stored raw body",
+			AuthorName: "Ray Dalio",
+			URL:        "https://x.com/RayDalio/status/2026305745872998803",
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "run", "--url", "https://x.com/RayDalio/status/2026305745872998803"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	var got c.Record
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(stdout) error = %v", err)
+	}
+	if got.ExternalID != "2026305745872998803" {
 		t.Fatalf("ExternalID = %q", got.ExternalID)
 	}
 }
