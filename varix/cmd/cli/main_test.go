@@ -127,6 +127,17 @@ func TestRunCompileShowRequiresLocator(t *testing.T) {
 	}
 }
 
+func TestRunCompileSummaryRequiresLocator(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "summary"}, "/tmp/project", &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run() code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "usage: varix compile summary") {
+		t.Fatalf("stderr = %q, want usage", stderr.String())
+	}
+}
+
 type fakeCompileClient struct {
 	record c.Record
 	err    error
@@ -408,5 +419,61 @@ func TestRunCompileShowReadsCompiledRecordByURL(t *testing.T) {
 	}
 	if got.Output.Summary != "Dalio summary" {
 		t.Fatalf("Summary = %q", got.Output.Summary)
+	}
+}
+
+func TestRunCompileSummaryPrintsHumanReadableOutput(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:QAu4U9USk",
+			Source:         "weibo",
+			ExternalID:     "QAu4U9USk",
+			RootExternalID: "QAu4U9USk",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Topics:     []string{"topic-a", "topic-b"},
+				Confidence: "medium",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "summary", "--platform", "weibo", "--id", "QAu4U9USk"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Summary: 一句话", "Nodes: 2", "Edges: 1", "Topics: topic-a, topic-b", "Confidence: medium"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q in %q", want, out)
+		}
 	}
 }
