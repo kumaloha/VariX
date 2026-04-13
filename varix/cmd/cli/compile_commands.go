@@ -51,6 +51,7 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	rawURL := fs.String("url", "", "content url")
 	platform := fs.String("platform", "", "content platform")
 	externalID := fs.String("id", "", "content external id")
+	force := fs.Bool("force", false, "force recompilation even if compiled output already exists")
 	timeout := fs.Duration("timeout", 10*time.Minute, "compile timeout")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -83,6 +84,33 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 		return 1
 	}
 	defer store.Close()
+
+	if !*force {
+		switch {
+		case strings.TrimSpace(*rawURL) != "":
+			if parsed, err := app.Dispatcher.ParseURL(ctx, *rawURL); err == nil && strings.TrimSpace(parsed.PlatformID) != "" {
+				if record, err := store.GetCompiledOutput(ctx, string(parsed.Platform), parsed.PlatformID); err == nil {
+					payload, marshalErr := json.MarshalIndent(record, "", "  ")
+					if marshalErr != nil {
+						fmt.Fprintln(stderr, marshalErr)
+						return 1
+					}
+					fmt.Fprintln(stdout, string(payload))
+					return 0
+				}
+			}
+		case strings.TrimSpace(*platform) != "" && strings.TrimSpace(*externalID) != "":
+			if record, err := store.GetCompiledOutput(ctx, *platform, *externalID); err == nil {
+				payload, marshalErr := json.MarshalIndent(record, "", "  ")
+				if marshalErr != nil {
+					fmt.Fprintln(stderr, marshalErr)
+					return 1
+				}
+				fmt.Fprintln(stdout, string(payload))
+				return 0
+			}
+		}
+	}
 
 	var raw types.RawContent
 	switch {

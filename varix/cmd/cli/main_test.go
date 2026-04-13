@@ -380,6 +380,175 @@ func TestRunCompileURLPrefersStoredRawCapture(t *testing.T) {
 	}
 }
 
+func TestRunCompileUsesStoredCompiledOutputUnlessForced(t *testing.T) {
+	prevBuildApp := buildApp
+	prevBuildCompileClient := buildCompileClient
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		buildCompileClient = prevBuildCompileClient
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		app.Dispatcher = dispatcher.New(
+			func(raw string) (types.ParsedURL, error) {
+				return types.ParsedURL{Platform: types.PlatformTwitter, PlatformID: "2026305745872998803", CanonicalURL: raw}, nil
+			},
+			[]dispatcher.ItemSource{panicItemSource{}},
+			nil,
+			nil,
+		)
+		return app, nil
+	}
+	buildCompileClient = func(projectRoot string) compileClient {
+		return fakeCompileClient{
+			record: c.Record{
+				UnitID:         "twitter:2026305745872998803",
+				Source:         "twitter",
+				ExternalID:     "2026305745872998803",
+				RootExternalID: "2026305745872998803",
+				Model:          c.Qwen36PlusModel,
+				Output: c.Output{
+					Summary: "new summary should not be used",
+					Graph: c.ReasoningGraph{
+						Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+						Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+					},
+					Details: c.HiddenDetails{Caveats: []string{"说明"}},
+				},
+				CompiledAt: time.Now().UTC(),
+			},
+		}
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), c.Record{
+			UnitID:         "twitter:2026305745872998803",
+			Source:         "twitter",
+			ExternalID:     "2026305745872998803",
+			RootExternalID: "2026305745872998803",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "cached summary",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "run", "--platform", "twitter", "--id", "2026305745872998803"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	var got c.Record
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(stdout) error = %v", err)
+	}
+	if got.Output.Summary != "cached summary" {
+		t.Fatalf("Summary = %q, want cached summary", got.Output.Summary)
+	}
+}
+
+func TestRunCompileForceBypassesStoredCompiledOutput(t *testing.T) {
+	prevBuildApp := buildApp
+	prevBuildCompileClient := buildCompileClient
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		buildCompileClient = prevBuildCompileClient
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	buildCompileClient = func(projectRoot string) compileClient {
+		return fakeCompileClient{
+			record: c.Record{
+				UnitID:         "weibo:QAu4U9USk",
+				Source:         "weibo",
+				ExternalID:     "QAu4U9USk",
+				RootExternalID: "QAu4U9USk",
+				Model:          c.Qwen36PlusModel,
+				Output: c.Output{
+					Summary: "forced summary",
+					Graph: c.ReasoningGraph{
+						Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+						Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+					},
+					Details: c.HiddenDetails{Caveats: []string{"说明"}},
+				},
+				CompiledAt: time.Now().UTC(),
+			},
+		}
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.UpsertRawCapture(context.Background(), types.RawContent{
+			Source:     "weibo",
+			ExternalID: "QAu4U9USk",
+			Content:    "hello",
+			AuthorName: "Alice",
+			URL:        "https://weibo.com/1182426800/QAu4U9USk",
+		}); err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), c.Record{
+			UnitID:         "weibo:QAu4U9USk",
+			Source:         "weibo",
+			ExternalID:     "QAu4U9USk",
+			RootExternalID: "QAu4U9USk",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "cached summary",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "run", "--force", "--platform", "weibo", "--id", "QAu4U9USk"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	var got c.Record
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(stdout) error = %v", err)
+	}
+	if got.Output.Summary != "forced summary" {
+		t.Fatalf("Summary = %q, want forced summary", got.Output.Summary)
+	}
+}
+
 func TestRunCompileShowReadsCompiledRecordByPlatformAndID(t *testing.T) {
 	prevBuildApp := buildApp
 	prevOpenSQLiteStore := openSQLiteStore
