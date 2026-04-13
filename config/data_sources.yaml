@@ -1,0 +1,72 @@
+# Data source configuration for DataCollector.
+# Each source: adapter name, frequency (hours), tickers to fetch.
+# Ref: tech-spec §2.2.
+
+sources:
+  - adapter: fred
+    frequency_hours: 24
+    tickers:
+      # Household debt
+      - TDSP
+      - MDSP
+      - CDSP
+      # Corporate
+      - NCBDBIQ027S
+      - CP
+      # Central bank
+      - WALCL
+      - T10Y2Y
+      - SOFR
+      - FEDFUNDS
+      # Fiscal
+      - GFDEGDQ188S
+      - A091RC1Q027SBEA
+      - FGRECPT
+      # Inflation
+      - PCEPILFE
+      - CPILFESL
+      # Credit
+      - QUSPAM770A
+      # Employment
+      - LNS12500000
+      - LNS12600000
+      # GDP
+      - GDP
+      # Credit spreads
+      - BAMLH0A0HYM2
+      - BAMLC0A4CBBB
+
+  - adapter: tic
+    frequency_hours: 720  # monthly
+    tickers:
+      - tic_japan
+      - tic_china
+      - tic_eurozone
+      - tic_total
+
+  - adapter: imf_cofer
+    frequency_hours: 2160  # quarterly
+    tickers:
+      - cofer_usd_share
+
+  - adapter: nyfed
+    frequency_hours: 2160  # quarterly
+    tickers:
+      - delinquency_mortgage
+      - delinquency_auto
+      - delinquency_credit_card
+      - delinquency_student_loan
+
+  - adapter: market
+    frequency_hours: 4
+    tickers: []  # populated dynamically from CompanyRegistry
+
+  - adapter: bdc_xbrl
+    frequency_hours: 2160  # quarterly (follows 10-Q filings)
+    tickers:
+      - HTGC
+      - ARCC
+      - MAIN
+      - GBDC
+      - ORCC
+      - BXSL
