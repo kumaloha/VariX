@@ -17,6 +17,7 @@ func TestOutputValidateAcceptsSupportedGraphSchema(t *testing.T) {
 				{From: "n1", To: "n2", Kind: EdgePositive},
 			},
 		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
 	}
 	if err := out.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
@@ -35,6 +36,7 @@ func TestOutputValidateRejectsUnsupportedEdgeType(t *testing.T) {
 				{From: "n1", To: "n2", Kind: EdgeKind("支撑")},
 			},
 		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
 	}
 	if err := out.Validate(); err == nil {
 		t.Fatal("Validate() error = nil, want unsupported edge kind rejection")
@@ -52,9 +54,28 @@ func TestOutputValidateRejectsUnknownNodeReference(t *testing.T) {
 				{From: "n1", To: "n2", Kind: EdgePositive},
 			},
 		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
 	}
 	if err := out.Validate(); err == nil {
 		t.Fatal("Validate() error = nil, want unknown node rejection")
+	}
+}
+
+func TestOutputValidateRejectsEmptyDetails(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Text: "事实A"},
+				{ID: "n2", Kind: NodeConclusion, Text: "结论B"},
+			},
+			Edges: []GraphEdge{
+				{From: "n1", To: "n2", Kind: EdgePositive},
+			},
+		},
+	}
+	if err := out.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want empty details rejection")
 	}
 }
 

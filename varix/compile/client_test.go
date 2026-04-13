@@ -117,3 +117,37 @@ func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 		t.Fatalf("graph = %#v", record.Output.Graph)
 	}
 }
+
+func TestClientCompileRetriesWhenDetailsEmpty(t *testing.T) {
+	call := 0
+	client := NewClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		call++
+		var body string
+		if call == 1 {
+			body = `{"choices":[{"message":{"content":"{\"summary\":\"一句话\",\"graph\":{\"nodes\":[{\"id\":\"n1\",\"kind\":\"事实\",\"text\":\"事实A\"},{\"id\":\"n2\",\"kind\":\"结论\",\"text\":\"结论B\"}],\"edges\":[{\"from\":\"n1\",\"to\":\"n2\",\"kind\":\"推出\"}]},\"details\":{},\"topics\":[\"topic\"],\"confidence\":\"medium\"}"}}]}`
+		} else {
+			body = `{"choices":[{"message":{"content":"{\"summary\":\"一句话\",\"graph\":{\"nodes\":[{\"id\":\"n1\",\"kind\":\"事实\",\"text\":\"事实A\"},{\"id\":\"n2\",\"kind\":\"结论\",\"text\":\"结论B\"}],\"edges\":[{\"from\":\"n1\",\"to\":\"n2\",\"kind\":\"推出\"}]},\"details\":{\"caveats\":[\"待确认\"]},\"topics\":[\"topic\"],\"confidence\":\"medium\"}"}}]}`
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})}, "https://dashscope.example/v1", "test-key", Qwen36PlusModel)
+
+	record, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "twitter:123",
+		Source:     "twitter",
+		ExternalID: "123",
+		Content:    "root body",
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if call != 2 {
+		t.Fatalf("call count = %d, want 2", call)
+	}
+	if len(record.Output.Details.Caveats) != 1 {
+		t.Fatalf("details = %#v", record.Output.Details)
+	}
+}

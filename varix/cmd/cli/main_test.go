@@ -190,6 +190,7 @@ func TestRunCompileWritesCompiledRecordJSON(t *testing.T) {
 						Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
 						Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 					},
+					Details: c.HiddenDetails{Caveats: []string{"说明"}},
 				},
 				CompiledAt: time.Now().UTC(),
 			},
@@ -247,6 +248,7 @@ func TestRunCompileReadsExistingRawCaptureByPlatformAndID(t *testing.T) {
 						Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
 						Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 					},
+					Details: c.HiddenDetails{Caveats: []string{"说明"}},
 				},
 				CompiledAt: time.Now().UTC(),
 			},
@@ -322,6 +324,7 @@ func TestRunCompileShowReadsCompiledRecordByPlatformAndID(t *testing.T) {
 					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
 			},
 			CompiledAt: time.Now().UTC(),
 		}
@@ -384,6 +387,7 @@ func TestRunCompileShowReadsCompiledRecordByURL(t *testing.T) {
 					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
 			},
 			CompiledAt: time.Now().UTC(),
 		}

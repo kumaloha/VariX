@@ -86,6 +86,14 @@ type HiddenDetails struct {
 	Items               []map[string]any `json:"items,omitempty"`
 }
 
+func (d HiddenDetails) IsEmpty() bool {
+	return len(d.QuoteHighlights) == 0 &&
+		len(d.ReferenceHighlights) == 0 &&
+		len(d.AttachmentNotes) == 0 &&
+		len(d.Caveats) == 0 &&
+		len(d.Items) == 0
+}
+
 type Output struct {
 	Summary    string         `json:"summary,omitempty"`
 	Graph      ReasoningGraph `json:"graph,omitempty"`
@@ -117,6 +125,9 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 	}
 	if len(o.Graph.Edges) < minEdges {
 		return fmt.Errorf("graph must contain at least %d edges", minEdges)
+	}
+	if o.Details.IsEmpty() {
+		return fmt.Errorf("details must not be empty")
 	}
 	nodeIDs := map[string]struct{}{}
 	for _, node := range o.Graph.Nodes {

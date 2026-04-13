@@ -214,6 +214,7 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 					{From: "n1", To: "n2", Kind: compile.EdgePositive},
 				},
 			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
 			Topics:     []string{"topic-a"},
 			Confidence: "medium",
 		},
