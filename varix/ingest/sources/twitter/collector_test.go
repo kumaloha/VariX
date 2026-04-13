@@ -117,6 +117,274 @@ func TestParseSyndicationDataIgnoresUnsupportedArticleShellAndFallsBackToPreview
 	}
 }
 
+func TestExtractGraphQLNoteText(t *testing.T) {
+	payload := map[string]any{
+		"data": map[string]any{
+			"tweetResult": map[string]any{
+				"result": map[string]any{
+					"note_tweet": map[string]any{
+						"note_tweet_results": map[string]any{
+							"result": map[string]any{
+								"text": "full longform body",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if got := extractGraphQLNoteText(payload); got != "full longform body" {
+		t.Fatalf("extractGraphQLNoteText() = %q, want full longform body", got)
+	}
+}
+
+func TestSyndicationHTTPClientFetchByID_HydratesNoteTweetTextFromGraphQL(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case strings.Contains(req.URL.Host, "cdn.syndication.twimg.com"):
+			body := `{
+				"id_str":"2043148422224785477",
+				"text":"short text",
+				"created_at":"2026-04-12T02:05:18Z",
+				"user":{"screen_name":"qinbafrank","name":"qinbafrank","id_str":"1338075202798809089"},
+				"note_tweet":{"id":"Tm90ZVR3ZWV0UmVzdWx0czoyMDQzMTQ4NDIyMDg2MzA3ODQw"}
+			}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		case strings.Contains(req.URL.Path, "/TweetResultByRestId"):
+			body := `{
+				"data":{"tweetResult":{"result":{"note_tweet":{"note_tweet_results":{"result":{"text":"full longform body with extra paragraph"}}}}}}
+			}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		case strings.Contains(req.URL.Path, "/TweetDetail"):
+			body := `{"data":{"threaded_conversation_with_injections_v2":{"instructions":[]}}}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		default:
+			t.Fatalf("unexpected request: %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	s := NewSyndicationHTTPClient(client)
+	s.authToken = "auth-token"
+	s.ct0 = "ct0-token"
+
+	items, err := s.FetchByID(context.Background(), "2043148422224785477")
+	if err != nil {
+		t.Fatalf("FetchByID() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if !strings.Contains(items[0].Content, "full longform body with extra paragraph") {
+		t.Fatalf("Content = %q, want hydrated longform text", items[0].Content)
+	}
+}
+
+func TestSyndicationHTTPClientFetchByID_HydratesQuotedTweetLongformTextFromGraphQL(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case strings.Contains(req.URL.Host, "cdn.syndication.twimg.com"):
+			body := `{
+				"id_str":"2043148422224785477",
+				"text":"short root text",
+				"created_at":"2026-04-12T02:05:18Z",
+				"user":{"screen_name":"qinbafrank","name":"qinbafrank","id_str":"1338075202798809089"},
+				"quoted_tweet":{
+					"id_str":"2042807337417871695",
+					"text":"short quoted text",
+					"created_at":"2026-04-11T03:29:57Z",
+					"user":{"screen_name":"qinbafrank","name":"qinbafrank","id_str":"1338075202798809089"}
+				}
+			}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		case strings.Contains(req.URL.Path, "/TweetResultByRestId") && strings.Contains(req.URL.RawQuery, "2042807337417871695"):
+			body := `{
+				"data":{"tweetResult":{"result":{"note_tweet":{"note_tweet_results":{"result":{"text":"full quoted longform body"}}}}}}
+			}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		case strings.Contains(req.URL.Path, "/TweetResultByRestId"):
+			body := `{"data":{"tweetResult":{"result":{}}}}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		case strings.Contains(req.URL.Path, "/TweetDetail"):
+			body := `{"data":{"threaded_conversation_with_injections_v2":{"instructions":[]}}}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		default:
+			t.Fatalf("unexpected request: %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	s := NewSyndicationHTTPClient(client)
+	s.authToken = "auth-token"
+	s.ct0 = "ct0-token"
+
+	items, err := s.FetchByID(context.Background(), "2043148422224785477")
+	if err != nil {
+		t.Fatalf("FetchByID() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if len(items[0].Quotes) != 1 {
+		t.Fatalf("len(Quotes) = %d, want 1", len(items[0].Quotes))
+	}
+	if items[0].Quotes[0].Content != "full quoted longform body" {
+		t.Fatalf("Quote.Content = %q, want hydrated quoted longform body", items[0].Quotes[0].Content)
+	}
+}
+
+func TestExtractSelfThreadIDsFromDetail(t *testing.T) {
+	payload := map[string]any{
+		"data": map[string]any{
+			"threaded_conversation_with_injections_v2": map[string]any{
+				"instructions": []any{
+					map[string]any{"entry": map[string]any{"content": map[string]any{"itemContent": map[string]any{"tweet_results": map[string]any{"result": map[string]any{
+						"__typename": "Tweet",
+						"rest_id":    "1",
+						"legacy": map[string]any{
+							"user_id_str":         "u1",
+							"conversation_id_str": "1",
+						},
+					}}}}}},
+					map[string]any{"entry": map[string]any{"content": map[string]any{"itemContent": map[string]any{"tweet_results": map[string]any{"result": map[string]any{
+						"__typename": "Tweet",
+						"rest_id":    "2",
+						"legacy": map[string]any{
+							"user_id_str":               "u1",
+							"conversation_id_str":       "1",
+							"in_reply_to_status_id_str": "1",
+						},
+					}}}}}},
+					map[string]any{"entry": map[string]any{"content": map[string]any{"itemContent": map[string]any{"tweet_results": map[string]any{"result": map[string]any{
+						"__typename": "Tweet",
+						"rest_id":    "x",
+						"legacy": map[string]any{
+							"user_id_str":         "u2",
+							"conversation_id_str": "1",
+						},
+					}}}}}},
+				},
+			},
+		},
+	}
+	got := extractSelfThreadIDsFromDetail(payload, "1")
+	if len(got) != 2 || got[0] != "1" || got[1] != "2" {
+		t.Fatalf("extractSelfThreadIDsFromDetail() = %#v, want [1 2]", got)
+	}
+}
+
+func TestExtractSelfThreadIDsFromDetail_SkipsAuthorReplyBranch(t *testing.T) {
+	payload := map[string]any{
+		"data": map[string]any{
+			"threaded_conversation_with_injections_v2": map[string]any{
+				"instructions": []any{
+					map[string]any{"entry": map[string]any{"content": map[string]any{"itemContent": map[string]any{"tweet_results": map[string]any{"result": map[string]any{
+						"__typename": "Tweet", "rest_id": "1", "legacy": map[string]any{"user_id_str": "u1", "conversation_id_str": "1"},
+					}}}}}},
+					map[string]any{"entry": map[string]any{"content": map[string]any{"itemContent": map[string]any{"tweet_results": map[string]any{"result": map[string]any{
+						"__typename": "Tweet", "rest_id": "2", "legacy": map[string]any{"user_id_str": "u1", "conversation_id_str": "1", "in_reply_to_status_id_str": "1"},
+					}}}}}},
+					map[string]any{"entry": map[string]any{"content": map[string]any{"itemContent": map[string]any{"tweet_results": map[string]any{"result": map[string]any{
+						"__typename": "Tweet", "rest_id": "3", "legacy": map[string]any{"user_id_str": "u1", "conversation_id_str": "1", "in_reply_to_status_id_str": "2"},
+					}}}}}},
+					map[string]any{"entry": map[string]any{"content": map[string]any{"itemContent": map[string]any{"tweet_results": map[string]any{"result": map[string]any{
+						"__typename": "Tweet", "rest_id": "9", "legacy": map[string]any{"user_id_str": "u1", "conversation_id_str": "1", "in_reply_to_status_id_str": "x-other-user-reply"},
+					}}}}}},
+				},
+			},
+		},
+	}
+	got := extractSelfThreadIDsFromDetail(payload, "1")
+	if len(got) != 3 || got[0] != "1" || got[1] != "2" || got[2] != "3" {
+		t.Fatalf("extractSelfThreadIDsFromDetail() = %#v, want [1 2 3]", got)
+	}
+}
+
+func TestHydrateThreadMergesOrderedSegments(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case strings.Contains(req.URL.Path, "/TweetDetail"):
+			body := `{"data":{"threaded_conversation_with_injections_v2":{"instructions":[
+				{"entry":{"content":{"itemContent":{"tweet_results":{"result":{"__typename":"Tweet","rest_id":"1","legacy":{"user_id_str":"u1","conversation_id_str":"1"}}}}}}},
+				{"entry":{"content":{"itemContent":{"tweet_results":{"result":{"__typename":"Tweet","rest_id":"2","legacy":{"user_id_str":"u1","conversation_id_str":"1","in_reply_to_status_id_str":"1"}}}}}}}
+			]}}}`
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		case strings.Contains(req.URL.Host, "cdn.syndication.twimg.com") && strings.Contains(req.URL.RawQuery, "id=2"):
+			body := `{"id_str":"2","text":"segment two","created_at":"2026-04-12T02:06:18Z","user":{"screen_name":"alice","name":"Alice","id_str":"u1"},"self_thread":{"id_str":"1"},"mediaDetails":[{"type":"photo","media_url_https":"https://img.test/seg2.jpg"}]}`
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		default:
+			t.Fatalf("unexpected request: %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	s := NewSyndicationHTTPClient(client)
+	s.authToken = "auth"
+	s.ct0 = "ct0"
+
+	item := &types.RawContent{
+		Source:     "twitter",
+		ExternalID: "1",
+		Content:    "segment one\n\n[附件#1 图片]",
+		AuthorName: "Alice",
+		AuthorID:   "u1",
+		URL:        "https://x.com/alice/status/1",
+		Metadata:   types.RawMetadata{Thread: &types.ThreadContext{IsSelfThread: true}},
+		Attachments: []types.Attachment{{
+			Type: "image",
+			URL:  "https://img.test/root.jpg",
+		}},
+	}
+
+	s.hydrateThread(context.Background(), item)
+	if item.Content != "segment one\n\n[附件#1 图片]\n\nsegment two\n\n[附件#2 图片]" {
+		t.Fatalf("Content = %q", item.Content)
+	}
+	if len(item.ThreadSegments) != 2 {
+		t.Fatalf("len(ThreadSegments) = %d, want 2", len(item.ThreadSegments))
+	}
+	if len(item.Attachments) != 2 {
+		t.Fatalf("len(Attachments) = %d, want 2", len(item.Attachments))
+	}
+	if item.ThreadSegments[1].ExternalID != "2" {
+		t.Fatalf("ThreadSegments[1] = %#v", item.ThreadSegments[1])
+	}
+	if item.Metadata.Thread.RootExternalID != "1" {
+		t.Fatalf("RootExternalID = %q", item.Metadata.Thread.RootExternalID)
+	}
+	if item.Metadata.Thread.ThreadPosition == nil || *item.Metadata.Thread.ThreadPosition != 1 {
+		t.Fatalf("ThreadPosition = %#v", item.Metadata.Thread.ThreadPosition)
+	}
+}
+
 func TestParseSyndicationDataTrimsWhitespaceUserNamesBeforeFallback(t *testing.T) {
 	raw := syndicationPayload{
 		IDStr:     "123",
@@ -337,14 +605,14 @@ func TestParseSyndicationData_ExtractsBodyPostReferences(t *testing.T) {
 	if rc.References[1].Platform != "weibo" || rc.References[1].ExternalID != "AbCdEf" {
 		t.Fatalf("References[1] = %#v", rc.References[1])
 	}
-	if !strings.Contains(rc.Content, "[参考#1 X帖子]") || !strings.Contains(rc.Content, "[参考#2 微博]") {
+	if !strings.Contains(rc.Content, "看这里 [参考#1 X帖子] 还有这条 [参考#2 微博]") {
 		t.Fatalf("Content = %q, want reference placeholders", rc.Content)
 	}
 }
 
 func TestResolveReferences_ResolvesShortLinksToPostReferences(t *testing.T) {
 	raw := types.RawContent{
-		Content: "main\n\n[参考#1 链接]",
+		Content: "main [参考#1 链接]",
 		References: []types.Reference{{
 			Kind: "link",
 			URL:  "https://t.co/abc123",
@@ -361,7 +629,7 @@ func TestResolveReferences_ResolvesShortLinksToPostReferences(t *testing.T) {
 	if raw.References[0].Platform != "twitter" || raw.References[0].ExternalID != "12345" {
 		t.Fatalf("References[0] = %#v", raw.References[0])
 	}
-	if !strings.Contains(raw.Content, "[参考#1 X帖子]") {
+	if raw.Content != "main [参考#1 X帖子]" {
 		t.Fatalf("Content = %q, want resolved X placeholder", raw.Content)
 	}
 }

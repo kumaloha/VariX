@@ -2,11 +2,13 @@ package twitter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +24,11 @@ const syndicationEndpoint = "https://cdn.syndication.twimg.com/tweet-result"
 var (
 	bodyTwitterPost = regexp.MustCompile(`(?:twitter\.com|x\.com)/[\w]+/status/(\d+)`)
 	bodyWeiboPost   = regexp.MustCompile(`weibo\.com/\d+/(\w+)|m\.weibo\.cn/(?:status|detail)/(\w+)`)
+)
+
+const (
+	webBearerToken             = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+	tweetResultByRestIDQueryID = "tmhPpO5sDermwYmq3h034A"
 )
 
 // --- Typed payload structs for syndication JSON decoding ---
@@ -235,7 +242,8 @@ func ParseSyndicationData(data syndicationPayload, fullArticleContent string) (t
 		return types.RawContent{}, err
 	}
 
-	finalContent := assemble.AssembleStructuredContent(body, quotes, references, attachments)
+	body = inlineReferencePlaceholders(body, references)
+	finalContent := assemble.AssembleContent(body, appendQuoteAndAttachmentPlaceholders(quotes, attachments))
 
 	rawMeta := types.RawMetadata{Twitter: metadata}
 
@@ -317,6 +325,29 @@ func detectPostReference(rawURL string) (platform string, externalID string, lab
 	return "", "", "", false
 }
 
+func inlineReferencePlaceholders(body string, references []types.Reference) string {
+	out := body
+	for i, ref := range references {
+		rawURL := strings.TrimSpace(ref.URL)
+		if rawURL == "" {
+			continue
+		}
+		out = strings.ReplaceAll(out, rawURL, assemble.FormatReferencePlaceholder(i+1, ref))
+	}
+	return out
+}
+
+func appendQuoteAndAttachmentPlaceholders(quotes []types.Quote, attachments []types.Attachment) []string {
+	blocks := make([]string, 0, len(quotes)+len(attachments))
+	for i, quote := range quotes {
+		blocks = append(blocks, assemble.FormatQuotePlaceholder(i+1, quote))
+	}
+	for i, attachment := range attachments {
+		blocks = append(blocks, assemble.FormatAttachmentPlaceholder(i+1, attachment))
+	}
+	return blocks
+}
+
 func firstNonEmptyString(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -356,8 +387,10 @@ func parseTwitterTime(raw string) (time.Time, error) {
 }
 
 type SyndicationHTTPClient struct {
-	client  *http.Client
-	resolve func(ctx context.Context, raw string) (string, error)
+	client    *http.Client
+	resolve   func(ctx context.Context, raw string) (string, error)
+	authToken string
+	ct0       string
 }
 
 func NewSyndicationHTTPClient(client *http.Client) *SyndicationHTTPClient {
@@ -371,6 +404,18 @@ func NewSyndicationHTTPClient(client *http.Client) *SyndicationHTTPClient {
 }
 
 func (c *SyndicationHTTPClient) FetchByID(ctx context.Context, tweetID string) ([]types.RawContent, error) {
+	item, err := c.fetchItemByID(ctx, tweetID)
+	if err != nil || item == nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+	c.hydrateThread(ctx, item)
+	return []types.RawContent{*item}, nil
+}
+
+func (c *SyndicationHTTPClient) fetchItemByID(ctx context.Context, tweetID string) (*types.RawContent, error) {
 	endpoint, err := url.Parse(syndicationEndpoint)
 	if err != nil {
 		return nil, err
@@ -412,6 +457,8 @@ func (c *SyndicationHTTPClient) FetchByID(ctx context.Context, tweetID string) (
 		return nil, nil
 	}
 
+	c.hydrateLongformTexts(ctx, &decoded)
+
 	fullArticle := ""
 	if decoded.Article != nil && decoded.Article.RestID != "" {
 		fullArticle, _ = c.fetchArticle(ctx, "https://x.com/i/article/"+decoded.Article.RestID)
@@ -422,7 +469,7 @@ func (c *SyndicationHTTPClient) FetchByID(ctx context.Context, tweetID string) (
 		return nil, err
 	}
 	resolveReferences(ctx, c.resolve, &item)
-	return []types.RawContent{item}, nil
+	return &item, nil
 }
 
 func (c *SyndicationHTTPClient) fetchArticle(ctx context.Context, articleURL string) (string, error) {
@@ -450,6 +497,457 @@ func (c *SyndicationHTTPClient) fetchArticle(ctx context.Context, articleURL str
 		return "", err
 	}
 	return string(body), nil
+}
+
+func (c *SyndicationHTTPClient) hydrateLongformTexts(ctx context.Context, payload *syndicationPayload) {
+	if payload == nil {
+		return
+	}
+	if needsLongformFallback(payload.NoteTweet) && payload.IDStr != "" {
+		if text, err := c.fetchLongformText(ctx, payload.IDStr); err == nil && strings.TrimSpace(text) != "" {
+			if payload.NoteTweet == nil {
+				payload.NoteTweet = &syndicationNote{}
+			}
+			payload.NoteTweet.NoteResults.Result.Text = text
+		}
+	}
+	if payload.QuotedTweet != nil && payload.QuotedTweet.IDStr != "" {
+		if text, err := c.fetchLongformText(ctx, payload.QuotedTweet.IDStr); err == nil && strings.TrimSpace(text) != "" {
+			if payload.QuotedTweet.NoteTweet == nil {
+				payload.QuotedTweet.NoteTweet = &syndicationNote{}
+			}
+			payload.QuotedTweet.NoteTweet.NoteResults.Result.Text = text
+		}
+	}
+}
+
+func needsLongformFallback(note *syndicationNote) bool {
+	return note != nil && strings.TrimSpace(note.NoteResults.Result.Text) == ""
+}
+
+func (c *SyndicationHTTPClient) fetchLongformText(ctx context.Context, tweetID string) (string, error) {
+	if strings.TrimSpace(c.authToken) == "" || strings.TrimSpace(c.ct0) == "" {
+		return "", fmt.Errorf("twitter longform auth missing")
+	}
+	endpoint, err := url.Parse("https://x.com/i/api/graphql/" + tweetResultByRestIDQueryID + "/TweetResultByRestId")
+	if err != nil {
+		return "", err
+	}
+	query := endpoint.Query()
+	query.Set("variables", compactJSON(map[string]any{
+		"tweetId":                                tweetID,
+		"with_rux_injections":                    false,
+		"includePromotedContent":                 true,
+		"withCommunity":                          true,
+		"withQuickPromoteEligibilityTweetFields": true,
+		"withBirdwatchNotes":                     true,
+		"withVoice":                              true,
+	}))
+	query.Set("features", compactJSON(longformFeatureFlags()))
+	query.Set("fieldToggles", compactJSON(longformFieldToggles()))
+	endpoint.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("authorization", "Bearer "+webBearerToken)
+	req.Header.Set("x-csrf-token", c.ct0)
+	req.Header.Set("x-twitter-active-user", "yes")
+	req.Header.Set("x-twitter-auth-type", "OAuth2Session")
+	req.Header.Set("x-twitter-client-language", "en")
+	req.Header.Set("cookie", "auth_token="+c.authToken+"; ct0="+c.ct0)
+	req.Header.Set("user-agent", "Mozilla/5.0")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("twitter longform fetch failed: status %d", resp.StatusCode)
+	}
+	if err := httputil.CheckContentLength(resp, 4<<20); err != nil {
+		return "", err
+	}
+	var decoded map[string]any
+	if err := httputil.DecodeJSONLimited(resp.Body, 4<<20, &decoded); err != nil {
+		return "", err
+	}
+	return extractGraphQLNoteText(decoded), nil
+}
+
+func compactJSON(value any) string {
+	payload, _ := json.Marshal(value)
+	return string(payload)
+}
+
+func longformFeatureFlags() map[string]bool {
+	return map[string]bool{
+		"creator_subscriptions_tweet_preview_api_enabled":                         true,
+		"premium_content_api_read_enabled":                                        true,
+		"communities_web_enable_tweet_community_results_fetch":                    true,
+		"c9s_tweet_anatomy_moderator_badge_enabled":                               true,
+		"responsive_web_grok_analyze_button_fetch_trends_enabled":                 true,
+		"responsive_web_grok_analyze_post_followups_enabled":                      true,
+		"responsive_web_jetfuel_frame":                                            true,
+		"responsive_web_grok_share_attachment_enabled":                            true,
+		"responsive_web_grok_annotations_enabled":                                 true,
+		"articles_preview_enabled":                                                true,
+		"responsive_web_edit_tweet_api_enabled":                                   true,
+		"graphql_is_translatable_rweb_tweet_is_translatable_enabled":              true,
+		"view_counts_everywhere_api_enabled":                                      true,
+		"longform_notetweets_consumption_enabled":                                 true,
+		"responsive_web_twitter_article_tweet_consumption_enabled":                true,
+		"content_disclosure_indicator_enabled":                                    true,
+		"content_disclosure_ai_generated_indicator_enabled":                       true,
+		"responsive_web_grok_show_grok_translated_post":                           false,
+		"responsive_web_grok_analysis_button_from_backend":                        true,
+		"post_ctas_fetch_enabled":                                                 true,
+		"freedom_of_speech_not_reach_fetch_enabled":                               true,
+		"standardized_nudges_misinfo":                                             true,
+		"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": true,
+		"longform_notetweets_rich_text_read_enabled":                              true,
+		"longform_notetweets_inline_media_enabled":                                true,
+		"profile_label_improvements_pcf_label_in_post_enabled":                    true,
+		"responsive_web_profile_redirect_enabled":                                 false,
+		"rweb_tipjar_consumption_enabled":                                         true,
+		"verified_phone_label_enabled":                                            false,
+		"responsive_web_grok_image_annotation_enabled":                            true,
+		"responsive_web_grok_imagine_annotation_enabled":                          true,
+		"responsive_web_grok_community_note_auto_translation_is_enabled":          false,
+		"responsive_web_graphql_skip_user_profile_image_extensions_enabled":       false,
+		"responsive_web_graphql_timeline_navigation_enabled":                      true,
+		"responsive_web_enhance_cards_enabled":                                    false,
+	}
+}
+
+func longformFieldToggles() map[string]bool {
+	return map[string]bool{
+		"withArticleRichContentState": true,
+		"withArticlePlainText":        true,
+		"withArticleSummaryText":      true,
+		"withArticleVoiceOver":        false,
+		"withGrokAnalyze":             false,
+		"withDisallowedReplyControls": false,
+		"withPayments":                false,
+		"withAuxiliaryUserLabels":     false,
+	}
+}
+
+func extractGraphQLNoteText(payload map[string]any) string {
+	path := []string{"data", "tweetResult", "result", "note_tweet", "note_tweet_results", "result", "text"}
+	current := any(payload)
+	for _, key := range path {
+		asMap, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		current, ok = asMap[key]
+		if !ok {
+			return ""
+		}
+	}
+	text, _ := current.(string)
+	return strings.TrimSpace(text)
+}
+
+func (c *SyndicationHTTPClient) hydrateThread(ctx context.Context, item *types.RawContent) {
+	if item == nil || strings.TrimSpace(c.authToken) == "" || strings.TrimSpace(c.ct0) == "" {
+		return
+	}
+	ids, err := c.fetchSelfThreadIDs(ctx, item.ExternalID)
+	if err != nil || len(ids) <= 1 {
+		return
+	}
+
+	segments := make([]types.ThreadSegment, 0, len(ids))
+	contents := make([]string, 0, len(ids))
+	mergedQuotes := make([]types.Quote, 0)
+	mergedReferences := make([]types.Reference, 0)
+	mergedAttachments := make([]types.Attachment, 0)
+	for idx, id := range ids {
+		var segItem *types.RawContent
+		if id == item.ExternalID {
+			segItem = item
+		} else {
+			fetched, err := c.fetchItemByID(ctx, id)
+			if err != nil || fetched == nil {
+				continue
+			}
+			segItem = fetched
+		}
+		segments = append(segments, types.ThreadSegment{
+			ExternalID:  segItem.ExternalID,
+			URL:         segItem.URL,
+			AuthorName:  segItem.AuthorName,
+			AuthorID:    segItem.AuthorID,
+			PostedAt:    segItem.PostedAt,
+			Position:    idx + 1,
+			Content:     segItem.Content,
+			Attachments: segItem.Attachments,
+		})
+		rebased := rebaseStructuredPlaceholders(segItem.Content, segItem.Quotes, segItem.References, segItem.Attachments, len(mergedQuotes), len(mergedReferences), len(mergedAttachments))
+		if strings.TrimSpace(rebased) != "" {
+			contents = append(contents, rebased)
+		}
+		mergedQuotes = append(mergedQuotes, segItem.Quotes...)
+		mergedReferences = append(mergedReferences, segItem.References...)
+		mergedAttachments = append(mergedAttachments, segItem.Attachments...)
+		if segItem.ExternalID == item.ExternalID {
+			pos := idx + 1
+			if item.Metadata.Thread == nil {
+				item.Metadata.Thread = &types.ThreadContext{}
+			}
+			item.Metadata.Thread.ThreadID = ids[0]
+			item.Metadata.Thread.ThreadScope = types.ThreadScopeSelfThread
+			item.Metadata.Thread.ThreadPosition = &pos
+			item.Metadata.Thread.RootExternalID = ids[0]
+			item.Metadata.Thread.IsSelfThread = true
+		}
+	}
+	if len(segments) <= 1 {
+		return
+	}
+	item.ThreadSegments = segments
+	item.Quotes = mergedQuotes
+	item.References = mergedReferences
+	item.Attachments = mergedAttachments
+	item.Content = strings.Join(contents, "\n\n")
+}
+
+func (c *SyndicationHTTPClient) fetchSelfThreadIDs(ctx context.Context, focalTweetID string) ([]string, error) {
+	payload, err := c.fetchTweetDetailGraphQL(ctx, focalTweetID)
+	if err != nil {
+		return nil, err
+	}
+	return extractSelfThreadIDsFromDetail(payload, focalTweetID), nil
+}
+
+func (c *SyndicationHTTPClient) fetchTweetDetailGraphQL(ctx context.Context, focalTweetID string) (map[string]any, error) {
+	endpoint, err := url.Parse("https://x.com/i/api/graphql/rU08O-YiXdr0IZfE7qaUMg/TweetDetail")
+	if err != nil {
+		return nil, err
+	}
+	query := endpoint.Query()
+	query.Set("variables", compactJSON(map[string]any{
+		"focalTweetId":                           focalTweetID,
+		"with_rux_injections":                    false,
+		"includePromotedContent":                 true,
+		"withCommunity":                          true,
+		"withQuickPromoteEligibilityTweetFields": true,
+		"withBirdwatchNotes":                     true,
+		"withVoice":                              true,
+	}))
+	query.Set("features", compactJSON(map[string]bool{
+		"rweb_video_screen_enabled":                                               true,
+		"profile_label_improvements_pcf_label_in_post_enabled":                    true,
+		"responsive_web_profile_redirect_enabled":                                 false,
+		"rweb_tipjar_consumption_enabled":                                         true,
+		"verified_phone_label_enabled":                                            false,
+		"creator_subscriptions_tweet_preview_api_enabled":                         true,
+		"responsive_web_graphql_timeline_navigation_enabled":                      true,
+		"responsive_web_graphql_skip_user_profile_image_extensions_enabled":       false,
+		"premium_content_api_read_enabled":                                        true,
+		"communities_web_enable_tweet_community_results_fetch":                    true,
+		"c9s_tweet_anatomy_moderator_badge_enabled":                               true,
+		"responsive_web_grok_analyze_button_fetch_trends_enabled":                 true,
+		"responsive_web_grok_analyze_post_followups_enabled":                      true,
+		"responsive_web_jetfuel_frame":                                            true,
+		"responsive_web_grok_share_attachment_enabled":                            true,
+		"responsive_web_grok_annotations_enabled":                                 true,
+		"articles_preview_enabled":                                                true,
+		"responsive_web_edit_tweet_api_enabled":                                   true,
+		"graphql_is_translatable_rweb_tweet_is_translatable_enabled":              true,
+		"view_counts_everywhere_api_enabled":                                      true,
+		"longform_notetweets_consumption_enabled":                                 true,
+		"responsive_web_twitter_article_tweet_consumption_enabled":                true,
+		"content_disclosure_indicator_enabled":                                    true,
+		"content_disclosure_ai_generated_indicator_enabled":                       true,
+		"responsive_web_grok_show_grok_translated_post":                           false,
+		"responsive_web_grok_analysis_button_from_backend":                        true,
+		"post_ctas_fetch_enabled":                                                 true,
+		"freedom_of_speech_not_reach_fetch_enabled":                               true,
+		"standardized_nudges_misinfo":                                             true,
+		"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": true,
+		"longform_notetweets_rich_text_read_enabled":                              true,
+		"longform_notetweets_inline_media_enabled":                                true,
+		"responsive_web_grok_image_annotation_enabled":                            true,
+		"responsive_web_grok_imagine_annotation_enabled":                          true,
+		"responsive_web_grok_community_note_auto_translation_is_enabled":          false,
+		"responsive_web_enhance_cards_enabled":                                    false,
+	}))
+	query.Set("fieldToggles", compactJSON(longformFieldToggles()))
+	endpoint.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("authorization", "Bearer "+webBearerToken)
+	req.Header.Set("x-csrf-token", c.ct0)
+	req.Header.Set("x-twitter-active-user", "yes")
+	req.Header.Set("x-twitter-auth-type", "OAuth2Session")
+	req.Header.Set("x-twitter-client-language", "en")
+	req.Header.Set("cookie", "auth_token="+c.authToken+"; ct0="+c.ct0)
+	req.Header.Set("user-agent", "Mozilla/5.0")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("twitter thread detail fetch failed: status %d", resp.StatusCode)
+	}
+	if err := httputil.CheckContentLength(resp, 6<<20); err != nil {
+		return nil, err
+	}
+	var decoded map[string]any
+	if err := httputil.DecodeJSONLimited(resp.Body, 6<<20, &decoded); err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
+
+func extractSelfThreadIDsFromDetail(payload map[string]any, focalTweetID string) []string {
+	if payload == nil {
+		return nil
+	}
+	type tweetLite struct {
+		ID             string
+		AuthorID       string
+		ConversationID string
+		InReplyTo      string
+	}
+	collected := make([]tweetLite, 0)
+	seen := map[string]struct{}{}
+	var walk func(any)
+	walk = func(node any) {
+		switch typed := node.(type) {
+		case map[string]any:
+			if typed["__typename"] == "Tweet" {
+				id, _ := typed["rest_id"].(string)
+				legacy, _ := typed["legacy"].(map[string]any)
+				authorID, _ := legacy["user_id_str"].(string)
+				conversationID, _ := legacy["conversation_id_str"].(string)
+				inReplyTo, _ := legacy["in_reply_to_status_id_str"].(string)
+				if id != "" {
+					if _, ok := seen[id]; !ok {
+						seen[id] = struct{}{}
+						collected = append(collected, tweetLite{ID: id, AuthorID: authorID, ConversationID: conversationID, InReplyTo: inReplyTo})
+					}
+				}
+			}
+			for _, value := range typed {
+				walk(value)
+			}
+		case []any:
+			for _, value := range typed {
+				walk(value)
+			}
+		}
+	}
+	walk(payload)
+
+	var focal tweetLite
+	for _, item := range collected {
+		if item.ID == focalTweetID {
+			focal = item
+			break
+		}
+	}
+	if focal.ID == "" || focal.AuthorID == "" || focal.ConversationID == "" {
+		return nil
+	}
+	sameThread := make(map[string]tweetLite)
+	for _, item := range collected {
+		if item.AuthorID == focal.AuthorID && item.ConversationID == focal.ConversationID {
+			sameThread[item.ID] = item
+		}
+	}
+	if len(sameThread) <= 1 {
+		return nil
+	}
+
+	rootID := focal.ConversationID
+	root, ok := sameThread[rootID]
+	if !ok {
+		root = tweetLite{ID: rootID, AuthorID: focal.AuthorID, ConversationID: focal.ConversationID}
+	}
+
+	children := make(map[string][]tweetLite)
+	for _, item := range sameThread {
+		parent := item.InReplyTo
+		children[parent] = append(children[parent], item)
+	}
+
+	ordered := make([]string, 0, len(sameThread))
+	currentID := root.ID
+	visited := make(map[string]struct{}, len(sameThread))
+	for currentID != "" {
+		if _, ok := visited[currentID]; ok {
+			break
+		}
+		if _, ok := sameThread[currentID]; !ok && currentID != root.ID {
+			break
+		}
+		visited[currentID] = struct{}{}
+		ordered = append(ordered, currentID)
+
+		nextChildren := children[currentID]
+		if len(nextChildren) == 0 {
+			break
+		}
+		nextID := ""
+		for _, child := range nextChildren {
+			if _, seen := visited[child.ID]; seen {
+				continue
+			}
+			nextID = child.ID
+			break
+		}
+		currentID = nextID
+	}
+	if len(ordered) <= 1 {
+		return nil
+	}
+	return ordered
+}
+
+func rebaseStructuredPlaceholders(content string, quotes []types.Quote, references []types.Reference, attachments []types.Attachment, quoteOffset int, referenceOffset int, attachmentOffset int) string {
+	out := content
+	out = rebasePlaceholders(out, regexp.MustCompile(`\[引用#(\d+)(?: [^\]]+)?\]`), len(quotes), quoteOffset, func(globalIdx int, localIdx int) string {
+		return assemble.FormatQuotePlaceholder(globalIdx, quotes[localIdx])
+	})
+	out = rebasePlaceholders(out, regexp.MustCompile(`\[参考#(\d+)(?: [^\]]+)?\]`), len(references), referenceOffset, func(globalIdx int, localIdx int) string {
+		return assemble.FormatReferencePlaceholder(globalIdx, references[localIdx])
+	})
+	out = rebasePlaceholders(out, regexp.MustCompile(`\[附件#(\d+)(?: [^\]]+)?\]`), len(attachments), attachmentOffset, func(globalIdx int, localIdx int) string {
+		return assemble.FormatAttachmentPlaceholder(globalIdx, attachments[localIdx])
+	})
+	return out
+}
+
+func rebasePlaceholders(content string, pattern *regexp.Regexp, count int, offset int, render func(globalIdx int, localIdx int) string) string {
+	if count == 0 {
+		return content
+	}
+	return pattern.ReplaceAllStringFunc(content, func(match string) string {
+		sub := pattern.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		localParsed, err := strconv.Atoi(sub[1])
+		if err != nil {
+			return match
+		}
+		localNum := localParsed - 1
+		if localNum < 0 || localNum >= count {
+			return match
+		}
+		return render(offset+localNum+1, localNum)
+	})
 }
 
 func firstInt(values ...any) int {
@@ -498,29 +996,25 @@ func resolveReferences(ctx context.Context, resolver func(context.Context, strin
 		filtered = append(filtered, ref)
 	}
 	raw.References = filtered
-	raw.Content = assemble.AssembleStructuredContent(stripStructuredPlaceholders(raw.Content), raw.Quotes, raw.References, raw.Attachments)
+	raw.Content = refreshReferencePlaceholders(raw.Content, raw.References)
 }
 
-func stripStructuredPlaceholders(content string) string {
-	if strings.TrimSpace(content) == "" {
+func refreshReferencePlaceholders(content string, references []types.Reference) string {
+	out := content
+	for i, ref := range references {
+		pattern := regexp.MustCompile(`\[参考#` + fmt.Sprintf("%d", i+1) + ` [^\]]+\]`)
+		out = pattern.ReplaceAllString(out, assemble.FormatReferencePlaceholder(i+1, ref))
+	}
+	out = regexp.MustCompile(`\[参考#\d+ [^\]]+\]`).ReplaceAllStringFunc(out, func(match string) string {
+		for i := range references {
+			expected := `[参考#` + fmt.Sprintf("%d", i+1)
+			if strings.HasPrefix(match, expected) {
+				return match
+			}
+		}
 		return ""
-	}
-	lines := strings.Split(content, "\n")
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			out = append(out, line)
-			continue
-		}
-		switch {
-		case strings.HasPrefix(trimmed, "[引用#"),
-			strings.HasPrefix(trimmed, "[参考#"),
-			strings.HasPrefix(trimmed, "[附件#"):
-			continue
-		default:
-			out = append(out, line)
-		}
-	}
-	return strings.TrimSpace(strings.Join(out, "\n"))
+	})
+	out = regexp.MustCompile(`\n{3,}`).ReplaceAllString(out, "\n\n")
+	out = strings.TrimSpace(out)
+	return out
 }

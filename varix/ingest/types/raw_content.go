@@ -7,19 +7,20 @@ import (
 )
 
 type RawContent struct {
-	Source      string       `json:"source"`
-	ExternalID  string       `json:"external_id"`
-	Content     string       `json:"content"`
-	AuthorName  string       `json:"author_name"`
-	AuthorID    string       `json:"author_id,omitempty"`
-	URL         string       `json:"url"`
-	PostedAt    time.Time    `json:"posted_at"`
-	Metadata    RawMetadata  `json:"metadata,omitempty"`
-	MediaItems  []MediaItem  `json:"media_items,omitempty"` // Deprecated: use Attachments for new records.
-	Quotes      []Quote      `json:"quotes,omitempty"`
-	References  []Reference  `json:"references,omitempty"`
-	Attachments []Attachment `json:"attachments,omitempty"`
-	Provenance  *Provenance  `json:"provenance,omitempty"`
+	Source         string          `json:"source"`
+	ExternalID     string          `json:"external_id"`
+	Content        string          `json:"content"`
+	AuthorName     string          `json:"author_name"`
+	AuthorID       string          `json:"author_id,omitempty"`
+	URL            string          `json:"url"`
+	PostedAt       time.Time       `json:"posted_at"`
+	Metadata       RawMetadata     `json:"metadata,omitempty"`
+	MediaItems     []MediaItem     `json:"media_items,omitempty"` // Deprecated: use Attachments for new records.
+	Quotes         []Quote         `json:"quotes,omitempty"`
+	References     []Reference     `json:"references,omitempty"`
+	ThreadSegments []ThreadSegment `json:"thread_segments,omitempty"`
+	Attachments    []Attachment    `json:"attachments,omitempty"`
+	Provenance     *Provenance     `json:"provenance,omitempty"`
 }
 
 // ExpandedText returns a richer text view for downstream analysis/reading.
@@ -36,6 +37,10 @@ func (r RawContent) ExpandedText() string {
 		}
 	}
 	for i, reference := range r.References {
+		if trimmed := strings.TrimSpace(reference.Content); trimmed != "" {
+			parts = append(parts, fmt.Sprintf("[参考正文#%d]\n%s", i+1, trimmed))
+			continue
+		}
 		if trimmed := strings.TrimSpace(reference.URL); trimmed != "" {
 			parts = append(parts, fmt.Sprintf("[参考链接#%d]\n%s", i+1, trimmed))
 		}
@@ -68,12 +73,31 @@ type Quote struct {
 // Reference represents a post/article link mentioned in the main body.
 // Unlike Quote, it is not a platform-native quote/repost relationship.
 type Reference struct {
-	Kind       string    `json:"kind,omitempty"`
-	Label      string    `json:"label,omitempty"`
-	Platform   string    `json:"platform,omitempty"`
-	ExternalID string    `json:"external_id,omitempty"`
-	URL        string    `json:"url"`
-	PostedAt   time.Time `json:"posted_at,omitempty"`
+	Kind          string       `json:"kind,omitempty"`
+	Label         string       `json:"label,omitempty"`
+	Source        string       `json:"source,omitempty"`
+	Platform      string       `json:"platform,omitempty"`
+	ExternalID    string       `json:"external_id,omitempty"`
+	Content       string       `json:"content,omitempty"`
+	AuthorName    string       `json:"author_name,omitempty"`
+	AuthorID      string       `json:"author_id,omitempty"`
+	URL           string       `json:"url"`
+	PostedAt      time.Time    `json:"posted_at,omitempty"`
+	Attachments   []Attachment `json:"attachments,omitempty"`
+	QuoteURLs     []string     `json:"quote_urls,omitempty"`
+	ReferenceURLs []string     `json:"reference_urls,omitempty"`
+}
+
+// ThreadSegment captures one post in an assembled self-thread view.
+type ThreadSegment struct {
+	ExternalID  string       `json:"external_id,omitempty"`
+	URL         string       `json:"url,omitempty"`
+	AuthorName  string       `json:"author_name,omitempty"`
+	AuthorID    string       `json:"author_id,omitempty"`
+	PostedAt    time.Time    `json:"posted_at,omitempty"`
+	Position    int          `json:"position,omitempty"`
+	Content     string       `json:"content,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
 // Attachment represents a media attachment with optional transcript.

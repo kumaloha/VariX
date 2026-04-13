@@ -39,7 +39,15 @@ func NewDefault(projectRoot string, httpClient *http.Client) *Collector {
 		api = NewAPIHTTPClient(httpClient, token)
 	}
 
-	c := New(api, NewSyndicationHTTPClient(httpClient))
+	syndication := NewSyndicationHTTPClient(httpClient)
+	if authToken, ok := config.Get(projectRoot, "TWITTER_AUTH_TOKEN"); ok && strings.TrimSpace(authToken) != "" {
+		if ct0, ok := config.Get(projectRoot, "TWITTER_CT0"); ok && strings.TrimSpace(ct0) != "" {
+			syndication.authToken = strings.TrimSpace(authToken)
+			syndication.ct0 = strings.TrimSpace(ct0)
+		}
+	}
+
+	c := New(api, syndication)
 	c.httpClient = httpClient
 
 	// Enable video transcription when ASR credentials are available.
@@ -74,7 +82,7 @@ func (c *Collector) Fetch(ctx context.Context, parsed types.ParsedURL) ([]types.
 		}
 	}
 	for i := range items {
-		if strings.Contains(items[i].Content, "[引用#") || strings.Contains(items[i].Content, "[附件#") {
+		if strings.Contains(items[i].Content, "[引用#") || strings.Contains(items[i].Content, "[参考#") || strings.Contains(items[i].Content, "[附件#") {
 			continue
 		}
 		items[i].Content = assemble.AssembleStructuredContent(items[i].Content, items[i].Quotes, items[i].References, items[i].Attachments)

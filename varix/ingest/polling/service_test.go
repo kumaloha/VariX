@@ -221,6 +221,93 @@ func TestService_FollowURLRegistersNativeTarget(t *testing.T) {
 	}
 }
 
+type referenceHydratingDispatcher struct{}
+
+func (referenceHydratingDispatcher) SupportsFollow(kind types.Kind, platform types.Platform) bool {
+	return false
+}
+
+func (referenceHydratingDispatcher) ParseURL(_ context.Context, rawURL string) (types.ParsedURL, error) {
+	if rawURL == "https://x.com/root/status/1" {
+		return types.ParsedURL{Platform: types.PlatformTwitter, ContentType: types.ContentTypePost, PlatformID: "1", CanonicalURL: rawURL}, nil
+	}
+	return types.ParsedURL{Platform: types.PlatformTwitter, ContentType: types.ContentTypePost, PlatformID: "2", CanonicalURL: rawURL}, nil
+}
+
+func (referenceHydratingDispatcher) DiscoverFollowedTarget(context.Context, types.FollowTarget) ([]types.DiscoveryItem, error) {
+	return nil, nil
+}
+
+func (referenceHydratingDispatcher) FetchByParsedURL(_ context.Context, parsed types.ParsedURL) ([]types.RawContent, error) {
+	switch parsed.PlatformID {
+	case "1":
+		return []types.RawContent{{
+			Source:     "twitter",
+			ExternalID: "1",
+			Content:    "root body",
+			URL:        parsed.CanonicalURL,
+			References: []types.Reference{{
+				Kind: "post_link",
+				URL:  "https://x.com/ref/status/2",
+			}},
+		}}, nil
+	default:
+		return []types.RawContent{{
+			Source:     "twitter",
+			ExternalID: "2",
+			Content:    "reference full body",
+			AuthorName: "ref-author",
+			URL:        parsed.CanonicalURL,
+			Quotes: []types.Quote{{
+				URL: "https://x.com/quote/status/3",
+			}},
+			References: []types.Reference{{
+				URL: "https://x.com/ref/status/4",
+			}},
+			Attachments: []types.Attachment{{
+				Type: "image",
+				URL:  "https://img.test/a.jpg",
+			}},
+		}}, nil
+	}
+}
+
+func (referenceHydratingDispatcher) FetchDiscoveryItem(context.Context, types.DiscoveryItem) ([]types.RawContent, error) {
+	return nil, nil
+}
+
+func TestService_FetchURLHydratesReferenceContentOneLevel(t *testing.T) {
+	store := &fakeStore{processed: map[string]bool{}}
+	svc := New(store, referenceHydratingDispatcher{}, fakeEnricher{})
+
+	items, err := svc.FetchURL(context.Background(), "https://x.com/root/status/1")
+	if err != nil {
+		t.Fatalf("FetchURL() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if len(items[0].References) != 1 {
+		t.Fatalf("len(References) = %d, want 1", len(items[0].References))
+	}
+	ref := items[0].References[0]
+	if ref.Content != "reference full body" {
+		t.Fatalf("Reference.Content = %q, want hydrated content", ref.Content)
+	}
+	if ref.AuthorName != "ref-author" {
+		t.Fatalf("Reference.AuthorName = %q, want ref-author", ref.AuthorName)
+	}
+	if len(ref.Attachments) != 1 {
+		t.Fatalf("len(Reference.Attachments) = %d, want 1", len(ref.Attachments))
+	}
+	if len(ref.QuoteURLs) != 1 || ref.QuoteURLs[0] != "https://x.com/quote/status/3" {
+		t.Fatalf("QuoteURLs = %#v", ref.QuoteURLs)
+	}
+	if len(ref.ReferenceURLs) != 1 || ref.ReferenceURLs[0] != "https://x.com/ref/status/4" {
+		t.Fatalf("ReferenceURLs = %#v", ref.ReferenceURLs)
+	}
+}
+
 func TestService_FollowURLRejectsUnsupportedNativeTarget(t *testing.T) {
 	store := &fakeStore{processed: map[string]bool{}}
 	svc := New(store, fakeDispatcher{}, fakeEnricher{})
