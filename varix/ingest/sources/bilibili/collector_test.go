@@ -3,6 +3,7 @@ package bilibili
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,6 +106,34 @@ func TestCollector_FallsBackToTitleOnlyWhenAudioUnavailable(t *testing.T) {
 	}
 	if got[0].Metadata.Bilibili.TranscriptDiagnostics[0].Code != "tool_missing" {
 		t.Fatalf("diagnostics[0].code = %q, want tool_missing", got[0].Metadata.Bilibili.TranscriptDiagnostics[0].Code)
+	}
+}
+
+func TestCollector_FallsBackToDescriptionAndMarksRateLimit(t *testing.T) {
+	audio := &fakeAudio{err: errors.New("bilibili transcription failed: transcription failed: status 429")}
+	c := New(fakeMeta{
+		value: Metadata{
+			Title:       "Example Bilibili Video",
+			Uploader:    "Uploader Name",
+			Description: "节目简介正文",
+			PublishedAt: time.Date(2026, 4, 7, 10, 0, 0, 0, time.UTC),
+		},
+	}, audio)
+
+	got, err := c.Fetch(context.Background(), types.ParsedURL{
+		Platform:     types.PlatformBilibili,
+		ContentType:  types.ContentTypePost,
+		PlatformID:   "BV1ABCDEF127",
+		CanonicalURL: "https://www.bilibili.com/video/BV1ABCDEF127",
+	})
+	if err != nil {
+		t.Fatalf("Fetch() error = %v", err)
+	}
+	if !strings.Contains(got[0].Content, "节目简介正文") {
+		t.Fatalf("Content = %q, want description fallback", got[0].Content)
+	}
+	if got[0].Metadata.Bilibili.TranscriptDiagnostics[0].Code != "rate_limited" {
+		t.Fatalf("diagnostics[0].code = %q, want rate_limited", got[0].Metadata.Bilibili.TranscriptDiagnostics[0].Code)
 	}
 }
 

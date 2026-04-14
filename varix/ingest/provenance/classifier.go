@@ -6,161 +6,118 @@ import (
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
 
-var (
-	translationMarkers = []string{"中字", "翻译", "translated", "translation", "熟肉"}
-	commentaryMarkers  = []string{"解读", "点评", "评论", "analysis", "commentary", "reaction", "怎么看"}
-	summaryMarkers     = []string{"总结", "梳理", "要点", "summary"}
-	excerptMarkers     = []string{"节选", "精华", "剪辑", "highlights", "excerpt"}
-)
-
 func Classify(raw types.RawContent) types.Provenance {
-	title, description, links := sourceEvidence(raw)
-	content := raw.ExpandedText()
-
-	hasTranslation := hasAnyMarker(title, description, content, translationMarkers)
-	hasCommentary := hasAnyMarker(title, description, content, commentaryMarkers)
-	hasSummary := hasAnyMarker(title, description, content, summaryMarkers)
-	hasExcerpt := hasAnyMarker(title, description, content, excerptMarkers)
-	hasLinks := len(links) > 0
-
-	prov := types.Provenance{
-		BaseRelation:      types.BaseRelationUnknown,
-		EditorialLayer:    types.EditorialLayerUnknown,
-		Confidence:        types.ConfidenceLow,
-		NeedsSourceLookup: true,
-		SourceLookup: types.SourceLookupState{
-			Status: types.SourceLookupStatusPending,
-		},
-		SourceCandidates: sourceCandidates(links),
+	candidates := structuredSourceCandidates(raw)
+	baseRelation, relationEvidence := inferStructuredRelation(raw)
+	confidence := inferProvenanceConfidence(baseRelation, len(candidates) > 0)
+	status := types.SourceLookupStatusNotNeeded
+	needsLookup := false
+	if len(candidates) > 0 {
+		status = types.SourceLookupStatusPending
+		needsLookup = true
 	}
 
-	switch {
-	case hasTranslation:
-		prov.BaseRelation = types.BaseRelationTranslation
-		prov.EditorialLayer = types.EditorialLayerNone
-		prov.Confidence = types.ConfidenceMedium
-		prov.Evidence = append(prov.Evidence, markerEvidence("translation", firstMatchedMarker(title, description, content, translationMarkers), "strong"))
-	case hasExcerpt:
-		prov.BaseRelation = types.BaseRelationExcerpt
-		prov.EditorialLayer = types.EditorialLayerNone
-		prov.Confidence = types.ConfidenceMedium
-		prov.Evidence = append(prov.Evidence, markerEvidence("excerpt", firstMatchedMarker(title, description, content, excerptMarkers), "strong"))
-	case hasSummary:
-		prov.BaseRelation = types.BaseRelationSummary
-		prov.EditorialLayer = types.EditorialLayerNone
-		prov.Confidence = types.ConfidenceMedium
-		prov.Evidence = append(prov.Evidence, markerEvidence("summary", firstMatchedMarker(title, description, content, summaryMarkers), "strong"))
-	}
-
-	if hasCommentary {
-		prov.EditorialLayer = types.EditorialLayerCommentary
-		prov.Evidence = append(prov.Evidence, markerEvidence("commentary", firstMatchedMarker(title, description, content, commentaryMarkers), "strong"))
-	}
-
-	if hasLinks {
-		prov.Evidence = append(prov.Evidence, types.ProvenanceEvidence{
-			Kind:   "source_link",
-			Value:  links[0],
-			Weight: "strong",
+	evidence := append([]types.ProvenanceEvidence(nil), relationEvidence...)
+	for _, candidate := range candidates {
+		evidence = append(evidence, types.ProvenanceEvidence{
+			Kind:   candidate.Kind,
+			Value:  candidate.URL,
+			Weight: candidate.Confidence,
 		})
-		if prov.BaseRelation != types.BaseRelationUnknown {
-			prov.Confidence = types.ConfidenceHigh
-		}
 	}
 
-	if prov.BaseRelation == types.BaseRelationUnknown && prov.EditorialLayer == types.EditorialLayerCommentary {
-		prov.EditorialLayer = types.EditorialLayerUnknown
-	}
-
-	return prov
-}
-
-func sourceEvidence(raw types.RawContent) (title string, description string, links []string) {
-	switch {
-	case raw.Metadata.YouTube != nil:
-		return raw.Metadata.YouTube.Title, raw.Metadata.YouTube.Description, raw.Metadata.YouTube.SourceLinks
-	case raw.Metadata.Bilibili != nil:
-		return raw.Metadata.Bilibili.Title, raw.Metadata.Bilibili.Description, raw.Metadata.Bilibili.SourceLinks
-	case raw.Metadata.Twitter != nil:
-		return "", "", raw.Metadata.Twitter.SourceLinks
-	case raw.Metadata.Web != nil:
-		links := make([]string, 0, 1)
-		if raw.Metadata.Web.YouTubeRedirect != "" {
-			links = append(links, raw.Metadata.Web.YouTubeRedirect)
-		}
-		return raw.Metadata.Web.Title, "", links
-	default:
-		return "", "", nil
+	return types.Provenance{
+		BaseRelation:      baseRelation,
+		EditorialLayer:    types.EditorialLayerUnknown,
+		Confidence:        confidence,
+		NeedsSourceLookup: needsLookup,
+		SourceCandidates:  candidates,
+		Evidence:          evidence,
+		SourceLookup: types.SourceLookupState{
+			Status: status,
+		},
 	}
 }
 
-func hasAnyMarker(values ...any) bool {
-	if len(values) == 0 {
-		return false
+func structuredSourceCandidates(raw types.RawContent) []types.SourceCandidate {
+	var candidates []types.SourceCandidate
+
+	appendCandidate := func(url string, kind string, confidence types.Confidence) {
+		url = strings.TrimSpace(url)
+		if url == "" {
+			return
+		}
+		candidates = mergeCandidates(candidates, []types.SourceCandidate{{
+			URL:        url,
+			Host:       hostFromURL(url),
+			Kind:       kind,
+			Confidence: string(confidence),
+		}})
 	}
-	parts := make([]string, 0, len(values)-1)
-	var markers []string
-	for i, value := range values {
-		if i == len(values)-1 {
-			if typed, ok := value.([]string); ok {
-				markers = typed
-			}
+
+	for _, link := range sourceLinks(raw) {
+		appendCandidate(link, "source_link", types.ConfidenceHigh)
+	}
+	for _, quote := range raw.Quotes {
+		kind := structuredQuoteCandidateKind(quote.Relation)
+		if kind == "" {
 			continue
 		}
-		if typed, ok := value.(string); ok {
-			parts = append(parts, strings.ToLower(typed))
-		}
+		appendCandidate(quote.URL, kind, types.ConfidenceHigh)
 	}
-	for _, marker := range markers {
-		marker = strings.ToLower(marker)
-		for _, part := range parts {
-			if strings.Contains(part, marker) {
-				return true
-			}
-		}
+	for _, reference := range raw.References {
+		appendCandidate(reference.URL, "reference_link", types.ConfidenceMedium)
 	}
-	return false
+
+	return candidates
 }
 
-func firstMatchedMarker(title, description, content string, markers []string) string {
-	parts := []string{
-		strings.ToLower(title),
-		strings.ToLower(description),
-		strings.ToLower(content),
+func inferStructuredRelation(raw types.RawContent) (types.BaseRelation, []types.ProvenanceEvidence) {
+	if raw.Metadata.Weibo != nil && raw.Metadata.Weibo.IsRepost && strings.TrimSpace(raw.Metadata.Weibo.OriginalURL) != "" {
+		return types.BaseRelationRepost, []types.ProvenanceEvidence{{
+			Kind:   "native_repost",
+			Value:  raw.Metadata.Weibo.OriginalURL,
+			Weight: string(types.ConfidenceHigh),
+		}}
 	}
-	for _, marker := range markers {
-		lower := strings.ToLower(marker)
-		for _, part := range parts {
-			if strings.Contains(part, lower) {
-				return marker
-			}
+	for _, quote := range raw.Quotes {
+		switch structuredQuoteCandidateKind(quote.Relation) {
+		case "native_repost":
+			return types.BaseRelationRepost, []types.ProvenanceEvidence{{
+				Kind:   "native_repost",
+				Value:  quote.URL,
+				Weight: string(types.ConfidenceHigh),
+			}}
+		case "native_quote":
+			return types.BaseRelationQuote, []types.ProvenanceEvidence{{
+				Kind:   "native_quote",
+				Value:  quote.URL,
+				Weight: string(types.ConfidenceHigh),
+			}}
 		}
 	}
-	return ""
+	return types.BaseRelationUnknown, nil
 }
 
-func markerEvidence(kind, marker, weight string) types.ProvenanceEvidence {
-	return types.ProvenanceEvidence{
-		Kind:   kind,
-		Value:  marker,
-		Weight: weight,
+func structuredQuoteCandidateKind(relation string) string {
+	switch strings.ToLower(strings.TrimSpace(relation)) {
+	case "repost":
+		return "native_repost"
+	case "quote", "quote_tweet":
+		return "native_quote"
+	default:
+		return ""
 	}
 }
 
-func sourceCandidates(links []string) []types.SourceCandidate {
-	if len(links) == 0 {
-		return nil
+func inferProvenanceConfidence(baseRelation types.BaseRelation, hasCandidates bool) types.Confidence {
+	if baseRelation != "" && baseRelation != types.BaseRelationUnknown {
+		return types.ConfidenceHigh
 	}
-	out := make([]types.SourceCandidate, 0, len(links))
-	for _, link := range links {
-		out = append(out, types.SourceCandidate{
-			URL:        link,
-			Host:       hostFromURL(link),
-			Kind:       "embedded_link",
-			Confidence: string(types.ConfidenceHigh),
-		})
+	if hasCandidates {
+		return types.ConfidenceMedium
 	}
-	return out
+	return types.ConfidenceLow
 }
 
 func hostFromURL(raw string) string {

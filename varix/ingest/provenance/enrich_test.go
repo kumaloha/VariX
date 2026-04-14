@@ -10,7 +10,7 @@ func TestEnricher_AnnotateSetsProvenance(t *testing.T) {
 	items := []types.RawContent{{
 		Source:     "youtube",
 		ExternalID: "abc123",
-		Content:    "翻译整理内容",
+		Content:    "访谈内容",
 		AuthorName: "channel",
 		URL:        "https://www.youtube.com/watch?v=abc123",
 		Metadata: types.RawMetadata{
@@ -29,8 +29,11 @@ func TestEnricher_AnnotateSetsProvenance(t *testing.T) {
 	if got[0].Provenance == nil {
 		t.Fatal("Provenance is nil")
 	}
-	if got[0].Provenance.BaseRelation != types.BaseRelationTranslation {
-		t.Fatalf("BaseRelation = %q, want %q", got[0].Provenance.BaseRelation, types.BaseRelationTranslation)
+	if got[0].Provenance.NeedsSourceLookup != true {
+		t.Fatalf("NeedsSourceLookup = %v, want true", got[0].Provenance.NeedsSourceLookup)
+	}
+	if got[0].Provenance.SourceLookup.Status != types.SourceLookupStatusPending {
+		t.Fatalf("SourceLookup.Status = %q, want pending", got[0].Provenance.SourceLookup.Status)
 	}
 }
 
@@ -41,7 +44,7 @@ func TestEnricher_AnnotatePreservesResolvedSourceLookup(t *testing.T) {
 		Content:    "translated test",
 		URL:        "https://x.com/a/status/123",
 		Provenance: &types.Provenance{
-			BaseRelation:      types.BaseRelationTranslation,
+			BaseRelation:      types.BaseRelationQuote,
 			NeedsSourceLookup: true,
 			SourceLookup: types.SourceLookupState{
 				Status:             types.SourceLookupStatusFound,

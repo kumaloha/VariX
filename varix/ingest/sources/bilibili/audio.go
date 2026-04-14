@@ -8,9 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"time"
 
-	"github.com/kumaloha/VariX/varix/config"
 	"github.com/kumaloha/VariX/varix/ingest/sources/audioutil"
 )
 
@@ -26,22 +25,19 @@ func NewWhisperAudioTranscriber(projectRoot string) *WhisperAudioTranscriber {
 	}
 }
 
-func (t *WhisperAudioTranscriber) Transcribe(ctx context.Context, videoID string) (string, string, error) {
-	apiKey, ok := config.Get(t.projectRoot, "ASR_API_KEY")
-	if !ok {
-		apiKey, ok = config.Get(t.projectRoot, "DASHSCOPE_API_KEY")
-		if !ok {
-			return "", "", errASRKeyMissing
-		}
-	}
+func (t *WhisperAudioTranscriber) buildASRClient() *audioutil.Client {
+	return audioutil.NewClientFromConfigWithRetry(t.projectRoot, t.client, audioutil.RetryConfig{
+		DefaultMax:     6,
+		DefaultDelay:   time.Second,
+		RetryMaxKeys:   []string{"BILIBILI_ASR_RETRY_MAX", "ASR_RETRY_MAX", "ASR_RATE_LIMIT_RETRIES"},
+		RetryDelayKeys: []string{"BILIBILI_ASR_RETRY_DELAY_MS", "ASR_RETRY_DELAY_MS"},
+	})
+}
 
-	baseURL := "https://api.openai.com/v1"
-	if value, ok := config.Get(t.projectRoot, "ASR_BASE_URL"); ok && strings.TrimSpace(value) != "" {
-		baseURL = strings.TrimRight(value, "/")
-	}
-	model := "whisper-1"
-	if value, ok := config.Get(t.projectRoot, "ASR_MODEL"); ok && strings.TrimSpace(value) != "" {
-		model = strings.TrimSpace(value)
+func (t *WhisperAudioTranscriber) Transcribe(ctx context.Context, videoID string) (string, string, error) {
+	asrClient := t.buildASRClient()
+	if asrClient == nil {
+		return "", "", errASRKeyMissing
 	}
 
 	tmpDir, err := os.MkdirTemp("", "invarix-bili-audio-*")
@@ -93,7 +89,7 @@ func (t *WhisperAudioTranscriber) Transcribe(ctx context.Context, videoID string
 		return "", "", err
 	}
 
-	text, err := audioutil.NewClient(t.client, baseURL, apiKey, model).TranscribeFile(ctx, audioPath)
+	text, err := asrClient.TranscribeFile(ctx, audioPath)
 	if err != nil {
 		switch {
 		case errors.Is(err, audioutil.ErrPayloadTooLarge):

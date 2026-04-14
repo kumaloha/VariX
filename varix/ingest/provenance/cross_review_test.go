@@ -54,8 +54,8 @@ func TestCrossReview_RuleFinderUsesWebCollectorYouTubeRedirect(t *testing.T) {
 	if got[0].URL != "https://www.youtube.com/watch?v=dQw4w9WgXcQ" {
 		t.Fatalf("first candidate = %#v, want embedded youtube redirect first", got[0])
 	}
-	if got[0].Kind != "embedded_link" {
-		t.Fatalf("first candidate kind = %q, want embedded_link", got[0].Kind)
+	if got[0].Kind != "source_link" {
+		t.Fatalf("first candidate kind = %q, want source_link", got[0].Kind)
 	}
 }
 
@@ -80,6 +80,9 @@ func TestCrossReview_ClassifyUsesWebCollectorYouTubeRedirectAsSourceEvidence(t *
 	}
 	if got.SourceCandidates[0].URL != "https://www.youtube.com/watch?v=dQw4w9WgXcQ" {
 		t.Fatalf("SourceCandidates[0] = %#v, want youtube redirect", got.SourceCandidates[0])
+	}
+	if got.SourceCandidates[0].Kind != "source_link" {
+		t.Fatalf("SourceCandidates[0].Kind = %q, want source_link", got.SourceCandidates[0].Kind)
 	}
 	if len(got.Evidence) == 0 || got.Evidence[0].Kind != "source_link" {
 		t.Fatalf("Evidence = %#v, want source_link evidence", got.Evidence)

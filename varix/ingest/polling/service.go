@@ -37,10 +37,11 @@ type Enricher interface {
 }
 
 type Service struct {
-	store      Store
-	dispatcher Dispatcher
-	enricher   Enricher
-	now        func() time.Time
+	store                     Store
+	dispatcher                Dispatcher
+	enricher                  Enricher
+	now                       func() time.Time
+	reuseStoredCaptureQuality bool
 }
 
 type WarningKind string
@@ -63,15 +64,30 @@ type PollWarning struct {
 	Detail  string      `json:"detail"`
 }
 
-func New(store Store, dispatcher Dispatcher, enricher Enricher) *Service {
-	return &Service{
+type Option func(*Service)
+
+func WithStoredCaptureReuse(enabled bool) Option {
+	return func(s *Service) {
+		s.reuseStoredCaptureQuality = enabled
+	}
+}
+
+func New(store Store, dispatcher Dispatcher, enricher Enricher, opts ...Option) *Service {
+	svc := &Service{
 		store:      store,
 		dispatcher: dispatcher,
 		enricher:   enricher,
 		now: func() time.Time {
 			return time.Now().UTC()
 		},
+		reuseStoredCaptureQuality: true,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(svc)
+		}
+	}
+	return svc
 }
 
 func (s *Service) Follow(ctx context.Context, target types.FollowTarget) (types.FollowTarget, error) {
@@ -210,6 +226,7 @@ func (s *Service) FetchURL(ctx context.Context, rawURL string) ([]types.RawConte
 	}
 	items = s.hydrateReferences(ctx, items)
 	items = s.annotate(items)
+	items = s.preserveStoredCaptureQuality(ctx, items)
 	items = s.preserveStoredProvenance(ctx, items)
 	if err := s.persistRawCaptures(ctx, items); err != nil {
 		return nil, err
@@ -309,6 +326,7 @@ func (s *Service) Poll(ctx context.Context) (types.PollReport, []types.RawConten
 			}
 			rawItems = s.hydrateReferences(ctx, rawItems)
 			rawItems = s.annotate(rawItems)
+			rawItems = s.preserveStoredCaptureQuality(ctx, rawItems)
 			// When a source returns empty results without error (e.g., Twitter 404/tombstone),
 			// mark the discovery identity as processed to avoid retrying permanently gone items.
 			// Network errors and rate limits return as errors, not (nil, nil).
@@ -403,11 +421,80 @@ func (s *Service) persistRawCaptures(ctx context.Context, items []types.RawConte
 	return nil
 }
 
+func (s *Service) preserveStoredCaptureQuality(ctx context.Context, items []types.RawContent) []types.RawContent {
+	if !s.reuseStoredCaptureQuality {
+		return items
+	}
+	out := make([]types.RawContent, 0, len(items))
+	for _, item := range items {
+		existing, err := s.store.GetRawCapture(ctx, item.Source, item.ExternalID)
+		if err == nil && shouldReuseStoredCapture(existing, item) {
+			item = mergeStoredCaptureQuality(existing, item)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func shouldReuseStoredCapture(existing, current types.RawContent) bool {
+	return captureQualityScore(existing) > captureQualityScore(current)
+}
+
+func captureQualityScore(raw types.RawContent) int {
+	switch raw.Source {
+	case "youtube":
+		if raw.Metadata.YouTube == nil || strings.TrimSpace(raw.Content) == "" {
+			return 0
+		}
+		switch raw.Metadata.YouTube.TranscriptMethod {
+		case "subtitle_vtt":
+			return 3
+		case "whisper":
+			return 2
+		case "title_only":
+			return 0
+		default:
+			return 1
+		}
+	case "bilibili":
+		if raw.Metadata.Bilibili == nil || strings.TrimSpace(raw.Content) == "" {
+			return 0
+		}
+		switch raw.Metadata.Bilibili.TranscriptMethod {
+		case "whisper":
+			return 2
+		case "title_only":
+			return 0
+		default:
+			return 1
+		}
+	default:
+		return 0
+	}
+}
+
+func mergeStoredCaptureQuality(existing, current types.RawContent) types.RawContent {
+	current.Content = existing.Content
+	switch current.Source {
+	case "youtube":
+		if current.Metadata.YouTube != nil && existing.Metadata.YouTube != nil {
+			current.Metadata.YouTube.TranscriptMethod = existing.Metadata.YouTube.TranscriptMethod
+			current.Metadata.YouTube.TranscriptDiagnostics = append([]types.TranscriptDiagnostic(nil), existing.Metadata.YouTube.TranscriptDiagnostics...)
+		}
+	case "bilibili":
+		if current.Metadata.Bilibili != nil && existing.Metadata.Bilibili != nil {
+			current.Metadata.Bilibili.TranscriptMethod = existing.Metadata.Bilibili.TranscriptMethod
+			current.Metadata.Bilibili.TranscriptDiagnostics = append([]types.TranscriptDiagnostic(nil), existing.Metadata.Bilibili.TranscriptDiagnostics...)
+		}
+	}
+	return current
+}
+
 func (s *Service) preserveStoredProvenance(ctx context.Context, items []types.RawContent) []types.RawContent {
 	out := make([]types.RawContent, 0, len(items))
 	for _, item := range items {
 		existing, err := s.store.GetRawCapture(ctx, item.Source, item.ExternalID)
-		if err == nil && hasResolvedSourceLookup(existing.Provenance) {
+		if err == nil && hasResolvedSourceLookup(existing.Provenance) && shouldPreserveStoredProvenance(item.Provenance) {
 			item.Provenance = cloneProvenance(existing.Provenance)
 		}
 		out = append(out, item)
@@ -559,6 +646,16 @@ func (s *Service) markProcessed(ctx context.Context, items []types.RawContent) e
 		}
 	}
 	return nil
+}
+
+func shouldPreserveStoredProvenance(prov *types.Provenance) bool {
+	if prov == nil {
+		return false
+	}
+	if !prov.NeedsSourceLookup {
+		return false
+	}
+	return len(prov.SourceCandidates) > 0
 }
 
 func hasResolvedSourceLookup(prov *types.Provenance) bool {

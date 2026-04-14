@@ -6,10 +6,10 @@ import (
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
 
-func TestClassifier_TranslationCommentaryHigh(t *testing.T) {
+func TestClassifier_StructuredSourceLinksStayDeterministic(t *testing.T) {
 	raw := types.RawContent{
 		Source:     "youtube",
-		Content:    "翻译整理内容",
+		Content:    "巴菲特访谈",
 		AuthorName: "channel",
 		URL:        "https://www.youtube.com/watch?v=abc123",
 		Metadata: types.RawMetadata{
@@ -22,27 +22,30 @@ func TestClassifier_TranslationCommentaryHigh(t *testing.T) {
 	}
 
 	got := Classify(raw)
-	if got.BaseRelation != types.BaseRelationTranslation {
-		t.Fatalf("BaseRelation = %q, want %q", got.BaseRelation, types.BaseRelationTranslation)
+	if got.BaseRelation != types.BaseRelationUnknown {
+		t.Fatalf("BaseRelation = %q, want unknown", got.BaseRelation)
 	}
-	if got.EditorialLayer != types.EditorialLayerCommentary {
-		t.Fatalf("EditorialLayer = %q, want %q", got.EditorialLayer, types.EditorialLayerCommentary)
+	if got.EditorialLayer != types.EditorialLayerUnknown {
+		t.Fatalf("EditorialLayer = %q, want unknown", got.EditorialLayer)
 	}
-	if got.Confidence != types.ConfidenceHigh {
-		t.Fatalf("Confidence = %q, want %q", got.Confidence, types.ConfidenceHigh)
+	if got.Confidence != types.ConfidenceMedium {
+		t.Fatalf("Confidence = %q, want medium", got.Confidence)
 	}
 	if !got.NeedsSourceLookup {
 		t.Fatal("NeedsSourceLookup = false, want true")
 	}
 	if got.SourceLookup.Status != types.SourceLookupStatusPending {
-		t.Fatalf("SourceLookup.Status = %q, want %q", got.SourceLookup.Status, types.SourceLookupStatusPending)
+		t.Fatalf("SourceLookup.Status = %q, want pending", got.SourceLookup.Status)
 	}
 	if len(got.SourceCandidates) != 1 || got.SourceCandidates[0].URL != "https://www.cnbc.com/interview" {
 		t.Fatalf("SourceCandidates = %#v", got.SourceCandidates)
 	}
+	if got.SourceCandidates[0].Kind != "source_link" {
+		t.Fatalf("SourceCandidates[0].Kind = %q, want source_link", got.SourceCandidates[0].Kind)
+	}
 }
 
-func TestClassifier_TranslationMediumWithoutSourceLink(t *testing.T) {
+func TestClassifier_NoStructuredSourceStaysNotNeeded(t *testing.T) {
 	raw := types.RawContent{
 		Source:     "bilibili",
 		Content:    "翻译整理内容",
@@ -57,71 +60,76 @@ func TestClassifier_TranslationMediumWithoutSourceLink(t *testing.T) {
 	}
 
 	got := Classify(raw)
-	if got.BaseRelation != types.BaseRelationTranslation {
-		t.Fatalf("BaseRelation = %q, want %q", got.BaseRelation, types.BaseRelationTranslation)
+	if got.BaseRelation != types.BaseRelationUnknown {
+		t.Fatalf("BaseRelation = %q, want unknown", got.BaseRelation)
 	}
-	if got.EditorialLayer != types.EditorialLayerNone {
-		t.Fatalf("EditorialLayer = %q, want %q", got.EditorialLayer, types.EditorialLayerNone)
+	if got.Confidence != types.ConfidenceLow {
+		t.Fatalf("Confidence = %q, want low", got.Confidence)
 	}
-	if got.Confidence != types.ConfidenceMedium {
-		t.Fatalf("Confidence = %q, want %q", got.Confidence, types.ConfidenceMedium)
+	if got.NeedsSourceLookup {
+		t.Fatal("NeedsSourceLookup = true, want false")
 	}
-	if !got.NeedsSourceLookup {
-		t.Fatal("NeedsSourceLookup = false, want true")
+	if got.SourceLookup.Status != types.SourceLookupStatusNotNeeded {
+		t.Fatalf("SourceLookup.Status = %q, want not_needed", got.SourceLookup.Status)
 	}
 }
 
-func TestClassifier_WeakSignalsRemainUnknownLow(t *testing.T) {
+func TestClassifier_WeiboRepostMarksNativeRelation(t *testing.T) {
 	raw := types.RawContent{
-		Source:     "youtube",
-		Content:    "这是一个访谈。",
-		AuthorName: "channel",
-		URL:        "https://www.youtube.com/watch?v=abc123",
+		Source:  "weibo",
+		Content: "转发微博",
+		URL:     "https://weibo.com/111/repost_bid",
 		Metadata: types.RawMetadata{
-			YouTube: &types.YouTubeMetadata{
-				Title:       "巴菲特访谈",
-				Description: "访谈节目录制",
+			Weibo: &types.WeiboMetadata{
+				IsRepost:    true,
+				OriginalURL: "https://weibo.com/222/original_bid",
 			},
 		},
 	}
 
 	got := Classify(raw)
-	if got.BaseRelation != types.BaseRelationUnknown {
-		t.Fatalf("BaseRelation = %q, want %q", got.BaseRelation, types.BaseRelationUnknown)
+	if got.BaseRelation != types.BaseRelationRepost {
+		t.Fatalf("BaseRelation = %q, want repost", got.BaseRelation)
 	}
-	if got.EditorialLayer != types.EditorialLayerUnknown {
-		t.Fatalf("EditorialLayer = %q, want %q", got.EditorialLayer, types.EditorialLayerUnknown)
-	}
-	if got.Confidence != types.ConfidenceLow {
-		t.Fatalf("Confidence = %q, want %q", got.Confidence, types.ConfidenceLow)
+	if got.Confidence != types.ConfidenceHigh {
+		t.Fatalf("Confidence = %q, want high", got.Confidence)
 	}
 	if !got.NeedsSourceLookup {
 		t.Fatal("NeedsSourceLookup = false, want true")
 	}
-	if got.SourceLookup.Status != types.SourceLookupStatusPending {
-		t.Fatalf("SourceLookup.Status = %q, want %q", got.SourceLookup.Status, types.SourceLookupStatusPending)
+	if len(got.SourceCandidates) != 1 {
+		t.Fatalf("SourceCandidates = %#v, want 1", got.SourceCandidates)
+	}
+	if got.SourceCandidates[0].Kind != "source_link" {
+		t.Fatalf("SourceCandidates[0].Kind = %q, want source_link", got.SourceCandidates[0].Kind)
+	}
+	if got.Evidence[0].Kind != "native_repost" {
+		t.Fatalf("Evidence[0] = %#v, want native_repost evidence", got.Evidence[0])
 	}
 }
 
-func TestClassifier_UsesExpandedQuoteAndTranscriptText(t *testing.T) {
+func TestClassifier_QuoteTweetMarksNativeQuote(t *testing.T) {
 	raw := types.RawContent{
-		Source:  "weibo",
-		Content: "主帖正文\n\n[引用#1 @来源]\n\n[附件#1 视频]",
-		URL:     "https://weibo.com/123/abc",
+		Source:  "twitter",
+		Content: "主帖正文",
+		URL:     "https://x.com/alice/status/123",
 		Quotes: []types.Quote{{
-			Content: "这是翻译整理的引用内容",
-		}},
-		Attachments: []types.Attachment{{
-			Type:       "video",
-			Transcript: "这里是 commentary 分析补充",
+			Relation: "quote_tweet",
+			URL:      "https://x.com/bob/status/456",
 		}},
 	}
 
 	got := Classify(raw)
-	if got.BaseRelation != types.BaseRelationTranslation {
-		t.Fatalf("BaseRelation = %q, want %q", got.BaseRelation, types.BaseRelationTranslation)
+	if got.BaseRelation != types.BaseRelationQuote {
+		t.Fatalf("BaseRelation = %q, want quote", got.BaseRelation)
 	}
-	if got.EditorialLayer != types.EditorialLayerCommentary {
-		t.Fatalf("EditorialLayer = %q, want %q", got.EditorialLayer, types.EditorialLayerCommentary)
+	if got.Confidence != types.ConfidenceHigh {
+		t.Fatalf("Confidence = %q, want high", got.Confidence)
+	}
+	if len(got.SourceCandidates) != 1 {
+		t.Fatalf("SourceCandidates = %#v, want 1", got.SourceCandidates)
+	}
+	if got.SourceCandidates[0].Kind != "native_quote" {
+		t.Fatalf("SourceCandidates[0].Kind = %q, want native_quote", got.SourceCandidates[0].Kind)
 	}
 }

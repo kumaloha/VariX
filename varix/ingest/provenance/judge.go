@@ -41,6 +41,22 @@ func (DeterministicJudge) Judge(_ context.Context, raw types.RawContent, candida
 		}
 	}
 
+	for _, candidate := range concrete {
+		if isExplicitRelationCandidate(candidate) && indicatesDerivation(raw) {
+			return MatchResult{
+				Lookup: types.SourceLookupState{
+					Status:             types.SourceLookupStatusFound,
+					CanonicalSourceURL: candidate.URL,
+					ResolvedBy:         "deterministic_judge",
+					MatchKind:          types.SourceMatchLikelyDerived,
+				},
+				BaseRelation:   raw.Provenance.BaseRelation,
+				EditorialLayer: raw.Provenance.EditorialLayer,
+				Fidelity:       defaultFidelity(raw.Provenance.BaseRelation),
+			}, nil
+		}
+	}
+
 	rawHost := hostFromURL(raw.URL)
 	for _, candidate := range concrete {
 		candidateHost := hostFromURL(candidate.URL)
@@ -103,7 +119,16 @@ func isCrossPlatformCandidate(rawHost, candidateHost string) bool {
 }
 
 func isHighConfidenceEmbeddedLink(candidate types.SourceCandidate) bool {
-	return candidate.Kind == "embedded_link" && candidate.Confidence == string(types.ConfidenceHigh)
+	return candidate.Kind == "source_link" && candidate.Confidence == string(types.ConfidenceHigh)
+}
+
+func isExplicitRelationCandidate(candidate types.SourceCandidate) bool {
+	switch candidate.Kind {
+	case "native_quote", "native_repost":
+		return true
+	default:
+		return false
+	}
 }
 
 func indicatesDerivation(raw types.RawContent) bool {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/kumaloha/VariX/varix/ingest/sources/audioutil"
 )
@@ -27,7 +28,12 @@ func NewWhisperAudioTranscriber(projectRoot string, httpClient *http.Client) *Wh
 	}
 	return &WhisperAudioTranscriber{
 		client: httpClient,
-		asr:    audioutil.NewClientFromConfig(projectRoot, httpClient),
+		asr: audioutil.NewClientFromConfigWithRetry(projectRoot, httpClient, audioutil.RetryConfig{
+			DefaultMax:     4,
+			DefaultDelay:   750 * time.Millisecond,
+			RetryMaxKeys:   []string{"YOUTUBE_ASR_RETRY_MAX", "ASR_RETRY_MAX", "ASR_RATE_LIMIT_RETRIES"},
+			RetryDelayKeys: []string{"YOUTUBE_ASR_RETRY_DELAY_MS", "ASR_RETRY_DELAY_MS"},
+		}),
 	}
 }
 

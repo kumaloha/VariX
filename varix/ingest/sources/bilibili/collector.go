@@ -73,7 +73,7 @@ func (c *Collector) Fetch(ctx context.Context, parsed types.ParsedURL) ([]types.
 		}
 	}
 	if text == "" {
-		text = "# " + title + "\n\n（无法获取视频内容）"
+		text = unavailableVideoContent(title, metadata.Description)
 		method = "title_only"
 	}
 
@@ -112,10 +112,21 @@ func classifyTranscriptDiagnostic(stage, text string, err error) (types.Transcri
 		code = "asr_key_missing"
 	case errors.Is(err, exec.ErrNotFound) || strings.Contains(strings.ToLower(err.Error()), "tool missing"):
 		code = "tool_missing"
+	case strings.Contains(strings.ToLower(err.Error()), "status 429") || strings.Contains(strings.ToLower(err.Error()), "rate limit"):
+		code = "rate_limited"
 	}
 	return types.TranscriptDiagnostic{
 		Stage:  stage,
 		Code:   code,
 		Detail: err.Error(),
 	}, true
+}
+
+func unavailableVideoContent(title, description string) string {
+	title = strings.TrimSpace(title)
+	description = strings.TrimSpace(description)
+	if description == "" {
+		return "# " + title + "\n\n（无法获取视频内容）"
+	}
+	return "# " + title + "\n\n（无法获取视频内容，以下为视频简介）\n\n" + description
 }

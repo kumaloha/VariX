@@ -241,7 +241,7 @@ func TestTranscribeRemoteVideo_FullPipeline(t *testing.T) {
 	}
 }
 
-func TestTranscribeRemoteVideo_RejectsTooLong(t *testing.T) {
+func TestTranscribeRemoteVideo_SplitsWhenTooLong(t *testing.T) {
 	origProbe := ExecProbe
 	origExtract := ExecExtract
 	defer func() { ExecProbe = origProbe; ExecExtract = origExtract }()
@@ -249,9 +249,8 @@ func TestTranscribeRemoteVideo_RejectsTooLong(t *testing.T) {
 	ExecProbe = func(_ context.Context, _ string) (time.Duration, error) {
 		return 15 * time.Minute, nil
 	}
-	ExecExtract = func(_ context.Context, _, _ string) error {
-		t.Fatal("extract should not be called for too-long video")
-		return nil
+	ExecExtract = func(_ context.Context, _, output string) error {
+		return os.WriteFile(output, []byte(strings.Repeat("a", 2048)), 0o644)
 	}
 
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -268,21 +267,35 @@ func TestTranscribeRemoteVideo_RejectsTooLong(t *testing.T) {
 		}, nil
 	})}
 
-	asr := &Client{httpClient: http.DefaultClient, baseURL: "https://asr.test", apiKey: "k", model: "m", maxUploadBytes: 1 << 20}
+	asrClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"text":"long transcript"}`)),
+		}, nil
+	})}
+
+	asr := &Client{
+		httpClient:     asrClient,
+		baseURL:        "https://asr.test",
+		apiKey:         "k",
+		model:          "m",
+		maxUploadBytes: 1 << 20,
+		splitter: func(_ context.Context, inputPath string, _ int) (splitArtifacts, error) {
+			part := inputPath + ".part.mp3"
+			if err := os.WriteFile(part, []byte("segment"), 0o644); err != nil {
+				return splitArtifacts{}, err
+			}
+			return splitArtifacts{Parts: []string{part}}, nil
+		},
+	}
 
 	result, err := TranscribeRemoteVideo(context.Background(), httpClient, "https://example.com/video.mp4", asr, RemoteVideoOptions{})
-	if err == nil {
-		t.Fatal("TranscribeRemoteVideo() error = nil, want duration exceeded")
+	if err != nil {
+		t.Fatalf("TranscribeRemoteVideo() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("error = %v, want 'exceeds' in message", err)
-	}
-	if len(result.TranscriptDiagnostics) == 0 {
-		t.Fatal("TranscriptDiagnostics empty, want probe/duration_exceeded")
-	}
-	diag := result.TranscriptDiagnostics[0]
-	if diag.Stage != "probe" || diag.Code != "duration_exceeded" {
-		t.Fatalf("diagnostic = %+v, want stage=probe code=duration_exceeded", diag)
+	if result.Transcript != "long transcript" {
+		t.Fatalf("Transcript = %q, want long transcript", result.Transcript)
 	}
 }
 
@@ -362,6 +375,116 @@ func TestTranscribeRemoteVideo_DownloadFailure(t *testing.T) {
 	}
 	if result.TranscriptDiagnostics[0].Stage != "download" {
 		t.Fatalf("diagnostic stage = %q, want download", result.TranscriptDiagnostics[0].Stage)
+	}
+}
+
+func TestTranscribeRemoteVideo_FallsBackToDirectAudioExtractionWhenVideoTooLarge(t *testing.T) {
+	origProbe := ExecProbe
+	origExtract := ExecExtract
+	defer func() { ExecProbe = origProbe; ExecExtract = origExtract }()
+
+	ExecProbe = func(_ context.Context, _ string) (time.Duration, error) {
+		return 3 * time.Minute, nil
+	}
+	ExecExtract = func(_ context.Context, input, output string) error {
+		if input != "https://example.com/video.mp4" {
+			t.Fatalf("ExtractAudio input = %q, want remote media URL", input)
+		}
+		return os.WriteFile(output, []byte("audio-data"), 0o644)
+	}
+
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			ContentLength: 999 << 20, // force remote video download rejection
+			Body:          io.NopCloser(strings.NewReader("")),
+		}, nil
+	})}
+
+	asrClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"text":"direct audio transcript"}`)),
+		}, nil
+	})}
+
+	asr := &Client{
+		httpClient:     asrClient,
+		baseURL:        "https://asr.test",
+		apiKey:         "k",
+		model:          "m",
+		maxUploadBytes: 1 << 20,
+		splitter: func(context.Context, string, int) (splitArtifacts, error) {
+			t.Fatal("splitter should not be called")
+			return splitArtifacts{}, nil
+		},
+	}
+
+	result, err := TranscribeRemoteVideo(context.Background(), httpClient, "https://example.com/video.mp4", asr, RemoteVideoOptions{})
+	if err != nil {
+		t.Fatalf("TranscribeRemoteVideo() error = %v", err)
+	}
+	if result.Transcript != "direct audio transcript" {
+		t.Fatalf("Transcript = %q, want direct audio transcript", result.Transcript)
+	}
+	if result.TranscriptMethod != "whisper" {
+		t.Fatalf("TranscriptMethod = %q, want whisper", result.TranscriptMethod)
+	}
+}
+
+func TestTranscribeRemoteVideo_FallsBackToDirectAudioExtractionAndSplitsWhenTooLong(t *testing.T) {
+	origProbe := ExecProbe
+	origExtract := ExecExtract
+	defer func() { ExecProbe = origProbe; ExecExtract = origExtract }()
+
+	ExecProbe = func(_ context.Context, _ string) (time.Duration, error) {
+		return 737 * time.Second, nil
+	}
+	ExecExtract = func(_ context.Context, input, output string) error {
+		if input != "https://example.com/video.mp4" {
+			t.Fatalf("ExtractAudio input = %q, want remote media URL", input)
+		}
+		return os.WriteFile(output, []byte(strings.Repeat("a", 2048)), 0o644)
+	}
+
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			ContentLength: 999 << 20,
+			Body:          io.NopCloser(strings.NewReader("")),
+		}, nil
+	})}
+
+	asrClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"text":"segmented direct audio transcript"}`)),
+		}, nil
+	})}
+
+	asr := &Client{
+		httpClient:     asrClient,
+		baseURL:        "https://asr.test",
+		apiKey:         "k",
+		model:          "m",
+		maxUploadBytes: 1 << 20,
+		splitter: func(_ context.Context, inputPath string, _ int) (splitArtifacts, error) {
+			part := inputPath + ".part.mp3"
+			if err := os.WriteFile(part, []byte("segment"), 0o644); err != nil {
+				return splitArtifacts{}, err
+			}
+			return splitArtifacts{Parts: []string{part}}, nil
+		},
+	}
+
+	result, err := TranscribeRemoteVideo(context.Background(), httpClient, "https://example.com/video.mp4", asr, RemoteVideoOptions{})
+	if err != nil {
+		t.Fatalf("TranscribeRemoteVideo() error = %v", err)
+	}
+	if result.Transcript != "segmented direct audio transcript" {
+		t.Fatalf("Transcript = %q, want segmented direct audio transcript", result.Transcript)
 	}
 }
 

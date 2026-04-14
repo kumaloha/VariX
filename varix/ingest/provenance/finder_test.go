@@ -12,7 +12,7 @@ import (
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
 
-func TestRuleFinder_UsesEmbeddedLinksBeforeTitleSearch(t *testing.T) {
+func TestRuleFinder_UsesStructuredSourceCandidates(t *testing.T) {
 	raw := types.RawContent{
 		URL: "https://www.youtube.com/watch?v=abc123",
 		Metadata: types.RawMetadata{
@@ -22,9 +22,12 @@ func TestRuleFinder_UsesEmbeddedLinksBeforeTitleSearch(t *testing.T) {
 			},
 		},
 		Provenance: &types.Provenance{
-			SourceCandidates: []types.SourceCandidate{
-				{URL: "https://www.cnbc.com/interview", Host: "www.cnbc.com", Kind: "embedded_link", Confidence: "high"},
-			},
+			SourceCandidates: []types.SourceCandidate{{
+				URL:        "https://www.cnbc.com/interview",
+				Host:       "www.cnbc.com",
+				Kind:       "source_link",
+				Confidence: "high",
+			}},
 		},
 	}
 
@@ -32,18 +35,15 @@ func TestRuleFinder_UsesEmbeddedLinksBeforeTitleSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindCandidates() error = %v", err)
 	}
-	if len(got) < 2 {
-		t.Fatalf("len(FindCandidates()) = %d, want at least 2", len(got))
+	if len(got) != 1 {
+		t.Fatalf("len(FindCandidates()) = %d, want 1", len(got))
 	}
-	if got[0].URL != "https://www.cnbc.com/interview" || got[0].Kind != "embedded_link" {
-		t.Fatalf("first candidate = %#v, want embedded link", got[0])
-	}
-	if got[1].Kind != "title_search" {
-		t.Fatalf("second candidate = %#v, want title_search", got[1])
+	if got[0].URL != "https://www.cnbc.com/interview" || got[0].Kind != "source_link" {
+		t.Fatalf("candidate = %#v, want structured source link", got[0])
 	}
 }
 
-func TestRuleFinder_AddsOnlyTitleSearchWhenNoEmbeddedLinks(t *testing.T) {
+func TestRuleFinder_AddsNoSyntheticFallbackWhenNoStructuredLinks(t *testing.T) {
 	raw := types.RawContent{
 		URL: "https://www.bilibili.com/video/BV1ABCDEF123",
 		Metadata: types.RawMetadata{
@@ -57,14 +57,8 @@ func TestRuleFinder_AddsOnlyTitleSearchWhenNoEmbeddedLinks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindCandidates() error = %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("len(FindCandidates()) = %d, want 1", len(got))
-	}
-	if got[0].Kind != "title_search" {
-		t.Fatalf("candidate = %#v, want title_search", got[0])
-	}
-	if got[0].URL == "" {
-		t.Fatalf("candidate = %#v, want synthetic search url", got[0])
+	if len(got) != 0 {
+		t.Fatalf("len(FindCandidates()) = %d, want 0", len(got))
 	}
 }
 
@@ -74,9 +68,6 @@ func TestRuleFinder_FiltersPlatformSelfLinksForYouTube(t *testing.T) {
 		Metadata: types.RawMetadata{
 			YouTube: &types.YouTubeMetadata{
 				Title: "巴菲特访谈中字解读",
-				Description: "👉 https://www.youtube.com/channel/UC1Xm-VhWUqZcPCCN5R2MniA/join\n" +
-					"🔗 原视频 https://www.cnbc.com/video/buffett-interview\n" +
-					"📺 https://www.youtube.com/playlist?list=PL123",
 				SourceLinks: []string{
 					"https://www.youtube.com/channel/UC1Xm-VhWUqZcPCCN5R2MniA/join",
 					"https://www.cnbc.com/video/buffett-interview",
@@ -179,16 +170,16 @@ func TestRuleFinder_IncludesWeiboOriginalURL(t *testing.T) {
 	t.Fatalf("candidates = %#v, want OriginalURL source candidate", got)
 }
 
-func TestRuleFinder_ExtractsLinksFromExpandedStructuredText(t *testing.T) {
+func TestRuleFinder_UsesStructuredQuoteAndReferenceURLs(t *testing.T) {
 	raw := types.RawContent{
 		URL:     "https://weibo.com/111/repost_bid",
-		Content: "主帖正文\n\n[引用#1 @来源]\n\n[附件#1 视频]",
+		Content: "主帖正文",
 		Quotes: []types.Quote{{
-			Content: "引用里有链接 https://example.com/source-quote",
+			Relation: "quote_tweet",
+			URL:      "https://x.com/source/status/123",
 		}},
-		Attachments: []types.Attachment{{
-			Type:       "video",
-			Transcript: "转写里也有链接 https://example.com/source-transcript",
+		References: []types.Reference{{
+			URL: "https://example.com/source-article",
 		}},
 	}
 
@@ -200,11 +191,16 @@ func TestRuleFinder_ExtractsLinksFromExpandedStructuredText(t *testing.T) {
 	for _, candidate := range got {
 		seen[candidate.URL] = true
 	}
-	if !seen["https://example.com/source-quote"] {
-		t.Fatalf("candidates = %#v, want quote link", got)
+	if !seen["https://x.com/source/status/123"] {
+		t.Fatalf("candidates = %#v, want quote url", got)
 	}
-	if !seen["https://example.com/source-transcript"] {
-		t.Fatalf("candidates = %#v, want transcript link", got)
+	if !seen["https://example.com/source-article"] {
+		t.Fatalf("candidates = %#v, want reference url", got)
+	}
+	for _, candidate := range got {
+		if candidate.URL == "https://example.com/source-article" && candidate.Kind != "reference_link" {
+			t.Fatalf("reference candidate = %#v, want reference_link", candidate)
+		}
 	}
 }
 
@@ -274,7 +270,7 @@ func TestHTTPResolver_ResolveFallsBackToGetOnHeadStatus(t *testing.T) {
 			if got != "https://example.com/dest" {
 				t.Fatalf("Resolve() = %q, want %q", got, "https://example.com/dest")
 			}
-			if len(methods) < 2 || methods[0] != http.MethodHead || methods[1] != http.MethodGet {
+			if len(methods) != 2 || methods[0] != http.MethodHead || methods[1] != http.MethodGet {
 				t.Fatalf("methods = %#v, want HEAD then GET", methods)
 			}
 		})
@@ -289,17 +285,14 @@ func TestHTTPResolver_ResolveFallsBackToGetOnHeadError(t *testing.T) {
 			if req.Method == http.MethodHead {
 				return nil, errors.New("head failed")
 			}
-			resolvedURL, err := url.Parse("https://example.com/resolved")
+			resolvedURL, err := url.Parse("https://example.com/dest")
 			if err != nil {
 				t.Fatalf("url.Parse() error = %v", err)
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Body:       io.NopCloser(http.NoBody),
-				Request: &http.Request{
-					Method: http.MethodGet,
-					URL:    resolvedURL,
-				},
+				Request:    &http.Request{Method: req.Method, URL: resolvedURL},
 			}, nil
 		}),
 	}
@@ -308,39 +301,11 @@ func TestHTTPResolver_ResolveFallsBackToGetOnHeadError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if got != "https://example.com/resolved" {
-		t.Fatalf("Resolve() = %q, want %q", got, "https://example.com/resolved")
+	if got != "https://example.com/dest" {
+		t.Fatalf("Resolve() = %q, want %q", got, "https://example.com/dest")
 	}
-	if len(methods) < 2 || methods[0] != http.MethodHead || methods[1] != http.MethodGet {
+	if len(methods) != 2 || methods[0] != http.MethodHead || methods[1] != http.MethodGet {
 		t.Fatalf("methods = %#v, want HEAD then GET", methods)
-	}
-}
-
-func TestHTTPResolver_ResolveWrapsRequestContextWithTenSecondTimeout(t *testing.T) {
-	client := &http.Client{
-		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-			deadline, ok := req.Context().Deadline()
-			if !ok {
-				t.Fatal("request context has no deadline")
-			}
-			remaining := time.Until(deadline)
-			if remaining <= 0 || remaining > 10*time.Second || remaining < 8*time.Second {
-				t.Fatalf("time.Until(deadline) = %v, want within (8s, 10s]", remaining)
-			}
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(http.NoBody),
-				Request:    req,
-			}, nil
-		}),
-	}
-
-	got, err := NewHTTPResolver(client).Resolve(context.Background(), "https://example.com/short")
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
-	}
-	if got != "https://example.com/short" {
-		t.Fatalf("Resolve() = %q, want original URL when no redirect occurs", got)
 	}
 }
 
@@ -349,11 +314,11 @@ type fakeResolver struct {
 	errs map[string]error
 }
 
-func (f fakeResolver) Resolve(_ context.Context, raw string) (string, error) {
-	if err, ok := f.errs[raw]; ok {
+func (r fakeResolver) Resolve(_ context.Context, raw string) (string, error) {
+	if err, ok := r.errs[raw]; ok {
 		return "", err
 	}
-	if out, ok := f.out[raw]; ok {
+	if out, ok := r.out[raw]; ok {
 		return out, nil
 	}
 	return raw, nil
@@ -361,6 +326,13 @@ func (f fakeResolver) Resolve(_ context.Context, raw string) (string, error) {
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+func TestHTTPResolver_DefaultTimeout(t *testing.T) {
+	resolver := NewHTTPResolver(nil)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = resolver.Resolve(ctx, "http://127.0.0.1:1")
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -56,6 +57,55 @@ func TestTranscribeFile_UploadsSingleSmallFile(t *testing.T) {
 	}
 	if atomic.LoadInt32(&calls) != 1 {
 		t.Fatalf("upload calls = %d, want 1", atomic.LoadInt32(&calls))
+	}
+}
+
+func TestTranscribeFile_RetriesOnRateLimit(t *testing.T) {
+	var calls int32
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		call := atomic.AddInt32(&calls, 1)
+		if call == 1 {
+			return &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Body:       io.NopCloser(strings.NewReader("rate limited")),
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"text":"retried transcript"}`)),
+		}, nil
+	})}
+
+	dir := t.TempDir()
+	audioPath := filepath.Join(dir, "audio.mp3")
+	if err := os.WriteFile(audioPath, []byte("small"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	c := &Client{
+		httpClient:       client,
+		baseURL:          "https://asr.test",
+		apiKey:           "test-key",
+		model:            "test-model",
+		maxUploadBytes:   1024,
+		rateLimitRetries: 1,
+		retryDelay:       func(int) time.Duration { return 0 },
+		splitter: func(context.Context, string, int) (splitArtifacts, error) {
+			t.Fatal("splitter should not be called for small file")
+			return splitArtifacts{}, nil
+		},
+	}
+
+	got, err := c.TranscribeFile(context.Background(), audioPath)
+	if err != nil {
+		t.Fatalf("TranscribeFile() error = %v", err)
+	}
+	if got != "retried transcript" {
+		t.Fatalf("TranscribeFile() = %q, want retried transcript", got)
+	}
+	if atomic.LoadInt32(&calls) != 2 {
+		t.Fatalf("upload calls = %d, want 2", atomic.LoadInt32(&calls))
 	}
 }
 

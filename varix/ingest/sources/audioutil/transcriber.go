@@ -20,7 +20,10 @@ import (
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
 
-var ErrPayloadTooLarge = errors.New("payload too large")
+var (
+	ErrPayloadTooLarge = errors.New("payload too large")
+	ErrRateLimited     = errors.New("rate limited")
+)
 
 const (
 	defaultMaxUploadBytes = 20 * 1024 * 1024
@@ -53,13 +56,23 @@ var (
 )
 
 type Client struct {
-	httpClient     *http.Client
-	baseURL        string
-	apiKey         string
-	model          string
-	maxUploadBytes int64
-	segmentSeconds int
-	splitter       func(ctx context.Context, inputPath string, seconds int) (splitArtifacts, error)
+	httpClient       *http.Client
+	baseURL          string
+	apiKey           string
+	model            string
+	maxUploadBytes   int64
+	segmentSeconds   int
+	splitter         func(ctx context.Context, inputPath string, seconds int) (splitArtifacts, error)
+	rateLimitRetries int
+	retryDelay       func(attempt int) time.Duration
+}
+
+func (c *Client) RateLimitRetries() int {
+	return c.rateLimitRetries
+}
+
+func (c *Client) RetryDelay(attempt int) time.Duration {
+	return c.retryBackoff(attempt)
 }
 
 func NewClient(httpClient *http.Client, baseURL, apiKey, model string) *Client {
@@ -67,13 +80,20 @@ func NewClient(httpClient *http.Client, baseURL, apiKey, model string) *Client {
 		httpClient = http.DefaultClient
 	}
 	return &Client{
-		httpClient:     httpClient,
-		baseURL:        strings.TrimRight(baseURL, "/"),
-		apiKey:         apiKey,
-		model:          model,
-		maxUploadBytes: defaultMaxUploadBytes,
-		segmentSeconds: defaultSegmentSeconds,
-		splitter:       splitWithFFmpeg,
+		httpClient:       httpClient,
+		baseURL:          strings.TrimRight(baseURL, "/"),
+		apiKey:           apiKey,
+		model:            model,
+		maxUploadBytes:   defaultMaxUploadBytes,
+		segmentSeconds:   defaultSegmentSeconds,
+		splitter:         splitWithFFmpeg,
+		rateLimitRetries: 2,
+		retryDelay: func(attempt int) time.Duration {
+			if attempt < 1 {
+				attempt = 1
+			}
+			return time.Duration(attempt) * 500 * time.Millisecond
+		},
 	}
 }
 
@@ -142,6 +162,49 @@ func (c *Client) transcribeSplit(ctx context.Context, audioPath string) (string,
 }
 
 func (c *Client) uploadFile(ctx context.Context, audioPath string) (string, error) {
+	retries := c.rateLimitRetries
+	if retries < 0 {
+		retries = 0
+	}
+	var lastErr error
+	for attempt := 0; attempt <= retries; attempt++ {
+		text, err := c.uploadFileOnce(ctx, audioPath)
+		if err == nil {
+			return text, nil
+		}
+		lastErr = err
+		if !errors.Is(err, ErrRateLimited) || attempt == retries {
+			return "", err
+		}
+		if waitErr := sleepWithContext(ctx, c.retryBackoff(attempt+1)); waitErr != nil {
+			return "", waitErr
+		}
+	}
+	return "", lastErr
+}
+
+func (c *Client) retryBackoff(attempt int) time.Duration {
+	if c.retryDelay == nil {
+		return time.Duration(attempt) * 500 * time.Millisecond
+	}
+	return c.retryDelay(attempt)
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+func (c *Client) uploadFileOnce(ctx context.Context, audioPath string) (string, error) {
 	file, err := os.Open(audioPath)
 	if err != nil {
 		return "", err
@@ -178,6 +241,9 @@ func (c *Client) uploadFile(ctx context.Context, audioPath string) (string, erro
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusRequestEntityTooLarge {
 		return "", ErrPayloadTooLarge
+	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return "", fmt.Errorf("%w: transcription failed: status %d", ErrRateLimited, resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("transcription failed: status %d", resp.StatusCode)
@@ -312,6 +378,71 @@ func ExtractAudio(ctx context.Context, inputPath, audioPath string) error {
 	return ExecExtract(ctx, inputPath, audioPath)
 }
 
+func transcribeRemoteAudioDirect(ctx context.Context, mediaURL string, asr *Client, maxDur time.Duration) (RemoteVideoResult, error) {
+	audioFile, err := os.CreateTemp("", "invarix-remote-audio-*.mp3")
+	if err != nil {
+		return RemoteVideoResult{}, err
+	}
+	audioPath := audioFile.Name()
+	audioFile.Close()
+	defer os.Remove(audioPath)
+
+	if err := ExtractAudio(ctx, mediaURL, audioPath); err != nil {
+		return RemoteVideoResult{
+			TranscriptDiagnostics: []types.TranscriptDiagnostic{
+				{Stage: "extract", Code: "ffmpeg_failed", Detail: err.Error()},
+			},
+		}, fmt.Errorf("audio extraction: %w", err)
+	}
+
+	return transcribePreparedAudio(ctx, asr, audioPath, maxDur, "audio")
+}
+
+func transcribePreparedAudio(ctx context.Context, asr *Client, audioPath string, maxDur time.Duration, probeLabel string) (RemoteVideoResult, error) {
+	dur, err := ProbeDuration(ctx, audioPath)
+	if err != nil {
+		return RemoteVideoResult{
+			TranscriptDiagnostics: []types.TranscriptDiagnostic{
+				{Stage: "probe", Code: "probe_failed", Detail: err.Error()},
+			},
+		}, fmt.Errorf("%s probe: %w", probeLabel, err)
+	}
+
+	var transcript string
+	if dur > maxDur {
+		transcript, err = asr.transcribeSplit(ctx, audioPath)
+		if err != nil {
+			return RemoteVideoResult{
+				TranscriptDiagnostics: []types.TranscriptDiagnostic{
+					{Stage: "transcribe", Code: "asr_failed", Detail: err.Error()},
+				},
+			}, fmt.Errorf("%s duration %.0fs exceeded split threshold %.0fs: %w", probeLabel, dur.Seconds(), maxDur.Seconds(), err)
+		}
+	} else {
+		transcript, err = asr.TranscribeFile(ctx, audioPath)
+		if err != nil {
+			return RemoteVideoResult{
+				TranscriptDiagnostics: []types.TranscriptDiagnostic{
+					{Stage: "transcribe", Code: "asr_failed", Detail: err.Error()},
+				},
+			}, fmt.Errorf("transcription: %w", err)
+		}
+	}
+
+	return RemoteVideoResult{
+		Transcript:       transcript,
+		TranscriptMethod: "whisper",
+	}, nil
+}
+
+func isRemoteVideoTooLargeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "exceeds limit") || strings.Contains(msg, "video body exceeds")
+}
+
 func cleanupSplitArtifacts(artifacts splitArtifacts) {
 	seenFiles := make(map[string]struct{}, len(artifacts.Parts))
 	for _, part := range artifacts.Parts {
@@ -375,6 +506,18 @@ func TranscribeRemoteVideo(ctx context.Context, client *http.Client, mediaURL st
 
 	videoPath, err := Download(ctx, client, mediaURL, maxBytes)
 	if err != nil {
+		if isRemoteVideoTooLargeError(err) {
+			result, fallbackErr := transcribeRemoteAudioDirect(ctx, mediaURL, asr, maxDur)
+			if fallbackErr == nil {
+				return result, nil
+			}
+			if len(result.TranscriptDiagnostics) > 0 {
+				result.TranscriptDiagnostics = append([]types.TranscriptDiagnostic{
+					{Stage: "download", Code: "download_failed", Detail: err.Error()},
+				}, result.TranscriptDiagnostics...)
+				return result, fmt.Errorf("video download: %w; remote audio fallback: %v", err, fallbackErr)
+			}
+		}
 		return RemoteVideoResult{
 			TranscriptDiagnostics: []types.TranscriptDiagnostic{
 				{Stage: "download", Code: "download_failed", Detail: err.Error()},
@@ -383,20 +526,12 @@ func TranscribeRemoteVideo(ctx context.Context, client *http.Client, mediaURL st
 	}
 	defer os.Remove(videoPath)
 
-	dur, err := ProbeDuration(ctx, videoPath)
-	if err != nil {
+	if _, err := ProbeDuration(ctx, videoPath); err != nil {
 		return RemoteVideoResult{
 			TranscriptDiagnostics: []types.TranscriptDiagnostic{
 				{Stage: "probe", Code: "probe_failed", Detail: err.Error()},
 			},
 		}, fmt.Errorf("video probe: %w", err)
-	}
-	if dur > maxDur {
-		return RemoteVideoResult{
-			TranscriptDiagnostics: []types.TranscriptDiagnostic{
-				{Stage: "probe", Code: "duration_exceeded", Detail: fmt.Sprintf("%.0fs exceeds limit %.0fs", dur.Seconds(), maxDur.Seconds())},
-			},
-		}, fmt.Errorf("video duration %.0fs exceeds limit %.0fs", dur.Seconds(), maxDur.Seconds())
 	}
 
 	audioPath := videoPath + ".mp3"
@@ -410,17 +545,5 @@ func TranscribeRemoteVideo(ctx context.Context, client *http.Client, mediaURL st
 		}, fmt.Errorf("audio extraction: %w", err)
 	}
 
-	transcript, err := asr.TranscribeFile(ctx, audioPath)
-	if err != nil {
-		return RemoteVideoResult{
-			TranscriptDiagnostics: []types.TranscriptDiagnostic{
-				{Stage: "transcribe", Code: "asr_failed", Detail: err.Error()},
-			},
-		}, fmt.Errorf("transcription: %w", err)
-	}
-
-	return RemoteVideoResult{
-		Transcript:       transcript,
-		TranscriptMethod: "whisper",
-	}, nil
+	return transcribePreparedAudio(ctx, asr, audioPath, maxDur, "video")
 }

@@ -101,6 +101,26 @@ func (s *fakeStore) RecordPollReport(_ context.Context, report types.PollReport)
 	return nil
 }
 
+type candidateEnricher struct{}
+
+func (candidateEnricher) Annotate(items []types.RawContent) []types.RawContent {
+	out := make([]types.RawContent, 0, len(items))
+	for _, item := range items {
+		item.Provenance = &types.Provenance{
+			Confidence:        types.ConfidenceMedium,
+			NeedsSourceLookup: true,
+			SourceCandidates: []types.SourceCandidate{{
+				URL:        "https://example.com/source",
+				Kind:       "source_link",
+				Confidence: string(types.ConfidenceHigh),
+			}},
+			SourceLookup: types.SourceLookupState{Status: types.SourceLookupStatusPending},
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 type fakeDispatcher struct {
 	discovered     []types.DiscoveryItem
 	discoverErrFor map[string]error
@@ -201,7 +221,7 @@ func (fakeDispatcher) FetchDiscoveryItem(_ context.Context, item types.Discovery
 
 func TestService_FollowURLRegistersNativeTarget(t *testing.T) {
 	store := &fakeStore{processed: map[string]bool{}}
-	svc := New(store, fakeDispatcher{}, fakeEnricher{})
+	svc := New(store, fakeDispatcher{}, candidateEnricher{})
 
 	target, err := svc.FollowURL(context.Background(), "https://weibo.com/u/123456")
 	if err != nil {
@@ -219,6 +239,48 @@ func TestService_FollowURLRegistersNativeTarget(t *testing.T) {
 	if target.Locator != "https://weibo.com/u/123456" {
 		t.Fatalf("Locator = %q, want canonical profile URL", target.Locator)
 	}
+}
+
+type transcriptPreservingDispatcher struct{}
+
+func (transcriptPreservingDispatcher) SupportsFollow(kind types.Kind, platform types.Platform) bool {
+	return kind == types.KindNative && platform == types.PlatformYouTube
+}
+func (transcriptPreservingDispatcher) DiscoverFollowedTarget(context.Context, types.FollowTarget) ([]types.DiscoveryItem, error) {
+	return []types.DiscoveryItem{{
+		Platform:   types.PlatformYouTube,
+		ExternalID: "yt-1",
+		URL:        "https://www.youtube.com/watch?v=yt-1",
+	}}, nil
+}
+func (transcriptPreservingDispatcher) ParseURL(_ context.Context, rawURL string) (types.ParsedURL, error) {
+	return types.ParsedURL{Platform: types.PlatformYouTube, ContentType: types.ContentTypePost, PlatformID: "yt-1", CanonicalURL: rawURL}, nil
+}
+func (transcriptPreservingDispatcher) FetchByParsedURL(_ context.Context, parsed types.ParsedURL) ([]types.RawContent, error) {
+	return []types.RawContent{{
+		Source:     "youtube",
+		ExternalID: parsed.PlatformID,
+		URL:        parsed.CanonicalURL,
+		Content:    "# title\n\n（无法获取视频内容，以下为视频简介）\n\nnew fallback",
+		Metadata: types.RawMetadata{YouTube: &types.YouTubeMetadata{
+			Title:                 "title",
+			TranscriptMethod:      "title_only",
+			TranscriptDiagnostics: []types.TranscriptDiagnostic{{Stage: "audio", Code: "rate_limited"}},
+		}},
+	}}, nil
+}
+func (transcriptPreservingDispatcher) FetchDiscoveryItem(context.Context, types.DiscoveryItem) ([]types.RawContent, error) {
+	return []types.RawContent{{
+		Source:     "youtube",
+		ExternalID: "yt-1",
+		URL:        "https://www.youtube.com/watch?v=yt-1",
+		Content:    "# title\n\n（无法获取视频内容，以下为视频简介）\n\nnew fallback",
+		Metadata: types.RawMetadata{YouTube: &types.YouTubeMetadata{
+			Title:                 "title",
+			TranscriptMethod:      "title_only",
+			TranscriptDiagnostics: []types.TranscriptDiagnostic{{Stage: "audio", Code: "rate_limited"}},
+		}},
+	}}, nil
 }
 
 type referenceHydratingDispatcher struct{}
@@ -551,7 +613,7 @@ func TestService_PollTurnsSearchNoResultIntoWarning(t *testing.T) {
 
 func TestService_FetchURLMarksProcessed(t *testing.T) {
 	store := &fakeStore{processed: map[string]bool{}}
-	svc := New(store, fakeDispatcher{}, fakeEnricher{})
+	svc := New(store, fakeDispatcher{}, candidateEnricher{})
 
 	got, err := svc.FetchURL(context.Background(), "https://x.com/a/status/123")
 	if err != nil {
@@ -610,7 +672,7 @@ func TestService_FetchURLPreservesStoredResolvedProvenance(t *testing.T) {
 			},
 		}},
 	}
-	svc := New(store, fakeDispatcher{}, fakeEnricher{})
+	svc := New(store, fakeDispatcher{}, candidateEnricher{})
 
 	got, err := svc.FetchURL(context.Background(), "https://x.com/a/status/123")
 	if err != nil {
@@ -804,5 +866,117 @@ func TestService_PollDedupesResolvedShortURLOnNextPoll(t *testing.T) {
 	}
 	if report2.SkippedCount != 1 {
 		t.Fatalf("report2.SkippedCount = %d, want 1", report2.SkippedCount)
+	}
+}
+
+func TestShouldPreserveStoredProvenance(t *testing.T) {
+	if shouldPreserveStoredProvenance(nil) {
+		t.Fatal("nil provenance should not be preserved")
+	}
+	if shouldPreserveStoredProvenance(&types.Provenance{NeedsSourceLookup: false}) {
+		t.Fatal("not_needed provenance should not be preserved")
+	}
+	if shouldPreserveStoredProvenance(&types.Provenance{NeedsSourceLookup: true}) {
+		t.Fatal("lookup-needed provenance without candidates should not be preserved")
+	}
+	if !shouldPreserveStoredProvenance(&types.Provenance{NeedsSourceLookup: true, SourceCandidates: []types.SourceCandidate{{URL: "https://example.com"}}}) {
+		t.Fatal("lookup-needed provenance with candidates should be preserved")
+	}
+}
+
+func TestService_FetchURLReusesStoredHighQualityTranscriptOnRateLimit(t *testing.T) {
+	store := &fakeStore{processed: map[string]bool{}, raws: []types.RawContent{{
+		Source:     "youtube",
+		ExternalID: "yt-1",
+		URL:        "https://www.youtube.com/watch?v=yt-1",
+		Content:    "stored high quality transcript",
+		Metadata: types.RawMetadata{YouTube: &types.YouTubeMetadata{
+			Title:            "title",
+			TranscriptMethod: "subtitle_vtt",
+		}},
+	}}}
+	svc := New(store, transcriptPreservingDispatcher{}, fakeEnricher{})
+	items, err := svc.FetchURL(context.Background(), "https://www.youtube.com/watch?v=yt-1")
+	if err != nil {
+		t.Fatalf("FetchURL() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if items[0].Content != "stored high quality transcript" {
+		t.Fatalf("Content = %q, want stored transcript", items[0].Content)
+	}
+	if items[0].Metadata.YouTube == nil || items[0].Metadata.YouTube.TranscriptMethod != "subtitle_vtt" {
+		t.Fatalf("TranscriptMethod = %#v, want subtitle_vtt", items[0].Metadata.YouTube)
+	}
+}
+
+func TestService_FetchURLCanDisableStoredTranscriptReuse(t *testing.T) {
+	store := &fakeStore{processed: map[string]bool{}, raws: []types.RawContent{{
+		Source:     "youtube",
+		ExternalID: "yt-1",
+		URL:        "https://www.youtube.com/watch?v=yt-1",
+		Content:    "stored high quality transcript",
+		Metadata: types.RawMetadata{YouTube: &types.YouTubeMetadata{
+			Title:            "title",
+			TranscriptMethod: "subtitle_vtt",
+		}},
+	}}}
+	svc := New(store, transcriptPreservingDispatcher{}, fakeEnricher{}, WithStoredCaptureReuse(false))
+	items, err := svc.FetchURL(context.Background(), "https://www.youtube.com/watch?v=yt-1")
+	if err != nil {
+		t.Fatalf("FetchURL() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if items[0].Content == "stored high quality transcript" {
+		t.Fatalf("Content = %q, want fresh fallback content when reuse disabled", items[0].Content)
+	}
+	if items[0].Metadata.YouTube == nil || items[0].Metadata.YouTube.TranscriptMethod != "title_only" {
+		t.Fatalf("TranscriptMethod = %#v, want title_only when reuse disabled", items[0].Metadata.YouTube)
+	}
+}
+
+func TestService_PollReusesStoredHighQualityTranscriptOnRateLimit(t *testing.T) {
+	store := &fakeStore{
+		processed: map[string]bool{},
+		follows: []types.FollowTarget{{
+			Kind:     types.KindNative,
+			Platform: string(types.PlatformYouTube),
+			Locator:  "https://www.youtube.com/watch?v=yt-1",
+			URL:      "https://www.youtube.com/watch?v=yt-1",
+		}},
+		raws: []types.RawContent{{
+			Source:     "youtube",
+			ExternalID: "yt-1",
+			URL:        "https://www.youtube.com/watch?v=yt-1",
+			Content:    "stored high quality transcript",
+			Metadata: types.RawMetadata{YouTube: &types.YouTubeMetadata{
+				Title:            "title",
+				TranscriptMethod: "subtitle_vtt",
+			}},
+		}},
+	}
+	svc := New(store, transcriptPreservingDispatcher{}, fakeEnricher{})
+
+	report, items, _, pollWarnings, err := svc.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if len(pollWarnings) != 0 {
+		t.Fatalf("len(pollWarnings) = %d, want 0", len(pollWarnings))
+	}
+	if report.FetchedCount != 1 {
+		t.Fatalf("report.FetchedCount = %d, want 1", report.FetchedCount)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if items[0].Content != "stored high quality transcript" {
+		t.Fatalf("Content = %q, want stored transcript", items[0].Content)
+	}
+	if items[0].Metadata.YouTube == nil || items[0].Metadata.YouTube.TranscriptMethod != "subtitle_vtt" {
+		t.Fatalf("TranscriptMethod = %#v, want subtitle_vtt", items[0].Metadata.YouTube)
 	}
 }

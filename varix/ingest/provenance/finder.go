@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/ingest/normalize"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
 
@@ -30,15 +29,6 @@ func NewRuleFinderWithResolver(resolver LinkResolver) RuleFinder {
 func (f RuleFinder) FindCandidates(ctx context.Context, raw types.RawContent) ([]types.SourceCandidate, error) {
 	candidates := append([]types.SourceCandidate(nil), rawSourceCandidates(raw)...)
 	candidates = mergeCandidates(candidates, f.linkCandidates(ctx, raw))
-	if query := titleSearchURL(sourceTitle(raw)); query != "" {
-		candidates = mergeCandidates(candidates, []types.SourceCandidate{
-			{
-				URL:        query,
-				Kind:       "title_search",
-				Confidence: string(types.ConfidenceMedium),
-			},
-		})
-	}
 	return candidates, nil
 }
 
@@ -61,8 +51,8 @@ func (f RuleFinder) linkCandidates(ctx context.Context, raw types.RawContent) []
 	seen := map[string]struct{}{}
 	out := make([]types.SourceCandidate, 0)
 	rawHost := hostFromURL(raw.URL)
-	for _, link := range sourceLinks(raw) {
-		link = strings.TrimSpace(link)
+	for _, candidate := range structuredSourceCandidates(raw) {
+		link := strings.TrimSpace(candidate.URL)
 		if link == "" {
 			continue
 		}
@@ -74,12 +64,9 @@ func (f RuleFinder) linkCandidates(ctx context.Context, raw types.RawContent) []
 			continue
 		}
 		seen[link] = struct{}{}
-		out = append(out, types.SourceCandidate{
-			URL:        link,
-			Host:       hostFromURL(link),
-			Kind:       "embedded_link",
-			Confidence: string(types.ConfidenceHigh),
-		})
+		candidate.URL = link
+		candidate.Host = hostFromURL(link)
+		out = append(out, candidate)
 	}
 	return out
 }
@@ -177,10 +164,8 @@ func sourceLinks(raw types.RawContent) []string {
 	switch {
 	case raw.Metadata.YouTube != nil:
 		links = append(links, raw.Metadata.YouTube.SourceLinks...)
-		links = append(links, normalize.ExtractURLs(raw.Metadata.YouTube.Description)...)
 	case raw.Metadata.Bilibili != nil:
 		links = append(links, raw.Metadata.Bilibili.SourceLinks...)
-		links = append(links, normalize.ExtractURLs(raw.Metadata.Bilibili.Description)...)
 	case raw.Metadata.Twitter != nil:
 		links = append(links, raw.Metadata.Twitter.SourceLinks...)
 	case raw.Metadata.Weibo != nil:
@@ -192,35 +177,5 @@ func sourceLinks(raw types.RawContent) []string {
 			links = append(links, raw.Metadata.Web.YouTubeRedirect)
 		}
 	}
-	links = append(links, normalize.ExtractURLs(raw.ExpandedText())...)
 	return links
-}
-
-func sourceTitle(raw types.RawContent) string {
-	switch {
-	case raw.Metadata.YouTube != nil:
-		return raw.Metadata.YouTube.Title
-	case raw.Metadata.Bilibili != nil:
-		return raw.Metadata.Bilibili.Title
-	case raw.Metadata.Web != nil:
-		return raw.Metadata.Web.Title
-	default:
-		return ""
-	}
-}
-
-func titleSearchURL(title string) string {
-	title = normalize.CollapseWhitespace(title)
-	if title == "" {
-		return ""
-	}
-	parts := strings.Fields(title)
-	if len(parts) > 8 {
-		parts = parts[:8]
-	}
-	query := strings.Join(parts, " ")
-	if query == "" {
-		return ""
-	}
-	return "search://title/" + url.PathEscape(query)
 }
