@@ -408,7 +408,7 @@ func formatCompactCompileCard(record c.Record) string {
 	writeCompactNodeSection(&b, "Facts", pickNodesByKinds(record, 2, c.NodeFact))
 	writeCompactNodeSection(&b, "Conditions", pickConditionPoints(record, 3))
 	writeCompactNodeSection(&b, "Conclusions", pickNodesByKinds(record, 2, c.NodeConclusion))
-	writeCompactNodeSection(&b, "Predictions", pickNodesByKinds(record, 2, c.NodePrediction))
+	writeCompactNodeSection(&b, "Predictions", pickPredictionPoints(record, 2))
 	if chains := logicChains(record); len(chains) > 0 {
 		fmt.Fprintf(&b, "Main logic\n- %s\n\n", chains[0])
 	}
@@ -449,6 +449,14 @@ func pickNodesByKinds(record c.Record, max int, kinds ...c.NodeKind) []string {
 }
 
 func pickConditionPoints(record c.Record, max int) []string {
+	explicitStatus := map[string]string{}
+	for _, check := range record.Output.Verification.ExplicitConditionChecks {
+		explicitStatus[check.NodeID] = string(check.Status)
+	}
+	implicitStatus := map[string]string{}
+	for _, check := range record.Output.Verification.ImplicitConditionChecks {
+		implicitStatus[check.NodeID] = string(check.Status)
+	}
 	out := make([]string, 0, max)
 	for _, node := range record.Output.Graph.Nodes {
 		if strings.TrimSpace(node.Text) == "" {
@@ -456,12 +464,42 @@ func pickConditionPoints(record c.Record, max int) []string {
 		}
 		switch node.Kind {
 		case c.NodeExplicitCondition:
-			out = append(out, "[显] "+truncate(node.Text, 100))
+			label := "[显]"
+			if status := strings.TrimSpace(explicitStatus[node.ID]); status != "" {
+				label = "[显|" + status + "]"
+			}
+			out = append(out, label+" "+truncate(node.Text, 100))
 		case c.NodeImplicitCondition:
-			out = append(out, "[隐] "+truncate(node.Text, 100))
+			label := "[隐]"
+			if status := strings.TrimSpace(implicitStatus[node.ID]); status != "" {
+				label = "[隐|" + status + "]"
+			}
+			out = append(out, label+" "+truncate(node.Text, 100))
 		default:
 			continue
 		}
+		if len(out) == max {
+			break
+		}
+	}
+	return out
+}
+
+func pickPredictionPoints(record c.Record, max int) []string {
+	statusByNode := map[string]string{}
+	for _, check := range record.Output.Verification.PredictionChecks {
+		statusByNode[check.NodeID] = string(check.Status)
+	}
+	out := make([]string, 0, max)
+	for _, node := range record.Output.Graph.Nodes {
+		if node.Kind != c.NodePrediction || strings.TrimSpace(node.Text) == "" {
+			continue
+		}
+		label := "[预]"
+		if status := strings.TrimSpace(statusByNode[node.ID]); status != "" {
+			label = "[预|" + status + "]"
+		}
+		out = append(out, label+" "+truncate(node.Text, 100))
 		if len(out) == max {
 			break
 		}

@@ -1452,7 +1452,10 @@ func TestRunCompileCardCompactPrintsCompactView(t *testing.T) {
 					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B"), testGraphNode("n3", c.NodePrediction, "预测C")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
-				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+				Verification: c.Verification{
+					PredictionChecks: []c.PredictionCheck{{NodeID: "n3", Status: c.PredictionStatusUnresolved, Reason: "pending", AsOf: time.Now().UTC()}},
+				},
 				Confidence: "high",
 			},
 			CompiledAt: time.Now().UTC(),
@@ -1469,7 +1472,7 @@ func TestRunCompileCardCompactPrintsCompactView(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- 预测C", "Main logic", "事实A --推出--> 结论B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- [预|unresolved] 预测C", "Main logic", "事实A --推出--> 结论B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -1515,7 +1518,10 @@ func TestRunCompileCardCompactReadsByURL(t *testing.T) {
 					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B"), testGraphNode("n3", c.NodePrediction, "预测C")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
-				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+				Verification: c.Verification{
+					PredictionChecks: []c.PredictionCheck{{NodeID: "n3", Status: c.PredictionStatusUnresolved, Reason: "pending", AsOf: time.Now().UTC()}},
+				},
 				Confidence: "high",
 			},
 			CompiledAt: time.Now().UTC(),
@@ -1532,7 +1538,7 @@ func TestRunCompileCardCompactReadsByURL(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- 预测C", "Main logic", "事实A --推出--> 结论B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- [预|unresolved] 预测C", "Main logic", "事实A --推出--> 结论B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
