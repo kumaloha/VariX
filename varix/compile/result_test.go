@@ -2,6 +2,7 @@ package compile
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -126,6 +127,57 @@ func TestGraphAliasesDecode(t *testing.T) {
 	}
 	if out.Graph.Nodes[0].ValidFrom.IsZero() || out.Graph.Nodes[0].ValidTo.IsZero() {
 		t.Fatalf("validity window missing: %#v", out.Graph.Nodes[0])
+	}
+}
+
+func TestGraphNodeMarshalJSONPrefersSemanticTimeFields(t *testing.T) {
+	node := GraphNode{
+		ID:                "n1",
+		Kind:              NodeFact,
+		Text:              "事实A",
+		ValidFrom:         mustTime(t, "2026-04-14T00:00:00Z"),
+		ValidTo:           mustTime(t, "2026-07-14T00:00:00Z"),
+		OccurredAt:        mustTime(t, "1974-01-01T00:00:00Z"),
+		PredictionStartAt: time.Time{},
+		PredictionDueAt:   time.Time{},
+	}
+	raw, err := json.Marshal(node)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, `"occurred_at":"1974-01-01T00:00:00Z"`) {
+		t.Fatalf("marshal output missing occurred_at: %s", got)
+	}
+	for _, unwanted := range []string{`"valid_from"`, `"valid_to"`, `"prediction_start_at"`, `"prediction_due_at"`} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("marshal output should omit %s when semantic field is present: %s", unwanted, got)
+		}
+	}
+}
+
+func TestGraphNodeMarshalJSONPrefersPredictionWindowFields(t *testing.T) {
+	node := GraphNode{
+		ID:                "n2",
+		Kind:              NodePrediction,
+		Text:              "预测B",
+		ValidFrom:         mustTime(t, "2026-04-14T00:00:00Z"),
+		ValidTo:           mustTime(t, "2026-07-14T00:00:00Z"),
+		PredictionStartAt: mustTime(t, "2026-05-01T00:00:00Z"),
+		PredictionDueAt:   mustTime(t, "2026-09-01T00:00:00Z"),
+	}
+	raw, err := json.Marshal(node)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, `"prediction_start_at":"2026-05-01T00:00:00Z"`) || !strings.Contains(got, `"prediction_due_at":"2026-09-01T00:00:00Z"`) {
+		t.Fatalf("marshal output missing prediction window: %s", got)
+	}
+	for _, unwanted := range []string{`"valid_from"`, `"valid_to"`, `"occurred_at"`} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("marshal output should omit %s when semantic field is present: %s", unwanted, got)
+		}
 	}
 }
 

@@ -40,6 +40,65 @@ type GraphNode struct {
 	PredictionDueAt   time.Time `json:"prediction_due_at,omitempty"`
 }
 
+func (n GraphNode) MarshalJSON() ([]byte, error) {
+	type graphNodePayload struct {
+		ID                string     `json:"id"`
+		Kind              NodeKind   `json:"kind"`
+		Text              string     `json:"text"`
+		ValidFrom         *time.Time `json:"valid_from,omitempty"`
+		ValidTo           *time.Time `json:"valid_to,omitempty"`
+		OccurredAt        *time.Time `json:"occurred_at,omitempty"`
+		PredictionStartAt *time.Time `json:"prediction_start_at,omitempty"`
+		PredictionDueAt   *time.Time `json:"prediction_due_at,omitempty"`
+	}
+	payload := graphNodePayload{
+		ID:   n.ID,
+		Kind: n.Kind,
+		Text: n.Text,
+	}
+	switch n.Kind {
+	case NodeFact, NodeImplicitCondition:
+		if !n.OccurredAt.IsZero() {
+			t := n.OccurredAt
+			payload.OccurredAt = &t
+			break
+		}
+		if !n.ValidFrom.IsZero() {
+			t := n.ValidFrom
+			payload.ValidFrom = &t
+		}
+		if !n.ValidTo.IsZero() {
+			t := n.ValidTo
+			payload.ValidTo = &t
+		}
+	case NodePrediction:
+		if !n.PredictionStartAt.IsZero() {
+			t := n.PredictionStartAt
+			payload.PredictionStartAt = &t
+		} else if !n.ValidFrom.IsZero() {
+			t := n.ValidFrom
+			payload.ValidFrom = &t
+		}
+		if !n.PredictionDueAt.IsZero() {
+			t := n.PredictionDueAt
+			payload.PredictionDueAt = &t
+		} else if !n.ValidTo.IsZero() {
+			t := n.ValidTo
+			payload.ValidTo = &t
+		}
+	default:
+		if !n.ValidFrom.IsZero() {
+			t := n.ValidFrom
+			payload.ValidFrom = &t
+		}
+		if !n.ValidTo.IsZero() {
+			t := n.ValidTo
+			payload.ValidTo = &t
+		}
+	}
+	return json.Marshal(payload)
+}
+
 func (n GraphNode) LegacyValidityWindow() (time.Time, time.Time) {
 	if !n.ValidFrom.IsZero() && !n.ValidTo.IsZero() {
 		return n.ValidFrom, n.ValidTo
