@@ -51,9 +51,11 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 			return memory.AcceptResult{}, fmt.Errorf("node id not found in compiled graph: %s", nodeID)
 		}
 		snapshots = append(snapshots, memory.AcceptanceNodeSnapshot{
-			NodeID:   node.ID,
-			NodeKind: string(node.Kind),
-			NodeText: node.Text,
+			NodeID:    node.ID,
+			NodeKind:  string(node.Kind),
+			NodeText:  node.Text,
+			ValidFrom: node.ValidFrom,
+			ValidTo:   node.ValidTo,
 		})
 	}
 
@@ -73,8 +75,8 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 	for _, snap := range snapshots {
 		_, err := tx.ExecContext(
 			ctx,
-			`INSERT INTO user_memory_nodes(user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, accepted_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO user_memory_nodes(user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, valid_from, valid_to, accepted_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(user_id, source_platform, source_external_id, node_id) DO NOTHING`,
 			req.UserID,
 			req.SourcePlatform,
@@ -85,6 +87,8 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 			snap.NodeText,
 			record.Model,
 			record.CompiledAt.UTC().Format(time.RFC3339Nano),
+			snap.ValidFrom.UTC().Format(time.RFC3339Nano),
+			snap.ValidTo.UTC().Format(time.RFC3339Nano),
 			now.Format(time.RFC3339Nano),
 		)
 		if err != nil {
@@ -180,7 +184,7 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 func (s *SQLiteStore) ListUserMemory(ctx context.Context, userID string) ([]memory.AcceptedNode, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT memory_id, user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, accepted_at
+		`SELECT memory_id, user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, valid_from, valid_to, accepted_at
 		 FROM user_memory_nodes
 		 WHERE user_id = ?
 		 ORDER BY accepted_at ASC, memory_id ASC`,
@@ -196,7 +200,7 @@ func (s *SQLiteStore) ListUserMemory(ctx context.Context, userID string) ([]memo
 func (s *SQLiteStore) ListUserMemoryBySource(ctx context.Context, userID, sourcePlatform, sourceExternalID string) ([]memory.AcceptedNode, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT memory_id, user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, accepted_at
+		`SELECT memory_id, user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, valid_from, valid_to, accepted_at
 		 FROM user_memory_nodes
 		 WHERE user_id = ? AND source_platform = ? AND source_external_id = ?
 		 ORDER BY accepted_at ASC, memory_id ASC`,
@@ -249,21 +253,25 @@ func (s *SQLiteStore) ListMemoryJobs(ctx context.Context, userID string) ([]memo
 func queryMemoryNodeTx(ctx context.Context, tx *sql.Tx, userID, sourcePlatform, sourceExternalID, nodeID string) (memory.AcceptedNode, error) {
 	var node memory.AcceptedNode
 	var sourceCompiledAt string
+	var validFrom string
+	var validTo string
 	var acceptedAt string
 	err := tx.QueryRowContext(
 		ctx,
-		`SELECT memory_id, user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, accepted_at
+		`SELECT memory_id, user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, valid_from, valid_to, accepted_at
 		 FROM user_memory_nodes
 		 WHERE user_id = ? AND source_platform = ? AND source_external_id = ? AND node_id = ?`,
 		userID,
 		sourcePlatform,
 		sourceExternalID,
 		nodeID,
-	).Scan(&node.MemoryID, &node.UserID, &node.SourcePlatform, &node.SourceExternalID, &node.RootExternalID, &node.NodeID, &node.NodeKind, &node.NodeText, &node.SourceModel, &sourceCompiledAt, &acceptedAt)
+	).Scan(&node.MemoryID, &node.UserID, &node.SourcePlatform, &node.SourceExternalID, &node.RootExternalID, &node.NodeID, &node.NodeKind, &node.NodeText, &node.SourceModel, &sourceCompiledAt, &validFrom, &validTo, &acceptedAt)
 	if err != nil {
 		return memory.AcceptedNode{}, err
 	}
 	node.SourceCompiledAt = parseSQLiteTime(sourceCompiledAt)
+	node.ValidFrom = parseSQLiteTime(validFrom)
+	node.ValidTo = parseSQLiteTime(validTo)
 	node.AcceptedAt = parseSQLiteTime(acceptedAt)
 	return node, nil
 }
@@ -273,11 +281,15 @@ func scanMemoryNodes(rows *sql.Rows) ([]memory.AcceptedNode, error) {
 	for rows.Next() {
 		var node memory.AcceptedNode
 		var sourceCompiledAt string
+		var validFrom string
+		var validTo string
 		var acceptedAt string
-		if err := rows.Scan(&node.MemoryID, &node.UserID, &node.SourcePlatform, &node.SourceExternalID, &node.RootExternalID, &node.NodeID, &node.NodeKind, &node.NodeText, &node.SourceModel, &sourceCompiledAt, &acceptedAt); err != nil {
+		if err := rows.Scan(&node.MemoryID, &node.UserID, &node.SourcePlatform, &node.SourceExternalID, &node.RootExternalID, &node.NodeID, &node.NodeKind, &node.NodeText, &node.SourceModel, &sourceCompiledAt, &validFrom, &validTo, &acceptedAt); err != nil {
 			return nil, err
 		}
 		node.SourceCompiledAt = parseSQLiteTime(sourceCompiledAt)
+		node.ValidFrom = parseSQLiteTime(validFrom)
+		node.ValidTo = parseSQLiteTime(validTo)
 		node.AcceptedAt = parseSQLiteTime(acceptedAt)
 		out = append(out, node)
 	}

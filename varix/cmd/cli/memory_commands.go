@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/kumaloha/VariX/varix/memory"
 )
 
 func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized> ...")
 		return 2
 	}
 	switch args[0] {
@@ -27,8 +28,12 @@ func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Write
 		return runMemoryShowSource(args[1:], projectRoot, stdout, stderr)
 	case "jobs":
 		return runMemoryJobs(args[1:], projectRoot, stdout, stderr)
+	case "organize-run":
+		return runMemoryOrganizeRun(args[1:], projectRoot, stdout, stderr)
+	case "organized":
+		return runMemoryOrganized(args[1:], projectRoot, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized> ...")
 		return 2
 	}
 }
@@ -212,6 +217,80 @@ func runMemoryJobs(args []string, projectRoot string, stdout, stderr io.Writer) 
 		return 1
 	}
 	payload, err := json.MarshalIndent(jobs, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func runMemoryOrganizeRun(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory organize-run", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" {
+		fmt.Fprintln(stderr, "usage: varix memory organize-run --user <user_id>")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	out, err := store.RunNextMemoryOrganizationJob(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	payload, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func runMemoryOrganized(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory organized", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	platform := fs.String("platform", "", "source platform")
+	externalID := fs.String("id", "", "source external id")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" || strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+		fmt.Fprintln(stderr, "usage: varix memory organized --user <user_id> --platform <platform> --id <external_id>")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	out, err := store.GetLatestMemoryOrganizationOutput(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*platform), strings.TrimSpace(*externalID))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	payload, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

@@ -13,13 +13,17 @@ type AcceptedNode struct {
 	NodeText         string    `json:"node_text"`
 	SourceModel      string    `json:"source_model"`
 	SourceCompiledAt time.Time `json:"source_compiled_at"`
+	ValidFrom        time.Time `json:"valid_from"`
+	ValidTo          time.Time `json:"valid_to"`
 	AcceptedAt       time.Time `json:"accepted_at"`
 }
 
 type AcceptanceNodeSnapshot struct {
-	NodeID   string `json:"node_id"`
-	NodeKind string `json:"node_kind"`
-	NodeText string `json:"node_text"`
+	NodeID    string    `json:"node_id"`
+	NodeKind  string    `json:"node_kind"`
+	NodeText  string    `json:"node_text"`
+	ValidFrom time.Time `json:"valid_from"`
+	ValidTo   time.Time `json:"valid_to"`
 }
 
 type AcceptanceEvent struct {
@@ -46,6 +50,50 @@ type OrganizationJob struct {
 	CreatedAt        time.Time `json:"created_at"`
 	StartedAt        time.Time `json:"started_at,omitempty"`
 	FinishedAt       time.Time `json:"finished_at,omitempty"`
+}
+
+type DedupeGroup struct {
+	NodeIDs []string `json:"node_ids"`
+}
+
+type ContradictionGroup struct {
+	NodeIDs []string `json:"node_ids"`
+	Reason  string   `json:"reason,omitempty"`
+}
+
+type HierarchyLink struct {
+	ParentNodeID string `json:"parent_node_id"`
+	ChildNodeID  string `json:"child_node_id"`
+	Kind         string `json:"kind"`
+}
+
+type OrganizationOutput struct {
+	OutputID            int64                `json:"output_id"`
+	JobID               int64                `json:"job_id"`
+	UserID              string               `json:"user_id"`
+	SourcePlatform      string               `json:"source_platform"`
+	SourceExternalID    string               `json:"source_external_id"`
+	GeneratedAt         time.Time            `json:"generated_at"`
+	ActiveNodes         []AcceptedNode       `json:"active_nodes"`
+	InactiveNodes       []AcceptedNode       `json:"inactive_nodes"`
+	DedupeGroups        []DedupeGroup        `json:"dedupe_groups,omitempty"`
+	ContradictionGroups []ContradictionGroup `json:"contradiction_groups,omitempty"`
+	Hierarchy           []HierarchyLink      `json:"hierarchy,omitempty"`
+	PredictionStatuses  []PredictionStatus   `json:"prediction_statuses,omitempty"`
+	FactVerifications   []FactVerification   `json:"fact_verifications,omitempty"`
+	OpenQuestions       []string             `json:"open_questions,omitempty"`
+}
+
+type PredictionStatus struct {
+	NodeID string `json:"node_id"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type FactVerification struct {
+	NodeID string `json:"node_id"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
 }
 
 type AcceptRequest struct {

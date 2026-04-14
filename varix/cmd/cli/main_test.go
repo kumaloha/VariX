@@ -299,6 +299,94 @@ func TestRunMemoryAcceptBatchAndList(t *testing.T) {
 	}
 }
 
+func TestRunMemoryOrganizeRunAndShow(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:Q1",
+			Source:         "weibo",
+			ExternalID:     "Q1",
+			RootExternalID: "Q1",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						testGraphNode("n1", c.NodeFact, "通胀下降"),
+						testGraphNode("n2", c.NodePrediction, "三个月内降息"),
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+				Verification: c.Verification{
+					VerifiedAt: time.Now().UTC(),
+					Model:      c.Qwen36PlusModel,
+					FactChecks: []c.FactCheck{{NodeID: "n1", Status: c.FactStatusClearlyTrue, Reason: "supported"}},
+					PredictionChecks: []c.PredictionCheck{{
+						NodeID: "n2", Status: c.PredictionStatusUnresolved, Reason: "still active", AsOf: time.Now().UTC(),
+					}},
+				},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+			UserID:           "u1",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "Q1",
+			NodeIDs:          []string{"n1", "n2"},
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "organize-run", "--user", "u1"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("organize-run code = %d, stderr = %s", code, stderr.String())
+	}
+	var out memory.OrganizationOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(organize-run) error = %v", err)
+	}
+	if out.JobID == 0 {
+		t.Fatalf("output = %#v", out)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "organized", "--user", "u1", "--platform", "weibo", "--id", "Q1"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("organized code = %d, stderr = %s", code, stderr.String())
+	}
+	var got memory.OrganizationOutput
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(organized) error = %v", err)
+	}
+	if got.JobID != out.JobID {
+		t.Fatalf("JobID = %d, want %d", got.JobID, out.JobID)
+	}
+}
+
 type fakeCompileClient struct {
 	record c.Record
 	err    error

@@ -374,6 +374,8 @@ func (s *SQLiteStore) init() error {
 			node_text TEXT NOT NULL,
 			source_model TEXT NOT NULL,
 			source_compiled_at TEXT NOT NULL,
+			valid_from TEXT NOT NULL,
+			valid_to TEXT NOT NULL,
 			accepted_at TEXT NOT NULL,
 			UNIQUE(user_id, source_platform, source_external_id, node_id)
 		)`,
@@ -401,13 +403,62 @@ func (s *SQLiteStore) init() error {
 			started_at TEXT,
 			finished_at TEXT
 		)`,
+		`CREATE TABLE IF NOT EXISTS memory_organization_outputs (
+			output_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			job_id INTEGER NOT NULL UNIQUE,
+			user_id TEXT NOT NULL,
+			source_platform TEXT NOT NULL,
+			source_external_id TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
 			return err
 		}
 	}
+	migrations := []struct {
+		table      string
+		column     string
+		definition string
+	}{
+		{table: "user_memory_nodes", column: "valid_from", definition: "TEXT NOT NULL DEFAULT ''"},
+		{table: "user_memory_nodes", column: "valid_to", definition: "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, m := range migrations {
+		if err := s.ensureColumn(m.table, m.column, m.definition); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (s *SQLiteStore) ensureColumn(table, column, definition string) error {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
+	return err
 }
 
 func parseSQLiteTime(raw string) time.Time {
