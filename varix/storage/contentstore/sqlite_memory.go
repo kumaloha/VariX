@@ -51,11 +51,17 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 			return memory.AcceptResult{}, fmt.Errorf("node id not found in compiled graph: %s", nodeID)
 		}
 		snapshots = append(snapshots, memory.AcceptanceNodeSnapshot{
-			NodeID:    node.ID,
-			NodeKind:  string(node.Kind),
-			NodeText:  node.Text,
-			ValidFrom: node.ValidFrom,
-			ValidTo:   node.ValidTo,
+			NodeID:   node.ID,
+			NodeKind: string(node.Kind),
+			NodeText: node.Text,
+			ValidFrom: func() time.Time {
+				start, _ := node.LegacyValidityWindow()
+				return start
+			}(),
+			ValidTo: func() time.Time {
+				_, end := node.LegacyValidityWindow()
+				return end
+			}(),
 		})
 	}
 

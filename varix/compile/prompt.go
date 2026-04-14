@@ -34,7 +34,11 @@ func BuildInstruction(req GraphRequirements) string {
 - 只返回 JSON，不要 markdown，不要解释
 - summary、graph、details 都必须出现
 - graph 至少包含 %d 个节点、%d 条边
-- 每个 graph node 都必须包含 "valid_from" 和 "valid_to"，使用 RFC3339 时间格式
+- 时间字段必须按 node kind 区分：
+  - 事实 / 隐含条件：优先提供 "occurred_at"
+  - 预测：提供 "prediction_start_at"，如果文本明确给出截止时间再提供 "prediction_due_at"
+  - 显式条件 / 结论：没有可靠时间就不要硬编
+- 仅当你非常确定一个 node 存在明确的有效窗口时，才额外提供 "valid_from" 和 "valid_to"
 - 节点 kind 只允许：事实、显式条件、隐含条件、结论、预测
 - 边 kind 只允许：正向、负向、推出、预设
 - 节点分类定义必须严格遵守：
@@ -70,5 +74,5 @@ func BuildPrompt(bundle Bundle) string {
 		"text_context":     bundle.TextContext(),
 	}
 	encoded, _ := json.MarshalIndent(payload, "", "  ")
-	return fmt.Sprintf("请基于以下内容单元生成 compile 结果 JSON。\n\n返回格式示例：\n{\n  \"summary\": \"一句话总结\",\n  \"graph\": {\n    \"nodes\": [\n      {\"id\":\"n1\",\"kind\":\"事实\",\"text\":\"某个已发生的现实情况\",\"valid_from\":\"2026-04-14T00:00:00Z\",\"valid_to\":\"2026-07-14T00:00:00Z\"},\n      {\"id\":\"n2\",\"kind\":\"显式条件\",\"text\":\"如果/若/一旦 某事发生\",\"valid_from\":\"2026-04-14T00:00:00Z\",\"valid_to\":\"2026-07-14T00:00:00Z\"},\n      {\"id\":\"n3\",\"kind\":\"隐含条件\",\"text\":\"作者没明说但推理必需的前提\",\"valid_from\":\"2026-04-14T00:00:00Z\",\"valid_to\":\"2026-07-14T00:00:00Z\"},\n      {\"id\":\"n4\",\"kind\":\"结论\",\"text\":\"当前判断\",\"valid_from\":\"2026-04-14T00:00:00Z\",\"valid_to\":\"2026-07-14T00:00:00Z\"},\n      {\"id\":\"n5\",\"kind\":\"预测\",\"text\":\"未来会发生什么\",\"valid_from\":\"2026-04-14T00:00:00Z\",\"valid_to\":\"2026-07-14T00:00:00Z\"}\n    ],\n    \"edges\": [\n      {\"from\":\"n1\",\"to\":\"n3\",\"kind\":\"正向\"},\n      {\"from\":\"n3\",\"to\":\"n4\",\"kind\":\"推出\"},\n      {\"from\":\"n2\",\"to\":\"n5\",\"kind\":\"预设\"},\n      {\"from\":\"n4\",\"to\":\"n5\",\"kind\":\"推出\"}\n    ]\n  },\n  \"details\": {\n    \"caveats\": [\"...\"],\n    \"quote_highlights\": [\"...\"],\n    \"reference_highlights\": [\"...\"]\n  },\n  \"topics\": [\"...\"],\n  \"confidence\": \"low|medium|high\"\n}\n\n内容单元如下：\n\n%s", string(encoded))
+	return fmt.Sprintf("请基于以下内容单元生成 compile 结果 JSON。\n\n返回格式示例：\n{\n  \"summary\": \"一句话总结\",\n  \"graph\": {\n    \"nodes\": [\n      {\"id\":\"n1\",\"kind\":\"事实\",\"text\":\"某个已发生的现实情况\",\"occurred_at\":\"1974-01-01T00:00:00Z\"},\n      {\"id\":\"n2\",\"kind\":\"显式条件\",\"text\":\"如果/若/一旦 某事发生\"},\n      {\"id\":\"n3\",\"kind\":\"隐含条件\",\"text\":\"作者没明说但推理必需的前提\",\"occurred_at\":\"2026-04-14T00:00:00Z\"},\n      {\"id\":\"n4\",\"kind\":\"结论\",\"text\":\"当前判断\"},\n      {\"id\":\"n5\",\"kind\":\"预测\",\"text\":\"未来会发生什么\",\"prediction_start_at\":\"2026-04-14T00:00:00Z\",\"prediction_due_at\":\"2026-07-14T00:00:00Z\"}\n    ],\n    \"edges\": [\n      {\"from\":\"n1\",\"to\":\"n3\",\"kind\":\"正向\"},\n      {\"from\":\"n3\",\"to\":\"n4\",\"kind\":\"推出\"},\n      {\"from\":\"n2\",\"to\":\"n5\",\"kind\":\"预设\"},\n      {\"from\":\"n4\",\"to\":\"n5\",\"kind\":\"推出\"}\n    ]\n  },\n  \"details\": {\n    \"caveats\": [\"...\"],\n    \"quote_highlights\": [\"...\"],\n    \"reference_highlights\": [\"...\"]\n  },\n  \"topics\": [\"...\"],\n  \"confidence\": \"low|medium|high\"\n}\n\n内容单元如下：\n\n%s", string(encoded))
 }

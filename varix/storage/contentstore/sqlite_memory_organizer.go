@@ -72,23 +72,20 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 				if strings.TrimSpace(string(derived.Kind)) != "" {
 					node.NodeKind = string(derived.Kind)
 				}
+				derivedStart, derivedEnd := derived.LegacyValidityWindow()
 				if node.ValidFrom.IsZero() {
-					node.ValidFrom = derived.ValidFrom
+					node.ValidFrom = derivedStart
 				}
 				if node.ValidTo.IsZero() {
-					node.ValidTo = derived.ValidTo
+					node.ValidTo = derivedEnd
 				}
 			}
 		}
 		derivedNodes = append(derivedNodes, node)
-		if node.ValidFrom.IsZero() || node.ValidTo.IsZero() {
-			inactive = append(inactive, node)
-			continue
-		}
-		if now.Before(node.ValidFrom) || now.After(node.ValidTo) {
-			inactive = append(inactive, node)
-		} else {
+		if isAcceptedNodeActiveAt(node, now) {
 			active = append(active, node)
+		} else {
+			inactive = append(inactive, node)
 		}
 	}
 	dedupeGroups := buildDedupeGroups(active, factStatusByNode, predictionStatusByNode)
@@ -431,7 +428,7 @@ func extractFactVerifications(nodes []memory.AcceptedNode, record compile.Record
 func buildOpenQuestions(nodes []memory.AcceptedNode, record compile.Record) []string {
 	questions := make([]string, 0)
 	for _, node := range nodes {
-		if node.ValidFrom.IsZero() || node.ValidTo.IsZero() {
+		if node.ValidFrom.IsZero() && node.ValidTo.IsZero() && node.NodeKind != string(compile.NodeExplicitCondition) && node.NodeKind != string(compile.NodeConclusion) {
 			questions = append(questions, fmt.Sprintf("node %s has no validity window", node.NodeID))
 		}
 	}
@@ -451,6 +448,38 @@ func buildOpenQuestions(nodes []memory.AcceptedNode, record compile.Record) []st
 		}
 	}
 	return questions
+}
+
+func isAcceptedNodeActiveAt(node memory.AcceptedNode, now time.Time) bool {
+	switch node.NodeKind {
+	case string(compile.NodeFact), string(compile.NodeImplicitCondition), string(compile.NodePrediction):
+		if node.ValidFrom.IsZero() {
+			return false
+		}
+		if !now.Before(node.ValidFrom) && (node.ValidTo.IsZero() || !now.After(node.ValidTo)) {
+			return true
+		}
+		return false
+	case string(compile.NodeExplicitCondition), string(compile.NodeConclusion):
+		if node.ValidFrom.IsZero() && node.ValidTo.IsZero() {
+			return true
+		}
+		if node.ValidFrom.IsZero() {
+			return false
+		}
+		if node.ValidTo.IsZero() {
+			return !now.Before(node.ValidFrom)
+		}
+		return !now.Before(node.ValidFrom) && !now.After(node.ValidTo)
+	default:
+		if node.ValidFrom.IsZero() {
+			return false
+		}
+		if node.ValidTo.IsZero() {
+			return !now.Before(node.ValidFrom)
+		}
+		return !now.Before(node.ValidFrom) && !now.After(node.ValidTo)
+	}
 }
 
 func factStatusMap(record compile.Record) map[string]compile.FactStatus {

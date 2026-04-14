@@ -25,6 +25,7 @@ func ParseOutput(raw string) (Output, error) {
 	_ = json.Unmarshal(payload["confidence"], &out.Confidence)
 	_ = json.Unmarshal(payload["graph"], &out.Graph)
 	normalizeNodeTaxonomy(&out.Graph)
+	normalizeNodeTiming(&out.Graph)
 	_ = json.Unmarshal(payload["verification"], &out.Verification)
 	if rawDetails, ok := payload["details"]; ok {
 		details, err := parseHiddenDetails(rawDetails)
@@ -37,6 +38,28 @@ func ParseOutput(raw string) (Output, error) {
 		return Output{}, err
 	}
 	return out, nil
+}
+
+func normalizeNodeTiming(graph *ReasoningGraph) {
+	if graph == nil {
+		return
+	}
+	for i := range graph.Nodes {
+		node := &graph.Nodes[i]
+		switch node.Kind {
+		case NodeFact, NodeImplicitCondition:
+			if node.OccurredAt.IsZero() && !node.ValidFrom.IsZero() {
+				node.OccurredAt = node.ValidFrom
+			}
+		case NodePrediction:
+			if node.PredictionStartAt.IsZero() && !node.ValidFrom.IsZero() {
+				node.PredictionStartAt = node.ValidFrom
+			}
+			if node.PredictionDueAt.IsZero() && !node.ValidTo.IsZero() {
+				node.PredictionDueAt = node.ValidTo
+			}
+		}
+	}
 }
 
 func normalizeNodeTaxonomy(graph *ReasoningGraph) {

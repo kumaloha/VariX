@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+var openEndedNodeTime = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+
 type NodeKind string
 
 const (
@@ -28,11 +30,34 @@ const (
 )
 
 type GraphNode struct {
-	ID        string    `json:"id"`
-	Kind      NodeKind  `json:"kind"`
-	Text      string    `json:"text"`
-	ValidFrom time.Time `json:"valid_from,omitempty"`
-	ValidTo   time.Time `json:"valid_to,omitempty"`
+	ID                string    `json:"id"`
+	Kind              NodeKind  `json:"kind"`
+	Text              string    `json:"text"`
+	ValidFrom         time.Time `json:"valid_from,omitempty"`
+	ValidTo           time.Time `json:"valid_to,omitempty"`
+	OccurredAt        time.Time `json:"occurred_at,omitempty"`
+	PredictionStartAt time.Time `json:"prediction_start_at,omitempty"`
+	PredictionDueAt   time.Time `json:"prediction_due_at,omitempty"`
+}
+
+func (n GraphNode) LegacyValidityWindow() (time.Time, time.Time) {
+	if !n.ValidFrom.IsZero() && !n.ValidTo.IsZero() {
+		return n.ValidFrom, n.ValidTo
+	}
+	switch n.Kind {
+	case NodeFact, NodeImplicitCondition:
+		if !n.OccurredAt.IsZero() {
+			return n.OccurredAt, openEndedNodeTime
+		}
+	case NodePrediction:
+		if !n.PredictionStartAt.IsZero() {
+			if !n.PredictionDueAt.IsZero() {
+				return n.PredictionStartAt, n.PredictionDueAt
+			}
+			return n.PredictionStartAt, openEndedNodeTime
+		}
+	}
+	return time.Time{}, time.Time{}
 }
 
 func (n *GraphNode) UnmarshalJSON(data []byte) error {
@@ -202,16 +227,13 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		if strings.TrimSpace(node.Text) == "" {
 			return fmt.Errorf("graph node text is required")
 		}
-		if node.ValidFrom.IsZero() || node.ValidTo.IsZero() {
-			return fmt.Errorf("graph node validity window is required: %s", node.ID)
-		}
-		if node.ValidTo.Before(node.ValidFrom) {
-			return fmt.Errorf("graph node validity window is invalid: %s", node.ID)
-		}
 		switch node.Kind {
 		case NodeFact, NodeExplicitCondition, NodeImplicitCondition, NodeConclusion, NodePrediction:
 		default:
 			return fmt.Errorf("unsupported node kind: %s", node.Kind)
+		}
+		if err := validateNodeTiming(node); err != nil {
+			return err
 		}
 		nodeIDs[node.ID] = struct{}{}
 	}
@@ -266,6 +288,34 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		case PredictionStatusUnresolved, PredictionStatusResolvedTrue, PredictionStatusResolvedFalse, PredictionStatusStaleUnresolved:
 		default:
 			return fmt.Errorf("unsupported prediction status: %s", check.Status)
+		}
+	}
+	return nil
+}
+
+func validateNodeTiming(node GraphNode) error {
+	if !node.ValidFrom.IsZero() || !node.ValidTo.IsZero() {
+		if node.ValidFrom.IsZero() || node.ValidTo.IsZero() {
+			return fmt.Errorf("graph node validity window is incomplete: %s", node.ID)
+		}
+		if node.ValidTo.Before(node.ValidFrom) {
+			return fmt.Errorf("graph node validity window is invalid: %s", node.ID)
+		}
+	}
+	switch node.Kind {
+	case NodeFact, NodeImplicitCondition:
+		if node.OccurredAt.IsZero() && node.ValidFrom.IsZero() {
+			return fmt.Errorf("graph node fact timing is required: %s", node.ID)
+		}
+	case NodePrediction:
+		if node.PredictionStartAt.IsZero() && node.ValidFrom.IsZero() {
+			return fmt.Errorf("graph node prediction start is required: %s", node.ID)
+		}
+		if !node.PredictionDueAt.IsZero() && !node.PredictionStartAt.IsZero() && node.PredictionDueAt.Before(node.PredictionStartAt) {
+			return fmt.Errorf("graph node prediction window is invalid: %s", node.ID)
+		}
+		if !node.PredictionDueAt.IsZero() && node.PredictionStartAt.IsZero() && node.ValidFrom.IsZero() {
+			return fmt.Errorf("graph node prediction due requires start: %s", node.ID)
 		}
 	}
 	return nil

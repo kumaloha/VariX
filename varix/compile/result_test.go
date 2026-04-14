@@ -151,7 +151,7 @@ func TestParseOutputNormalizesExplicitConditionText(t *testing.T) {
 	}
 }
 
-func TestOutputValidateRejectsMissingValidityWindow(t *testing.T) {
+func TestOutputValidateRejectsMissingFactTime(t *testing.T) {
 	out := Output{
 		Summary: "一句话总结",
 		Graph: ReasoningGraph{
@@ -164,7 +164,51 @@ func TestOutputValidateRejectsMissingValidityWindow(t *testing.T) {
 		Details: HiddenDetails{Caveats: []string{"说明"}},
 	}
 	if err := out.Validate(); err == nil {
-		t.Fatal("Validate() error = nil, want validity window rejection")
+		t.Fatal("Validate() error = nil, want fact timing rejection")
+	}
+}
+
+func TestOutputValidateAcceptsOccurredAtAndPredictionWindow(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Text: "事实A", OccurredAt: mustTime(t, "1974-01-01T00:00:00Z")},
+				{ID: "n2", Kind: NodeExplicitCondition, Text: "如果政策变化"},
+				{ID: "n3", Kind: NodeConclusion, Text: "结论C"},
+				{ID: "n4", Kind: NodePrediction, Text: "预测D", PredictionStartAt: mustTime(t, "2026-04-14T00:00:00Z"), PredictionDueAt: mustTime(t, "2026-07-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{
+				{From: "n1", To: "n3", Kind: EdgePositive},
+				{From: "n2", To: "n4", Kind: EdgePresets},
+				{From: "n3", To: "n4", Kind: EdgeDerives},
+			},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+	}
+	if err := out.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestOutputValidateAcceptsOpenEndedPrediction(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Text: "事实A", OccurredAt: mustTime(t, "1974-01-01T00:00:00Z")},
+				{ID: "n2", Kind: NodePrediction, Text: "预测B", PredictionStartAt: mustTime(t, "2026-04-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{{From: "n1", To: "n2", Kind: EdgeDerives}},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+	}
+	if err := out.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	start, end := out.Graph.Nodes[1].LegacyValidityWindow()
+	if start.IsZero() || end.IsZero() || !end.After(start) {
+		t.Fatalf("LegacyValidityWindow() = %v -> %v, want derived open-ended window", start, end)
 	}
 }
 
