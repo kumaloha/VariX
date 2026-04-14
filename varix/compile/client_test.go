@@ -220,6 +220,41 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 	}
 }
 
+func TestClientCompileRoutesImplicitAndExplicitConditionVerifierPasses(t *testing.T) {
+	provider := &compileMockProvider{responses: []llm.ProviderResponse{
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"隐含条件","text":"隐含条件B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n3","kind":"显式条件","text":"显式条件C","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n4","kind":"结论","text":"结论D","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n5","kind":"预测","text":"预测E","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"正向"},{"from":"n2","to":"n4","kind":"推出"},{"from":"n3","to":"n5","kind":"预设"},{"from":"n4","to":"n5","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"unverifiable","reason":"assumed premise"}]}`, Model: "fact-verifier-model"},
+		{Text: `{"explicit_condition_checks":[{"node_id":"n3","status":"medium","reason":"possible but unclear"}]}`, Model: "condition-verifier-model"},
+		{Text: `{"prediction_checks":[{"node_id":"n5","status":"unresolved","reason":"still in window","as_of":"2026-04-15T00:00:00Z"}]}`, Model: "prediction-verifier-model"},
+	}}
+	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
+
+	record, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "weibo:123",
+		Source:     "weibo",
+		ExternalID: "123",
+		Content:    "root body",
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(provider.requests) != 4 {
+		t.Fatalf("provider calls = %d, want 4", len(provider.requests))
+	}
+	if len(record.Output.Verification.FactChecks) != 2 {
+		t.Fatalf("fact checks = %#v", record.Output.Verification.FactChecks)
+	}
+	if len(record.Output.Verification.ExplicitConditionChecks) != 1 {
+		t.Fatalf("explicit condition checks = %#v", record.Output.Verification.ExplicitConditionChecks)
+	}
+	if record.Output.Verification.ExplicitConditionChecks[0].Status != ExplicitConditionStatusMedium {
+		t.Fatalf("explicit condition check = %#v", record.Output.Verification.ExplicitConditionChecks[0])
+	}
+	if len(record.Output.Verification.PredictionChecks) != 1 {
+		t.Fatalf("prediction checks = %#v", record.Output.Verification.PredictionChecks)
+	}
+}
+
 func containsAll(haystack string, needles ...string) bool {
 	for _, needle := range needles {
 		if !strings.Contains(haystack, needle) {

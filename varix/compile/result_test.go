@@ -152,22 +152,56 @@ func TestOutputValidateAcceptsVerificationSection(t *testing.T) {
 		Graph: ReasoningGraph{
 			Nodes: []GraphNode{
 				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
-				{ID: "n2", Kind: NodePrediction, Text: "预测B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n2", Kind: NodeImplicitCondition, Text: "隐含条件B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n3", Kind: NodeExplicitCondition, Text: "显式条件C", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n4", Kind: NodePrediction, Text: "预测D", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
 			},
-			Edges: []GraphEdge{{From: "n1", To: "n2", Kind: EdgePositive}},
+			Edges: []GraphEdge{
+				{From: "n1", To: "n2", Kind: EdgePositive},
+				{From: "n2", To: "n4", Kind: EdgeDerives},
+				{From: "n3", To: "n4", Kind: EdgePresets},
+			},
 		},
 		Details: HiddenDetails{Caveats: []string{"说明"}},
 		Verification: Verification{
 			VerifiedAt: mustTime(t, "2026-04-15T00:00:00Z"),
 			Model:      "verifier-model",
-			FactChecks: []FactCheck{{NodeID: "n1", Status: FactStatusClearlyTrue, Reason: "supported"}},
+			FactChecks: []FactCheck{
+				{NodeID: "n1", Status: FactStatusClearlyTrue, Reason: "supported"},
+				{NodeID: "n2", Status: FactStatusUnverifiable, Reason: "assumed premise"},
+			},
+			ExplicitConditionChecks: []ExplicitConditionCheck{{
+				NodeID: "n3", Status: ExplicitConditionStatusUnknown, Reason: "insufficient foresight",
+			}},
 			PredictionChecks: []PredictionCheck{{
-				NodeID: "n2", Status: PredictionStatusUnresolved, Reason: "still in window", AsOf: mustTime(t, "2026-04-15T00:00:00Z"),
+				NodeID: "n4", Status: PredictionStatusUnresolved, Reason: "still in window", AsOf: mustTime(t, "2026-04-15T00:00:00Z"),
 			}},
 		},
 	}
 	if err := out.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestOutputValidateRejectsUnsupportedExplicitConditionStatus(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeExplicitCondition, Text: "显式条件A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n2", Kind: NodePrediction, Text: "预测B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{{From: "n1", To: "n2", Kind: EdgePresets}},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+		Verification: Verification{
+			ExplicitConditionChecks: []ExplicitConditionCheck{{
+				NodeID: "n1", Status: ExplicitConditionStatus("impossible"),
+			}},
+		},
+	}
+	if err := out.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want unsupported explicit condition status rejection")
 	}
 }
 
