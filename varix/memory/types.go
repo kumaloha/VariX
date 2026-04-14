@@ -108,6 +108,31 @@ type OrganizationOutput struct {
 	NodeHints           []NodeHint           `json:"node_hints,omitempty"`
 }
 
+type GlobalCluster struct {
+	ClusterID            string    `json:"cluster_id"`
+	CanonicalProposition string    `json:"canonical_proposition"`
+	Summary              string    `json:"summary,omitempty"`
+	RepresentativeNodeID string    `json:"representative_node_id,omitempty"`
+	SupportingNodeIDs    []string  `json:"supporting_node_ids,omitempty"`
+	ConflictingNodeIDs   []string  `json:"conflicting_node_ids,omitempty"`
+	ConditionalNodeIDs   []string  `json:"conditional_node_ids,omitempty"`
+	PredictiveNodeIDs    []string  `json:"predictive_node_ids,omitempty"`
+	Active               bool      `json:"active"`
+	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+type GlobalOrganizationOutput struct {
+	OutputID            int64                `json:"output_id"`
+	UserID              string               `json:"user_id"`
+	GeneratedAt         time.Time            `json:"generated_at"`
+	ActiveNodes         []AcceptedNode       `json:"active_nodes"`
+	InactiveNodes       []AcceptedNode       `json:"inactive_nodes"`
+	DedupeGroups        []DedupeGroup        `json:"dedupe_groups,omitempty"`
+	ContradictionGroups []ContradictionGroup `json:"contradiction_groups,omitempty"`
+	Clusters            []GlobalCluster      `json:"clusters,omitempty"`
+	OpenQuestions       []string             `json:"open_questions,omitempty"`
+}
+
 type PredictionStatus struct {
 	NodeID string `json:"node_id"`
 	Status string `json:"status"`

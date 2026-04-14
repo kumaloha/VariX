@@ -563,6 +563,116 @@ func TestRunMemoryOrganizedIncludesFrontendHints(t *testing.T) {
 	}
 }
 
+func TestRunMemoryGlobalOrganizeRunAndShow(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		recordA := c.Record{
+			UnitID:         "weibo:G1",
+			Source:         "weibo",
+			ExternalID:     "G1",
+			RootExternalID: "G1",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						{ID: "n1", Kind: c.NodeFact, Text: "油价会上升", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n2", Kind: c.NodeExplicitCondition, Text: "若地缘冲突升级"},
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		recordB := c.Record{
+			UnitID:         "twitter:G2",
+			Source:         "twitter",
+			ExternalID:     "G2",
+			RootExternalID: "G2",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						{ID: "n1", Kind: c.NodeFact, Text: "油价会下降", OccurredAt: time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)},
+						{ID: "n2", Kind: c.NodeConclusion, Text: "结论C"},
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), recordA); err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), recordB); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-global", SourcePlatform: "weibo", SourceExternalID: "G1", NodeIDs: []string{"n1", "n2"}}); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-global", SourcePlatform: "twitter", SourceExternalID: "G2", NodeIDs: []string{"n1"}}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-organize-run", "--user", "u-global"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("global-organize-run code = %d, stderr = %s", code, stderr.String())
+	}
+	var out memory.GlobalOrganizationOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(global-organize-run) error = %v", err)
+	}
+	if len(out.Clusters) == 0 {
+		t.Fatalf("output = %#v, want clusters", out)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "global-organized", "--user", "u-global"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("global-organized code = %d, stderr = %s", code, stderr.String())
+	}
+	var got memory.GlobalOrganizationOutput
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(global-organized) error = %v", err)
+	}
+	if got.OutputID == 0 || len(got.Clusters) == 0 {
+		t.Fatalf("global output = %#v", got)
+	}
+	foundNeutral := false
+	for _, cluster := range got.Clusters {
+		if strings.Contains(cluster.CanonicalProposition, "关于「") {
+			foundNeutral = true
+			break
+		}
+	}
+	if !foundNeutral {
+		t.Fatalf("clusters = %#v, want at least one neutral contradiction-centered proposition", got.Clusters)
+	}
+}
+
 type fakeCompileClient struct {
 	record c.Record
 	err    error

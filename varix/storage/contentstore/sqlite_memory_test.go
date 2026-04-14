@@ -1203,3 +1203,111 @@ func TestSQLiteStore_OrganizationCollapsesDuplicateSidesIntoSingleContradictionG
 		}
 	}
 }
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationBuildsNeutralClustersAcrossSources(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	recordA := compile.Record{
+		UnitID:         "weibo:G1",
+		Source:         "weibo",
+		ExternalID:     "G1",
+		RootExternalID: "G1",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "油价会上升", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeExplicitCondition, Text: "若地缘冲突升级"},
+					{ID: "n3", Kind: compile.NodePrediction, Text: "未来几年风险资产承压", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n2", Kind: compile.EdgePositive},
+					{From: "n2", To: "n3", Kind: compile.EdgePresets},
+				},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	recordB := compile.Record{
+		UnitID:         "twitter:G2",
+		Source:         "twitter",
+		ExternalID:     "G2",
+		RootExternalID: "G2",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "油价会下降", OccurredAt: time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeImplicitCondition, Text: "供给收缩会改变油价走势", OccurredAt: time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n2", To: "n1", Kind: compile.EdgeDerives},
+				},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 10, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), recordA); err != nil {
+		t.Fatalf("UpsertCompiledOutput(recordA) error = %v", err)
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), recordB); err != nil {
+		t.Fatalf("UpsertCompiledOutput(recordB) error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-global",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "G1",
+		NodeIDs:          []string{"n1", "n2", "n3"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes(weibo) error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-global",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "G2",
+		NodeIDs:          []string{"n1", "n2"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes(twitter) error = %v", err)
+	}
+
+	out, err := store.RunGlobalMemoryOrganization(context.Background(), "u-global", time.Date(2026, 4, 14, 9, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganization() error = %v", err)
+	}
+	if len(out.Clusters) == 0 {
+		t.Fatalf("len(Clusters) = 0, want clusters")
+	}
+	foundContradictionCluster := false
+	for _, cluster := range out.Clusters {
+		if len(cluster.ConflictingNodeIDs) > 0 {
+			foundContradictionCluster = true
+			if cluster.RepresentativeNodeID == "" {
+				t.Fatalf("cluster missing representative node: %#v", cluster)
+			}
+			if cluster.CanonicalProposition == "" || !strings.HasPrefix(cluster.CanonicalProposition, "关于「") {
+				t.Fatalf("cluster proposition should be neutral rather than raw representative text: %#v", cluster)
+			}
+		}
+	}
+	if !foundContradictionCluster {
+		t.Fatalf("Clusters = %#v, want contradiction cluster", out.Clusters)
+	}
+	got, err := store.GetLatestGlobalMemoryOrganizationOutput(context.Background(), "u-global")
+	if err != nil {
+		t.Fatalf("GetLatestGlobalMemoryOrganizationOutput() error = %v", err)
+	}
+	if got.OutputID == 0 || len(got.Clusters) == 0 {
+		t.Fatalf("latest global output = %#v", got)
+	}
+}
