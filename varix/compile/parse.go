@@ -146,9 +146,21 @@ func normalizeNodeTaxonomy(graph *ReasoningGraph) {
 		if text == "" {
 			continue
 		}
-		if isExplicitConditionText(text) {
+		if shouldNormalizeToExplicitCondition(node.Kind, text) {
 			node.Kind = NodeExplicitCondition
 		}
+	}
+}
+
+func shouldNormalizeToExplicitCondition(kind NodeKind, text string) bool {
+	if !isExplicitConditionText(text) {
+		return false
+	}
+	switch kind {
+	case "", NodeFact:
+		return true
+	default:
+		return false
 	}
 }
 

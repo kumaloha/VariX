@@ -203,6 +203,28 @@ func TestParseOutputNormalizesExplicitConditionText(t *testing.T) {
 	}
 }
 
+func TestParseOutputPreservesPredictionKindForConditionalFutureClause(t *testing.T) {
+	raw := `{
+	  "summary":"一句话",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"事实A","occurred_at":"2025-01-01T00:00:00Z"},
+	      {"id":"n2","kind":"预测","text":"若中东地缘冲突升级叠加流动性收紧，私募信贷极大概率爆发挤兑，并可能引发华尔街系统性金融危机","prediction_start_at":"2025-06-01T00:00:00Z"}
+	    ],
+	    "edges":[{"from":"n1","to":"n2","kind":"推出"}]
+	  },
+	  "details":{"caveats":["说明"]},
+	  "confidence":"medium"
+	}`
+	out, err := ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	if out.Graph.Nodes[1].Kind != NodePrediction {
+		t.Fatalf("node kind = %q, want prediction preserved", out.Graph.Nodes[1].Kind)
+	}
+}
+
 func TestParseOutputInfersPredictionDueAtFromRelativeWindow(t *testing.T) {
 	raw := `{
 	  "summary":"一句话",
