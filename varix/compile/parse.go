@@ -99,7 +99,67 @@ func inferPredictionDueAtFromText(text string, start time.Time) (time.Time, bool
 			return start.AddDate(0, months, 0), true
 		}
 	}
+	if due, ok := inferPredictionDueAtFromCalendarWindow(text, start); ok {
+		return due, true
+	}
 	return time.Time{}, false
+}
+
+func inferPredictionDueAtFromCalendarWindow(text string, start time.Time) (time.Time, bool) {
+	if start.IsZero() {
+		return time.Time{}, false
+	}
+	switch {
+	case containsBoundedPhrase(text, "本季度", "这季度", "这个季度"):
+		return quarterEnd(start.Year(), quarterOf(start), start.Location()), true
+	case containsBoundedPhrase(text, "下季度", "下个季度", "下一季度"):
+		year, quarter := nextQuarter(start)
+		return quarterEnd(year, quarter, start.Location()), true
+	case containsBoundedPhrase(text, "明年") && !containsAny(text, "明年后", "明年以后", "明年之后", "明年起", "明年开始"):
+		return time.Date(start.Year()+1, time.December, 31, 23, 59, 59, 0, start.Location()), true
+	default:
+		return time.Time{}, false
+	}
+}
+
+func containsBoundedPhrase(text string, phrases ...string) bool {
+	for _, phrase := range phrases {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAny(text string, phrases ...string) bool {
+	for _, phrase := range phrases {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func quarterOf(ts time.Time) int {
+	return (int(ts.Month())-1)/3 + 1
+}
+
+func nextQuarter(ts time.Time) (int, int) {
+	quarter := quarterOf(ts) + 1
+	year := ts.Year()
+	if quarter > 4 {
+		quarter = 1
+		year++
+	}
+	return year, quarter
+}
+
+func quarterEnd(year, quarter int, loc *time.Location) time.Time {
+	if loc == nil {
+		loc = time.UTC
+	}
+	endMonth := time.Month(quarter * 3)
+	return time.Date(year, endMonth+1, 0, 23, 59, 59, 0, loc)
 }
 
 func parseChineseOrArabicInt(raw string) (int, bool) {
