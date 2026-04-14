@@ -203,6 +203,51 @@ func TestParseOutputNormalizesExplicitConditionText(t *testing.T) {
 	}
 }
 
+func TestParseOutputInfersPredictionDueAtFromRelativeWindow(t *testing.T) {
+	raw := `{
+	  "summary":"一句话",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n2","kind":"预测","text":"未来三个月市场会承压","prediction_start_at":"2026-04-14T00:00:00Z"}
+	    ],
+	    "edges":[{"from":"n1","to":"n2","kind":"推出"}]
+	  },
+	  "details":{"caveats":["说明"]},
+	  "confidence":"medium"
+	}`
+	out, err := ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	want := mustTime(t, "2026-07-14T00:00:00Z")
+	if !out.Graph.Nodes[1].PredictionDueAt.Equal(want) {
+		t.Fatalf("PredictionDueAt = %v, want %v", out.Graph.Nodes[1].PredictionDueAt, want)
+	}
+}
+
+func TestParseOutputDoesNotInventPredictionDueAtForVagueYears(t *testing.T) {
+	raw := `{
+	  "summary":"一句话",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n2","kind":"预测","text":"未来几年市场会承压","prediction_start_at":"2026-04-14T00:00:00Z"}
+	    ],
+	    "edges":[{"from":"n1","to":"n2","kind":"推出"}]
+	  },
+	  "details":{"caveats":["说明"]},
+	  "confidence":"medium"
+	}`
+	out, err := ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	if !out.Graph.Nodes[1].PredictionDueAt.IsZero() {
+		t.Fatalf("PredictionDueAt = %v, want zero for vague horizon", out.Graph.Nodes[1].PredictionDueAt)
+	}
+}
+
 func TestOutputValidateRejectsMissingFactTime(t *testing.T) {
 	out := Output{
 		Summary: "一句话总结",

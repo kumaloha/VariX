@@ -3,7 +3,10 @@ package compile
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 )
 
 func ParseOutput(raw string) (Output, error) {
@@ -58,7 +61,78 @@ func normalizeNodeTiming(graph *ReasoningGraph) {
 			if node.PredictionDueAt.IsZero() && !node.ValidTo.IsZero() {
 				node.PredictionDueAt = node.ValidTo
 			}
+			if node.PredictionDueAt.IsZero() && !node.PredictionStartAt.IsZero() {
+				if due, ok := inferPredictionDueAtFromText(node.Text, node.PredictionStartAt); ok {
+					node.PredictionDueAt = due
+				}
+			}
 		}
+	}
+}
+
+var (
+	relativeYearWindow  = regexp.MustCompile(`(?:未来|今后|接下来)([一二两三四五六七八九十\d]+)年`)
+	relativeMonthWindow = regexp.MustCompile(`(?:未来|今后|接下来)([一二两三四五六七八九十\d]+)个?月`)
+	withinMonthWindow   = regexp.MustCompile(`([一二两三四五六七八九十\d]+)个?月内`)
+)
+
+func inferPredictionDueAtFromText(text string, start time.Time) (time.Time, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" || start.IsZero() {
+		return time.Time{}, false
+	}
+	if strings.Contains(text, "未来几年") || strings.Contains(text, "今后几年") {
+		return time.Time{}, false
+	}
+	if matches := relativeYearWindow.FindStringSubmatch(text); len(matches) == 2 {
+		if years, ok := parseChineseOrArabicInt(matches[1]); ok && years > 0 {
+			return start.AddDate(years, 0, 0), true
+		}
+	}
+	if matches := relativeMonthWindow.FindStringSubmatch(text); len(matches) == 2 {
+		if months, ok := parseChineseOrArabicInt(matches[1]); ok && months > 0 {
+			return start.AddDate(0, months, 0), true
+		}
+	}
+	if matches := withinMonthWindow.FindStringSubmatch(text); len(matches) == 2 {
+		if months, ok := parseChineseOrArabicInt(matches[1]); ok && months > 0 {
+			return start.AddDate(0, months, 0), true
+		}
+	}
+	return time.Time{}, false
+}
+
+func parseChineseOrArabicInt(raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	if n, err := strconv.Atoi(raw); err == nil {
+		return n, true
+	}
+	switch raw {
+	case "一":
+		return 1, true
+	case "二", "两":
+		return 2, true
+	case "三":
+		return 3, true
+	case "四":
+		return 4, true
+	case "五":
+		return 5, true
+	case "六":
+		return 6, true
+	case "七":
+		return 7, true
+	case "八":
+		return 8, true
+	case "九":
+		return 9, true
+	case "十":
+		return 10, true
+	default:
+		return 0, false
 	}
 }
 
