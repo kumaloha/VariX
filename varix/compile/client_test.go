@@ -144,6 +144,7 @@ func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"事实","text":"事实B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n3","kind":"隐含条件","text":"条件C","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n4","kind":"结论","text":"结论D","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n3","kind":"正向"},{"from":"n2","to":"n3","kind":"正向"},{"from":"n3","to":"n4","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
 		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"unverifiable","reason":"unclear"}]}`, Model: "verifier-model"},
+		{Text: `{"implicit_condition_checks":[{"node_id":"n3","status":"unverifiable","reason":"implicit premise not evidenced"}]}`, Model: "implicit-verifier-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
@@ -156,8 +157,8 @@ func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 3 {
-		t.Fatalf("call count = %d, want 3", len(provider.requests))
+	if len(provider.requests) != 4 {
+		t.Fatalf("call count = %d, want 4", len(provider.requests))
 	}
 	if len(record.Output.Graph.Nodes) != 4 || len(record.Output.Graph.Edges) != 3 {
 		t.Fatalf("graph = %#v", record.Output.Graph)
@@ -223,7 +224,9 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"显式条件","text":"条件B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n3","kind":"隐含条件","text":"条件C","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n4","kind":"结论","text":"结论D","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n5","kind":"预测","text":"预测E","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"正向"},{"from":"n2","to":"n3","kind":"预设"},{"from":"n3","to":"n4","kind":"推出"},{"from":"n4","to":"n5","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"clearly_true","reason":"explicit condition grounded"},{"node_id":"n3","status":"unverifiable","reason":"implicit assumption not evidenced"},{"node_id":"n4","status":"clearly_true","reason":"conclusion follows"}]}`, Model: "fact-verifier-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-verifier-model"},
+		{Text: `{"explicit_condition_checks":[{"node_id":"n2","status":"unknown","reason":"future condition uncertain"}]}`, Model: "explicit-verifier-model"},
+		{Text: `{"implicit_condition_checks":[{"node_id":"n3","status":"unverifiable","reason":"implicit premise not evidenced"}]}`, Model: "implicit-verifier-model"},
 		{Text: `{"prediction_checks":[{"node_id":"n5","status":"unresolved","reason":"still in window","as_of":"2026-04-15T00:00:00Z"}]}`, Model: "prediction-verifier-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
@@ -237,20 +240,28 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 3 {
-		t.Fatalf("provider calls = %d, want 3", len(provider.requests))
+	if len(provider.requests) != 5 {
+		t.Fatalf("provider calls = %d, want 5", len(provider.requests))
 	}
 	factPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
-	for _, want := range []string{`"kind": "事实"`, `"kind": "显式条件"`, `"kind": "隐含条件"`, `"kind": "结论"`} {
+	for _, want := range []string{`"kind": "事实"`} {
 		if !strings.Contains(factPrompt, want) {
 			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
 		}
 	}
-	if strings.Contains(factPrompt, `"kind": "预测"`) {
-		t.Fatalf("fact verifier prompt should exclude prediction nodes: %q", factPrompt)
+	for _, unwanted := range []string{`"kind": "显式条件"`, `"kind": "隐含条件"`, `"kind": "结论"`, `"kind": "预测"`} {
+		if strings.Contains(factPrompt, unwanted) {
+			t.Fatalf("fact verifier prompt should exclude %q: %q", unwanted, factPrompt)
+		}
 	}
-	if len(record.Output.Verification.FactChecks) != 4 {
-		t.Fatalf("len(FactChecks) = %d, want 4", len(record.Output.Verification.FactChecks))
+	if len(record.Output.Verification.FactChecks) != 1 {
+		t.Fatalf("len(FactChecks) = %d, want 1", len(record.Output.Verification.FactChecks))
+	}
+	if len(record.Output.Verification.ExplicitConditionChecks) != 1 {
+		t.Fatalf("len(ExplicitConditionChecks) = %d, want 1", len(record.Output.Verification.ExplicitConditionChecks))
+	}
+	if len(record.Output.Verification.ImplicitConditionChecks) != 1 {
+		t.Fatalf("len(ImplicitConditionChecks) = %d, want 1", len(record.Output.Verification.ImplicitConditionChecks))
 	}
 	if len(record.Output.Verification.PredictionChecks) != 1 {
 		t.Fatalf("len(PredictionChecks) = %d, want 1", len(record.Output.Verification.PredictionChecks))

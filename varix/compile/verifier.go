@@ -18,11 +18,17 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, bundle Bund
 	verification := Verification{}
 
 	factNodes := make([]GraphNode, 0)
+	explicitConditionNodes := make([]GraphNode, 0)
+	implicitConditionNodes := make([]GraphNode, 0)
 	predictionNodes := make([]GraphNode, 0)
 	for _, node := range output.Graph.Nodes {
 		switch node.Kind {
 		case NodeFact:
 			factNodes = append(factNodes, node)
+		case NodeExplicitCondition:
+			explicitConditionNodes = append(explicitConditionNodes, node)
+		case NodeImplicitCondition:
+			implicitConditionNodes = append(implicitConditionNodes, node)
 		case NodePrediction:
 			predictionNodes = append(predictionNodes, node)
 		}
@@ -37,6 +43,22 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, bundle Bund
 		verification.FactChecks = facts
 		verifierModel = firstNonEmpty(modelName, verifierModel)
 	}
+	if len(explicitConditionNodes) > 0 {
+		checks, modelName, err := verifyExplicitConditions(ctx, rt, model, bundle, explicitConditionNodes)
+		if err != nil {
+			return Verification{}, err
+		}
+		verification.ExplicitConditionChecks = checks
+		verifierModel = firstNonEmpty(modelName, verifierModel)
+	}
+	if len(implicitConditionNodes) > 0 {
+		checks, modelName, err := verifyImplicitConditions(ctx, rt, model, bundle, implicitConditionNodes)
+		if err != nil {
+			return Verification{}, err
+		}
+		verification.ImplicitConditionChecks = checks
+		verifierModel = firstNonEmpty(modelName, verifierModel)
+	}
 	if len(predictionNodes) > 0 {
 		predictions, modelName, err := verifyPredictions(ctx, rt, model, bundle, predictionNodes)
 		if err != nil {
@@ -46,7 +68,7 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, bundle Bund
 		verifierModel = firstNonEmpty(modelName, verifierModel)
 	}
 
-	if len(verification.FactChecks) > 0 || len(verification.PredictionChecks) > 0 {
+	if len(verification.FactChecks) > 0 || len(verification.ExplicitConditionChecks) > 0 || len(verification.ImplicitConditionChecks) > 0 || len(verification.PredictionChecks) > 0 {
 		verification.VerifiedAt = time.Now().UTC()
 		verification.Model = firstNonEmpty(verifierModel, model)
 	}
@@ -97,6 +119,50 @@ func verifyPredictions(ctx context.Context, rt verifierCall, model string, bundl
 	return payload.PredictionChecks, resp.Model, nil
 }
 
+func verifyExplicitConditions(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) ([]ExplicitConditionCheck, string, error) {
+	prompt, err := buildExplicitConditionVerificationPrompt(bundle, nodes)
+	if err != nil {
+		return nil, "", err
+	}
+	req, err := BuildQwen36ProviderRequest(model, bundle, explicitConditionVerifierInstruction, prompt)
+	if err != nil {
+		return nil, "", err
+	}
+	resp, err := rt.Call(ctx, req)
+	if err != nil {
+		return nil, "", err
+	}
+	var payload struct {
+		ExplicitConditionChecks []ExplicitConditionCheck `json:"explicit_condition_checks"`
+	}
+	if err := unmarshalVerifierPayload(resp.Text, &payload); err != nil {
+		return nil, "", err
+	}
+	return payload.ExplicitConditionChecks, resp.Model, nil
+}
+
+func verifyImplicitConditions(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) ([]ImplicitConditionCheck, string, error) {
+	prompt, err := buildImplicitConditionVerificationPrompt(bundle, nodes)
+	if err != nil {
+		return nil, "", err
+	}
+	req, err := BuildQwen36ProviderRequest(model, bundle, implicitConditionVerifierInstruction, prompt)
+	if err != nil {
+		return nil, "", err
+	}
+	resp, err := rt.Call(ctx, req)
+	if err != nil {
+		return nil, "", err
+	}
+	var payload struct {
+		ImplicitConditionChecks []ImplicitConditionCheck `json:"implicit_condition_checks"`
+	}
+	if err := unmarshalVerifierPayload(resp.Text, &payload); err != nil {
+		return nil, "", err
+	}
+	return payload.ImplicitConditionChecks, resp.Model, nil
+}
+
 func unmarshalVerifierPayload(raw string, target any) error {
 	clean := strings.TrimSpace(raw)
 	clean = strings.TrimPrefix(clean, "```json")
@@ -140,6 +206,36 @@ func buildPredictionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string
 	return string(encoded), nil
 }
 
+func buildExplicitConditionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
+	payload := map[string]any{
+		"unit_id":      bundle.UnitID,
+		"source":       bundle.Source,
+		"external_id":  bundle.ExternalID,
+		"nodes":        nodes,
+		"text_context": bundle.TextContext(),
+	}
+	encoded, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+func buildImplicitConditionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
+	payload := map[string]any{
+		"unit_id":      bundle.UnitID,
+		"source":       bundle.Source,
+		"external_id":  bundle.ExternalID,
+		"nodes":        nodes,
+		"text_context": bundle.TextContext(),
+	}
+	encoded, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
@@ -163,6 +259,24 @@ const predictionVerifierInstruction = `
 {
   "prediction_checks": [
     {"node_id":"n1","status":"unresolved|resolved_true|resolved_false|stale_unresolved","reason":"...","as_of":"2026-04-14T00:00:00Z"}
+  ]
+}
+不要返回多余文本。`
+
+const explicitConditionVerifierInstruction = `
+你是一个显式条件评估器。只看输入中的显式条件节点，返回 JSON：
+{
+  "explicit_condition_checks": [
+    {"node_id":"n1","status":"high|medium|low|unknown","reason":"..."}
+  ]
+}
+不要返回多余文本。`
+
+const implicitConditionVerifierInstruction = `
+你是一个隐含条件验证器。只看输入中的隐含条件节点，返回 JSON：
+{
+  "implicit_condition_checks": [
+    {"node_id":"n1","status":"clearly_true|clearly_false|unverifiable","reason":"..."}
   ]
 }
 不要返回多余文本。`

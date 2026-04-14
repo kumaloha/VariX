@@ -53,24 +53,34 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 		return memory.OrganizationOutput{}, err
 	}
 	factStatusByNode := factStatusMap(record)
+	explicitConditionStatusByNode := explicitConditionStatusMap(record)
 	predictionStatusByNode := predictionStatusMap(record)
 	graphNodesByID := map[string]compile.GraphNode{}
 	for _, node := range record.Output.Graph.Nodes {
 		graphNodesByID[node.ID] = node
 	}
 
+	derivedNodes := make([]memory.AcceptedNode, 0, len(nodes))
 	active := make([]memory.AcceptedNode, 0)
 	inactive := make([]memory.AcceptedNode, 0)
 	for _, node := range nodes {
-		if (node.ValidFrom.IsZero() || node.ValidTo.IsZero()) && graphNodesByID[node.NodeID].ID != "" {
-			derived := graphNodesByID[node.NodeID]
-			if node.ValidFrom.IsZero() {
-				node.ValidFrom = derived.ValidFrom
-			}
-			if node.ValidTo.IsZero() {
-				node.ValidTo = derived.ValidTo
+		if derived, ok := graphNodesByID[node.NodeID]; ok {
+			if sameNodeMeaning(node.NodeText, derived.Text) {
+				if strings.TrimSpace(derived.Text) != "" {
+					node.NodeText = derived.Text
+				}
+				if strings.TrimSpace(string(derived.Kind)) != "" {
+					node.NodeKind = string(derived.Kind)
+				}
+				if node.ValidFrom.IsZero() {
+					node.ValidFrom = derived.ValidFrom
+				}
+				if node.ValidTo.IsZero() {
+					node.ValidTo = derived.ValidTo
+				}
 			}
 		}
+		derivedNodes = append(derivedNodes, node)
 		if node.ValidFrom.IsZero() || node.ValidTo.IsZero() {
 			inactive = append(inactive, node)
 			continue
@@ -99,7 +109,7 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 		PredictionStatuses:  extractPredictionStatuses(nodes, record),
 		FactVerifications:   extractFactVerifications(active, record),
 		OpenQuestions:       buildOpenQuestions(active, record),
-		NodeHints:           buildNodeHints(nodes, active, dedupeGroups, contradictionGroups, hierarchy, factStatusByNode, predictionStatusByNode),
+		NodeHints:           buildNodeHints(derivedNodes, active, dedupeGroups, contradictionGroups, hierarchy, factStatusByNode, explicitConditionStatusByNode, predictionStatusByNode),
 	}
 
 	res, err := tx.ExecContext(ctx, `INSERT INTO memory_organization_outputs(job_id, user_id, source_platform, source_external_id, payload_json, created_at)
@@ -266,6 +276,9 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record) []memory
 		if _, ok := active[edge.To]; !ok {
 			continue
 		}
+		if !hierarchyTransitionAllowed(nodeKindByID[edge.From], nodeKindByID[edge.To]) {
+			continue
+		}
 		if status, ok := factStatusByNode[edge.From]; ok && status != compile.FactStatusClearlyTrue {
 			continue
 		}
@@ -283,43 +296,15 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record) []memory
 		out = append(out, link)
 	}
 
-	byRank := map[int][]memory.AcceptedNode{}
-	ranks := []int{}
-	seenRanks := map[int]struct{}{}
-	for _, node := range nodes {
-		rank := nodeKindRank(node.NodeKind)
-		byRank[rank] = append(byRank[rank], node)
-		if _, ok := seenRanks[rank]; !ok {
-			seenRanks[rank] = struct{}{}
-			ranks = append(ranks, rank)
-		}
+	nodesByKind := groupNodesByKind(nodes)
+	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeFact)], nodesByKind[string(compile.NodeExplicitCondition)])
+	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeFact)], nodesByKind[string(compile.NodeImplicitCondition)])
+	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeImplicitCondition)], nodesByKind[string(compile.NodeConclusion)])
+	if len(nodesByKind[string(compile.NodeImplicitCondition)]) == 0 {
+		addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeFact)], nodesByKind[string(compile.NodeConclusion)])
 	}
-	sort.Ints(ranks)
-	for i := 0; i < len(ranks)-1; i++ {
-		lower := byRank[ranks[i]]
-		upper := byRank[ranks[i+1]]
-		for _, parent := range lower {
-			if status, ok := factStatusByNode[parent.NodeID]; ok && status != compile.FactStatusClearlyTrue {
-				continue
-			}
-			for _, child := range upper {
-				key := parent.NodeID + "->" + child.NodeID
-				if _, ok := seen[key]; ok {
-					continue
-				}
-				seen[key] = struct{}{}
-				out = append(out, memory.HierarchyLink{
-					ParentNodeID: parent.NodeID,
-					ParentKind:   parent.NodeKind,
-					ChildNodeID:  child.NodeID,
-					ChildKind:    child.NodeKind,
-					Kind:         "inferred",
-					Source:       "inferred",
-					Hint:         inferredHierarchyHint(parent.NodeKind, child.NodeKind),
-				})
-			}
-		}
-	}
+	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeExplicitCondition)], nodesByKind[string(compile.NodePrediction)])
+	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeConclusion)], nodesByKind[string(compile.NodePrediction)])
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].ParentNodeID != out[j].ParentNodeID {
 			return out[i].ParentNodeID < out[j].ParentNodeID
@@ -338,18 +323,57 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record) []memory
 	return out
 }
 
-func nodeKindRank(kind string) int {
-	switch kind {
-	case string(compile.NodeFact):
-		return 0
-	case string(compile.NodeAssumption):
-		return 1
-	case string(compile.NodeConclusion):
-		return 2
-	case string(compile.NodePrediction):
-		return 3
+func groupNodesByKind(nodes []memory.AcceptedNode) map[string][]memory.AcceptedNode {
+	out := map[string][]memory.AcceptedNode{}
+	for _, node := range nodes {
+		out[node.NodeKind] = append(out[node.NodeKind], node)
+	}
+	return out
+}
+
+func addInferredHierarchyLinks(out *[]memory.HierarchyLink, seen map[string]struct{}, factStatusByNode map[string]compile.FactStatus, parents, children []memory.AcceptedNode) {
+	for _, parent := range parents {
+		if status, ok := factStatusByNode[parent.NodeID]; ok && status != compile.FactStatusClearlyTrue {
+			continue
+		}
+		for _, child := range children {
+			if !hierarchyTransitionAllowed(parent.NodeKind, child.NodeKind) {
+				continue
+			}
+			key := parent.NodeID + "->" + child.NodeID
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			*out = append(*out, memory.HierarchyLink{
+				ParentNodeID: parent.NodeID,
+				ParentKind:   parent.NodeKind,
+				ChildNodeID:  child.NodeID,
+				ChildKind:    child.NodeKind,
+				Kind:         "inferred",
+				Source:       "inferred",
+				Hint:         inferredHierarchyHint(parent.NodeKind, child.NodeKind),
+			})
+		}
+	}
+}
+
+func hierarchyTransitionAllowed(parentKind, childKind string) bool {
+	switch {
+	case parentKind == string(compile.NodeFact) && childKind == string(compile.NodeExplicitCondition):
+		return true
+	case parentKind == string(compile.NodeFact) && childKind == string(compile.NodeImplicitCondition):
+		return true
+	case parentKind == string(compile.NodeFact) && childKind == string(compile.NodeConclusion):
+		return true
+	case parentKind == string(compile.NodeImplicitCondition) && childKind == string(compile.NodeConclusion):
+		return true
+	case parentKind == string(compile.NodeExplicitCondition) && childKind == string(compile.NodePrediction):
+		return true
+	case parentKind == string(compile.NodeConclusion) && childKind == string(compile.NodePrediction):
+		return true
 	default:
-		return 100
+		return false
 	}
 }
 
@@ -388,6 +412,19 @@ func extractFactVerifications(nodes []memory.AcceptedNode, record compile.Record
 			Reason: check.Reason,
 		})
 	}
+	for _, check := range record.Output.Verification.ImplicitConditionChecks {
+		if _, ok := active[check.NodeID]; !ok {
+			continue
+		}
+		out = append(out, memory.FactVerification{
+			NodeID: check.NodeID,
+			Status: string(check.Status),
+			Reason: check.Reason,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].NodeID < out[j].NodeID
+	})
 	return out
 }
 
@@ -403,12 +440,33 @@ func buildOpenQuestions(nodes []memory.AcceptedNode, record compile.Record) []st
 			questions = append(questions, fmt.Sprintf("fact node %s remains unverifiable", check.NodeID))
 		}
 	}
+	for _, check := range record.Output.Verification.ImplicitConditionChecks {
+		if check.Status == compile.FactStatusUnverifiable {
+			questions = append(questions, fmt.Sprintf("implicit condition node %s remains unverifiable", check.NodeID))
+		}
+	}
+	for _, check := range record.Output.Verification.ExplicitConditionChecks {
+		if check.Status == compile.ExplicitConditionStatusUnknown {
+			questions = append(questions, fmt.Sprintf("explicit condition node %s remains probability-unknown", check.NodeID))
+		}
+	}
 	return questions
 }
 
 func factStatusMap(record compile.Record) map[string]compile.FactStatus {
-	out := make(map[string]compile.FactStatus, len(record.Output.Verification.FactChecks))
+	out := make(map[string]compile.FactStatus, len(record.Output.Verification.FactChecks)+len(record.Output.Verification.ImplicitConditionChecks))
 	for _, check := range record.Output.Verification.FactChecks {
+		out[check.NodeID] = check.Status
+	}
+	for _, check := range record.Output.Verification.ImplicitConditionChecks {
+		out[check.NodeID] = check.Status
+	}
+	return out
+}
+
+func explicitConditionStatusMap(record compile.Record) map[string]compile.ExplicitConditionStatus {
+	out := make(map[string]compile.ExplicitConditionStatus, len(record.Output.Verification.ExplicitConditionChecks))
+	for _, check := range record.Output.Verification.ExplicitConditionChecks {
 		out[check.NodeID] = check.Status
 	}
 	return out
@@ -443,7 +501,7 @@ func sortedNodeSet(m map[string]struct{}) []string {
 	return out
 }
 
-func buildNodeHints(nodes, active []memory.AcceptedNode, dedupeGroups []memory.DedupeGroup, contradictionGroups []memory.ContradictionGroup, hierarchy []memory.HierarchyLink, factStatusByNode map[string]compile.FactStatus, predictionStatusByNode map[string]compile.PredictionStatus) []memory.NodeHint {
+func buildNodeHints(nodes, active []memory.AcceptedNode, dedupeGroups []memory.DedupeGroup, contradictionGroups []memory.ContradictionGroup, hierarchy []memory.HierarchyLink, factStatusByNode map[string]compile.FactStatus, explicitConditionStatusByNode map[string]compile.ExplicitConditionStatus, predictionStatusByNode map[string]compile.PredictionStatus) []memory.NodeHint {
 	activeSet := map[string]struct{}{}
 	for _, node := range active {
 		activeSet[node.NodeID] = struct{}{}
@@ -496,6 +554,9 @@ func buildNodeHints(nodes, active []memory.AcceptedNode, dedupeGroups []memory.D
 		if status, ok := factStatusByNode[node.NodeID]; ok {
 			hint.VerificationStatus = string(status)
 		}
+		if status, ok := explicitConditionStatusByNode[node.NodeID]; ok {
+			hint.ConditionProbability = string(status)
+		}
 		if status, ok := predictionStatusByNode[node.NodeID]; ok {
 			hint.PredictionStatus = string(status)
 		}
@@ -540,6 +601,13 @@ func canonicalNodeText(text string) string {
 		"、", "",
 		"“", "",
 		"”", "",
+		"如果", "",
+		"若", "",
+		"一旦", "",
+		"假如", "",
+		"倘若", "",
+		"如若", "",
+		"发生", "",
 		"（", "",
 		"）", "",
 		"(", "",
@@ -571,6 +639,15 @@ func canonicalNodeText(text string) string {
 		"支撑", "支持",
 	)
 	return replacer.Replace(normalized)
+}
+
+func sameNodeMeaning(a, b string) bool {
+	a = canonicalNodeText(a)
+	b = canonicalNodeText(b)
+	if a == "" || b == "" {
+		return false
+	}
+	return a == b
 }
 
 func areContradictory(a, b string) bool {
@@ -632,8 +709,10 @@ func nodeKindSlug(kind string) string {
 	switch kind {
 	case string(compile.NodeFact):
 		return "fact"
+	case string(compile.NodeExplicitCondition):
+		return "explicit-condition"
 	case string(compile.NodeAssumption):
-		return "assumption"
+		return "implicit-condition"
 	case string(compile.NodeConclusion):
 		return "conclusion"
 	case string(compile.NodePrediction):

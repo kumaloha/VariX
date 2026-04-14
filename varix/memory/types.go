@@ -81,6 +81,7 @@ type NodeHint struct {
 	State                string   `json:"state,omitempty"`
 	PreferredForDisplay  bool     `json:"preferred_for_display,omitempty"`
 	VerificationStatus   string   `json:"verification_status,omitempty"`
+	ConditionProbability string   `json:"condition_probability,omitempty"`
 	PredictionStatus     string   `json:"prediction_status,omitempty"`
 	DedupePeerNodeIDs    []string `json:"dedupe_peer_node_ids,omitempty"`
 	ContradictionNodeIDs []string `json:"contradiction_node_ids,omitempty"`

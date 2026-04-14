@@ -106,6 +106,15 @@ const (
 	FactStatusUnverifiable FactStatus = "unverifiable"
 )
 
+type ExplicitConditionStatus string
+
+const (
+	ExplicitConditionStatusHigh    ExplicitConditionStatus = "high"
+	ExplicitConditionStatusMedium  ExplicitConditionStatus = "medium"
+	ExplicitConditionStatusLow     ExplicitConditionStatus = "low"
+	ExplicitConditionStatusUnknown ExplicitConditionStatus = "unknown"
+)
+
 type PredictionStatus string
 
 const (
@@ -122,18 +131,12 @@ type FactCheck struct {
 }
 
 type ExplicitConditionCheck struct {
-	NodeID string     `json:"node_id"`
-	Status FactStatus `json:"status"`
-	Reason string     `json:"reason,omitempty"`
+	NodeID string                  `json:"node_id"`
+	Status ExplicitConditionStatus `json:"status"`
+	Reason string                  `json:"reason,omitempty"`
 }
 
 type ImplicitConditionCheck struct {
-	NodeID string     `json:"node_id"`
-	Status FactStatus `json:"status"`
-	Reason string     `json:"reason,omitempty"`
-}
-
-type ConclusionCheck struct {
 	NodeID string     `json:"node_id"`
 	Status FactStatus `json:"status"`
 	Reason string     `json:"reason,omitempty"`
@@ -147,13 +150,12 @@ type PredictionCheck struct {
 }
 
 type Verification struct {
-	VerifiedAt               time.Time                  `json:"verified_at,omitempty"`
-	Model                    string                     `json:"model,omitempty"`
-	FactChecks               []FactCheck                `json:"fact_checks,omitempty"`
-	ExplicitConditionChecks  []ExplicitConditionCheck   `json:"explicit_condition_checks,omitempty"`
-	ImplicitConditionChecks  []ImplicitConditionCheck   `json:"implicit_condition_checks,omitempty"`
-	ConclusionChecks         []ConclusionCheck          `json:"conclusion_checks,omitempty"`
-	PredictionChecks         []PredictionCheck          `json:"prediction_checks,omitempty"`
+	VerifiedAt              time.Time                `json:"verified_at,omitempty"`
+	Model                   string                   `json:"model,omitempty"`
+	FactChecks              []FactCheck              `json:"fact_checks,omitempty"`
+	ExplicitConditionChecks []ExplicitConditionCheck `json:"explicit_condition_checks,omitempty"`
+	ImplicitConditionChecks []ImplicitConditionCheck `json:"implicit_condition_checks,omitempty"`
+	PredictionChecks        []PredictionCheck        `json:"prediction_checks,omitempty"`
 }
 
 type Output struct {
@@ -241,7 +243,7 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 			return fmt.Errorf("explicit condition check references unknown node: %s", check.NodeID)
 		}
 		switch check.Status {
-		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
+		case ExplicitConditionStatusHigh, ExplicitConditionStatusMedium, ExplicitConditionStatusLow, ExplicitConditionStatusUnknown:
 		default:
 			return fmt.Errorf("unsupported explicit condition status: %s", check.Status)
 		}
@@ -254,16 +256,6 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
 		default:
 			return fmt.Errorf("unsupported implicit condition status: %s", check.Status)
-		}
-	}
-	for _, check := range o.Verification.ConclusionChecks {
-		if _, ok := nodeIDs[check.NodeID]; !ok {
-			return fmt.Errorf("conclusion check references unknown node: %s", check.NodeID)
-		}
-		switch check.Status {
-		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
-		default:
-			return fmt.Errorf("unsupported conclusion status: %s", check.Status)
 		}
 	}
 	for _, check := range o.Verification.PredictionChecks {

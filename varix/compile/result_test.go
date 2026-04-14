@@ -129,6 +129,28 @@ func TestGraphAliasesDecode(t *testing.T) {
 	}
 }
 
+func TestParseOutputNormalizesExplicitConditionText(t *testing.T) {
+	raw := `{
+	  "summary":"一句话",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"如果美国安全保障减弱，中东资金将减少购买美债美股。","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},
+	      {"id":"n2","kind":"预测","text":"市场会承压","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}
+	    ],
+	    "edges":[{"from":"n1","to":"n2","kind":"预设"}]
+	  },
+	  "details":{"caveats":["说明"]},
+	  "confidence":"medium"
+	}`
+	out, err := ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	if out.Graph.Nodes[0].Kind != NodeExplicitCondition {
+		t.Fatalf("node kind = %q, want explicit condition", out.Graph.Nodes[0].Kind)
+	}
+}
+
 func TestOutputValidateRejectsMissingValidityWindow(t *testing.T) {
 	out := Output{
 		Summary: "一句话总结",

@@ -418,7 +418,7 @@ func TestRunMemoryOrganizedIncludesFrontendHints(t *testing.T) {
 					Nodes: []c.GraphNode{
 						testGraphNode("n1", c.NodeFact, "油价会上升"),
 						testGraphNode("n2", c.NodeFact, "油价将上行"),
-						testGraphNode("n3", c.NodePrediction, "能源股会受益"),
+						testGraphNode("n3", c.NodeConclusion, "能源股受益"),
 					},
 					Edges: []c.GraphEdge{{From: "n1", To: "n3", Kind: c.EdgePositive}},
 				},
@@ -427,9 +427,6 @@ func TestRunMemoryOrganizedIncludesFrontendHints(t *testing.T) {
 					VerifiedAt: time.Now().UTC(),
 					Model:      c.Qwen36PlusModel,
 					FactChecks: []c.FactCheck{{NodeID: "n1", Status: c.FactStatusClearlyTrue, Reason: "supported"}},
-					PredictionChecks: []c.PredictionCheck{{
-						NodeID: "n3", Status: c.PredictionStatusUnresolved, Reason: "still active", AsOf: time.Now().UTC(),
-					}},
 				},
 			},
 			CompiledAt: time.Now().UTC(),

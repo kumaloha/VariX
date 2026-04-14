@@ -24,6 +24,7 @@ func ParseOutput(raw string) (Output, error) {
 	_ = json.Unmarshal(payload["topics"], &out.Topics)
 	_ = json.Unmarshal(payload["confidence"], &out.Confidence)
 	_ = json.Unmarshal(payload["graph"], &out.Graph)
+	normalizeNodeTaxonomy(&out.Graph)
 	_ = json.Unmarshal(payload["verification"], &out.Verification)
 	if rawDetails, ok := payload["details"]; ok {
 		details, err := parseHiddenDetails(rawDetails)
@@ -36,6 +37,33 @@ func ParseOutput(raw string) (Output, error) {
 		return Output{}, err
 	}
 	return out, nil
+}
+
+func normalizeNodeTaxonomy(graph *ReasoningGraph) {
+	if graph == nil {
+		return
+	}
+	for i := range graph.Nodes {
+		node := &graph.Nodes[i]
+		text := strings.TrimSpace(node.Text)
+		if text == "" {
+			continue
+		}
+		if isExplicitConditionText(text) {
+			node.Kind = NodeExplicitCondition
+		}
+	}
+}
+
+func isExplicitConditionText(text string) bool {
+	text = strings.TrimSpace(text)
+	prefixes := []string{"如果", "若", "一旦", "假如", "倘若", "如若"}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseHiddenDetails(raw json.RawMessage) (HiddenDetails, error) {
