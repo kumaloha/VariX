@@ -176,58 +176,52 @@ func unmarshalVerifierPayload(raw string, target any) error {
 }
 
 func buildFactVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
-	payload := map[string]any{
-		"unit_id":      bundle.UnitID,
-		"source":       bundle.Source,
-		"external_id":  bundle.ExternalID,
-		"nodes":        nodes,
-		"text_context": bundle.TextContext(),
-	}
-	encoded, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(encoded), nil
+	return buildVerificationPrompt(bundle, nodes, nil)
 }
 
 func buildPredictionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
-	payload := map[string]any{
-		"unit_id":      bundle.UnitID,
-		"source":       bundle.Source,
-		"external_id":  bundle.ExternalID,
-		"as_of":        time.Now().UTC().Format(time.RFC3339),
-		"nodes":        nodes,
-		"text_context": bundle.TextContext(),
-	}
-	encoded, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(encoded), nil
+	return buildVerificationPrompt(bundle, nodes, map[string]any{
+		"as_of": time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 func buildExplicitConditionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
-	payload := map[string]any{
-		"unit_id":      bundle.UnitID,
-		"source":       bundle.Source,
-		"external_id":  bundle.ExternalID,
-		"nodes":        nodes,
-		"text_context": bundle.TextContext(),
-	}
-	encoded, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(encoded), nil
+	return buildVerificationPrompt(bundle, nodes, nil)
 }
 
 func buildImplicitConditionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
+	return buildVerificationPrompt(bundle, nodes, nil)
+}
+
+func buildVerificationPrompt(bundle Bundle, nodes []GraphNode, extra map[string]any) (string, error) {
 	payload := map[string]any{
 		"unit_id":      bundle.UnitID,
 		"source":       bundle.Source,
 		"external_id":  bundle.ExternalID,
 		"nodes":        nodes,
+		"quotes":       bundle.Quotes,
+		"references":   bundle.References,
+		"thread_segments": bundle.ThreadSegments,
+		"attachments":  bundle.Attachments,
 		"text_context": bundle.TextContext(),
+	}
+	if trimmed := strings.TrimSpace(bundle.RootExternalID); trimmed != "" {
+		payload["root_external_id"] = trimmed
+	}
+	if trimmed := strings.TrimSpace(bundle.AuthorName); trimmed != "" {
+		payload["author_name"] = trimmed
+	}
+	if trimmed := strings.TrimSpace(bundle.AuthorID); trimmed != "" {
+		payload["author_id"] = trimmed
+	}
+	if trimmed := strings.TrimSpace(bundle.URL); trimmed != "" {
+		payload["url"] = trimmed
+	}
+	if !bundle.PostedAt.IsZero() {
+		payload["posted_at"] = bundle.PostedAt.Format(time.RFC3339)
+	}
+	for key, value := range extra {
+		payload[key] = value
 	}
 	encoded, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
