@@ -441,6 +441,71 @@ func TestSQLiteStore_OrganizationBuildsHierarchyFromNodeKindsWhenEdgesAreTooCoar
 	}
 }
 
+func TestSQLiteStore_OrganizationPlacesExplicitAndImplicitConditionsBetweenFactsAndConclusions(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "weibo:Q3b",
+		Source:         "weibo",
+		ExternalID:     "Q3b",
+		RootExternalID: "Q3b",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "事实A", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeKind("显式条件"), Text: "显式条件B", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+					{ID: "n3", Kind: compile.NodeAssumption, Text: "隐含条件C", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+					{ID: "n4", Kind: compile.NodeConclusion, Text: "结论D", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n4", Kind: compile.EdgeDerives},
+				},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u3b",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q3b",
+		NodeIDs:          []string{"n1", "n2", "n3", "n4"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+
+	out, err := store.RunNextMemoryOrganizationJob(context.Background(), "u3b", time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob() error = %v", err)
+	}
+	var saw12, saw23, saw34 bool
+	for _, link := range out.Hierarchy {
+		if link.ParentNodeID == "n1" && link.ChildNodeID == "n2" && link.Hint == "fact-to-explicit-condition" {
+			saw12 = true
+		}
+		if link.ParentNodeID == "n2" && link.ChildNodeID == "n3" && link.Hint == "explicit-condition-to-implicit-condition" {
+			saw23 = true
+		}
+		if link.ParentNodeID == "n3" && link.ChildNodeID == "n4" && link.Hint == "implicit-condition-to-conclusion" {
+			saw34 = true
+		}
+	}
+	if !saw12 || !saw23 || !saw34 {
+		t.Fatalf("hierarchy = %#v, want inferred fact/explicit/implicit/conclusion ladder", out.Hierarchy)
+	}
+}
+
 func TestSQLiteStore_OrganizationHierarchySkipsUnverifiableFactParents(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
