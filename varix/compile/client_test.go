@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kumaloha/VariX/varix/ingest/types"
 	"github.com/kumaloha/forge/llm"
@@ -284,7 +285,7 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 
 func TestClientCompileCarriesStructuredWeiboEvidenceIntoVerifierPrompt(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
-		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n1","kind":"正向"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"正向"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
 		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-verifier-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")

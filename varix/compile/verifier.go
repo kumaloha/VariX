@@ -198,7 +198,7 @@ func buildVerificationPrompt(bundle Bundle, nodes []GraphNode, extra map[string]
 		"unit_id":         bundle.UnitID,
 		"source":          bundle.Source,
 		"external_id":     bundle.ExternalID,
-		"nodes":           nodes,
+		"nodes":           marshalVerificationNodes(nodes),
 		"quotes":          bundle.Quotes,
 		"references":      bundle.References,
 		"thread_segments": bundle.ThreadSegments,
@@ -228,6 +228,32 @@ func buildVerificationPrompt(bundle Bundle, nodes []GraphNode, extra map[string]
 		return "", err
 	}
 	return string(encoded), nil
+}
+
+func marshalVerificationNodes(nodes []GraphNode) []map[string]any {
+	out := make([]map[string]any, 0, len(nodes))
+	for _, node := range nodes {
+		item := map[string]any{
+			"id":   node.ID,
+			"kind": node.Kind,
+			"text": node.Text,
+		}
+		if !node.OccurredAt.IsZero() {
+			item["occurred_at"] = node.OccurredAt.Format(time.RFC3339)
+		}
+		if !node.PredictionStartAt.IsZero() {
+			item["prediction_start_at"] = node.PredictionStartAt.Format(time.RFC3339)
+		}
+		if !node.PredictionDueAt.IsZero() {
+			item["prediction_due_at"] = node.PredictionDueAt.Format(time.RFC3339)
+		}
+		if !node.ValidFrom.IsZero() && !node.ValidTo.IsZero() && node.OccurredAt.IsZero() && node.PredictionStartAt.IsZero() {
+			item["valid_from"] = node.ValidFrom.Format(time.RFC3339)
+			item["valid_to"] = node.ValidTo.Format(time.RFC3339)
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func firstNonEmpty(values ...string) string {
