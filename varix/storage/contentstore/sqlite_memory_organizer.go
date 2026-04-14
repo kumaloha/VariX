@@ -54,10 +54,23 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 	}
 	factStatusByNode := factStatusMap(record)
 	predictionStatusByNode := predictionStatusMap(record)
+	graphNodesByID := map[string]compile.GraphNode{}
+	for _, node := range record.Output.Graph.Nodes {
+		graphNodesByID[node.ID] = node
+	}
 
 	active := make([]memory.AcceptedNode, 0)
 	inactive := make([]memory.AcceptedNode, 0)
 	for _, node := range nodes {
+		if (node.ValidFrom.IsZero() || node.ValidTo.IsZero()) && graphNodesByID[node.NodeID].ID != "" {
+			derived := graphNodesByID[node.NodeID]
+			if node.ValidFrom.IsZero() {
+				node.ValidFrom = derived.ValidFrom
+			}
+			if node.ValidTo.IsZero() {
+				node.ValidTo = derived.ValidTo
+			}
+		}
 		if node.ValidFrom.IsZero() || node.ValidTo.IsZero() {
 			inactive = append(inactive, node)
 			continue
