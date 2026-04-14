@@ -37,7 +37,7 @@ func BuildInstruction(req GraphRequirements) string {
 - 时间字段必须按 node kind 区分：
   - 事实 / 隐含条件：优先提供 "occurred_at"
   - 预测：提供 "prediction_start_at"，如果文本明确给出截止时间再提供 "prediction_due_at"
-  - 对“未来三个月 / 未来一年 / 今后两年 / 12个月内”这类明确相对期限，换算成具体的 "prediction_due_at"
+  - 对“未来三个月 / 未来一年 / 今后两年 / 12个月内 / 下季度 / 本季度 / 明年”这类明确相对期限，换算成具体的 "prediction_due_at"
   - 对“未来几年 / 今后一段时间”这类模糊期限，不要硬编截止时间
   - 显式条件 / 结论：没有可靠时间就不要硬编
 - 仅当你非常确定一个 node 存在明确的有效窗口时，才额外提供 "valid_from" 和 "valid_to"
