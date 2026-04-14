@@ -71,6 +71,87 @@ func TestSQLiteStore_AcceptMemoryNodePersistsStateEventAndJob(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_AcceptMemoryNodesDeriveValidityFromOccurredAndPredictionTimes(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	occurredAt := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
+	predictionStart := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	predictionDue := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+	record := compile.Record{
+		UnitID:         "weibo:Q-time",
+		Source:         "weibo",
+		ExternalID:     "Q-time",
+		RootExternalID: "Q-time",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "事实A", OccurredAt: occurredAt},
+					{ID: "n2", Kind: compile.NodePrediction, Text: "预测B", PredictionStartAt: predictionStart, PredictionDueAt: predictionDue},
+					{ID: "n3", Kind: compile.NodeConclusion, Text: "结论C"},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n3", Kind: compile.EdgeDerives}, {From: "n3", To: "n2", Kind: compile.EdgeDerives}},
+			},
+			Details: compile.HiddenDetails{Caveats: []string{"detail"}},
+			Verification: compile.Verification{
+				PredictionChecks: []compile.PredictionCheck{{
+					NodeID: "n2", Status: compile.PredictionStatusUnresolved, Reason: "window open", AsOf: predictionStart,
+				}},
+			},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+
+	got, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-time",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q-time",
+		NodeIDs:          []string{"n1", "n2"},
+	})
+	if err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+	if len(got.Nodes) != 2 {
+		t.Fatalf("len(Nodes) = %d, want 2", len(got.Nodes))
+	}
+	if !got.Nodes[0].ValidFrom.Equal(occurredAt) {
+		t.Fatalf("fact ValidFrom = %s, want %s", got.Nodes[0].ValidFrom, occurredAt)
+	}
+	if got.Nodes[0].ValidTo.Year() != 9999 {
+		t.Fatalf("fact ValidTo = %s, want open-ended year 9999", got.Nodes[0].ValidTo)
+	}
+	if !got.Nodes[1].ValidFrom.Equal(predictionStart) || !got.Nodes[1].ValidTo.Equal(predictionDue) {
+		t.Fatalf("prediction validity = %s..%s, want %s..%s", got.Nodes[1].ValidFrom, got.Nodes[1].ValidTo, predictionStart, predictionDue)
+	}
+	if !got.Event.AcceptedNodeState[0].ValidFrom.Equal(occurredAt) {
+		t.Fatalf("event fact ValidFrom = %s, want %s", got.Event.AcceptedNodeState[0].ValidFrom, occurredAt)
+	}
+	if !got.Event.AcceptedNodeState[1].ValidTo.Equal(predictionDue) {
+		t.Fatalf("event prediction ValidTo = %s, want %s", got.Event.AcceptedNodeState[1].ValidTo, predictionDue)
+	}
+
+	out, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-time", time.Date(2026, 4, 25, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob() error = %v", err)
+	}
+	if len(out.ActiveNodes) != 1 || out.ActiveNodes[0].NodeID != "n1" {
+		t.Fatalf("ActiveNodes = %#v, want only fact node active after prediction due date", out.ActiveNodes)
+	}
+	if len(out.InactiveNodes) != 1 || out.InactiveNodes[0].NodeID != "n2" {
+		t.Fatalf("InactiveNodes = %#v, want only prediction node inactive after due date", out.InactiveNodes)
+	}
+}
+
 func TestSQLiteStore_RepeatAcceptIsIdempotentInStateButAppendsEvent(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))

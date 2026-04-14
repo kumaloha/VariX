@@ -299,6 +299,83 @@ func TestRunMemoryAcceptBatchAndList(t *testing.T) {
 	}
 }
 
+func TestRunMemoryAcceptBatchAndListDerivesLegacyValidityFromNodeTiming(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		occurredAt := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
+		predictionStart := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+		predictionDue := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+		record := c.Record{
+			UnitID:         "weibo:Q-time",
+			Source:         "weibo",
+			ExternalID:     "Q-time",
+			RootExternalID: "Q-time",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						{ID: "n1", Kind: c.NodeFact, Text: "事实A", OccurredAt: occurredAt},
+						{ID: "n2", Kind: c.NodePrediction, Text: "预测B", PredictionStartAt: predictionStart, PredictionDueAt: predictionDue},
+						{ID: "n3", Kind: c.NodeConclusion, Text: "结论C"},
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n3", Kind: c.EdgeDerives}, {From: "n3", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "accept-batch", "--user", "u1", "--platform", "weibo", "--id", "Q-time", "--nodes", "n1,n2"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("accept-batch code = %d, stderr = %s", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "list", "--user", "u1"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("list code = %d, stderr = %s", code, stderr.String())
+	}
+	var got []memory.AcceptedNode
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(list) error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(list) = %d, want 2", len(got))
+	}
+	if !got[0].ValidFrom.Equal(time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)) {
+		t.Fatalf("fact ValidFrom = %s, want occurred_at-derived timestamp", got[0].ValidFrom)
+	}
+	if got[0].ValidTo.Year() != 9999 {
+		t.Fatalf("fact ValidTo = %s, want open-ended year 9999", got[0].ValidTo)
+	}
+	if !got[1].ValidFrom.Equal(time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)) || !got[1].ValidTo.Equal(time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("prediction validity = %s..%s, want prediction_start_at/prediction_due_at-derived window", got[1].ValidFrom, got[1].ValidTo)
+	}
+}
+
 func TestRunMemoryOrganizeRunAndShow(t *testing.T) {
 	prevBuildApp := buildApp
 	prevOpenSQLiteStore := openSQLiteStore
