@@ -72,16 +72,16 @@ type HierarchyLink struct {
 }
 
 type NodeHint struct {
-	NodeID                string   `json:"node_id"`
-	State                 string   `json:"state,omitempty"`
-	PreferredForDisplay   bool     `json:"preferred_for_display,omitempty"`
-	VerificationStatus    string   `json:"verification_status,omitempty"`
-	PredictionStatus      string   `json:"prediction_status,omitempty"`
-	DedupePeerNodeIDs     []string `json:"dedupe_peer_node_ids,omitempty"`
-	ContradictionNodeIDs  []string `json:"contradiction_node_ids,omitempty"`
-	ParentNodeIDs         []string `json:"parent_node_ids,omitempty"`
-	ChildNodeIDs          []string `json:"child_node_ids,omitempty"`
-	HierarchyRole         string   `json:"hierarchy_role,omitempty"`
+	NodeID               string   `json:"node_id"`
+	State                string   `json:"state,omitempty"`
+	PreferredForDisplay  bool     `json:"preferred_for_display,omitempty"`
+	VerificationStatus   string   `json:"verification_status,omitempty"`
+	PredictionStatus     string   `json:"prediction_status,omitempty"`
+	DedupePeerNodeIDs    []string `json:"dedupe_peer_node_ids,omitempty"`
+	ContradictionNodeIDs []string `json:"contradiction_node_ids,omitempty"`
+	ParentNodeIDs        []string `json:"parent_node_ids,omitempty"`
+	ChildNodeIDs         []string `json:"child_node_ids,omitempty"`
+	HierarchyRole        string   `json:"hierarchy_role,omitempty"`
 }
 
 type OrganizationOutput struct {
