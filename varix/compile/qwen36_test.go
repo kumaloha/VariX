@@ -28,24 +28,27 @@ func TestBuildQwen36RequestBuildsMultimodalPayload(t *testing.T) {
 		}},
 	})
 
-	req, err := BuildQwen36Request(bundle, "Summarize this content.")
+	req, err := BuildQwen36ProviderRequest(Qwen36PlusModel, bundle, "Summarize this content.", bundle.TextContext())
 	if err != nil {
-		t.Fatalf("BuildQwen36Request() error = %v", err)
+		t.Fatalf("BuildQwen36ProviderRequest() error = %v", err)
 	}
 	if req.Model != Qwen36PlusModel {
 		t.Fatalf("Model = %q", req.Model)
 	}
-	if len(req.Messages) != 1 || len(req.Messages[0].Content) != 2 {
+	if req.System != "Summarize this content." {
+		t.Fatalf("System = %q", req.System)
+	}
+	if len(req.UserParts) != 2 {
 		t.Fatalf("payload = %#v", req)
 	}
-	if req.Messages[0].Content[0].Type != "image_url" {
-		t.Fatalf("first content part = %#v", req.Messages[0].Content[0])
+	if req.UserParts[0].Type != "image_url" {
+		t.Fatalf("first content part = %#v", req.UserParts[0])
 	}
-	if !strings.HasPrefix(req.Messages[0].Content[0].ImageURL.URL, "data:image/png;base64,") {
-		t.Fatalf("ImageURL = %q", req.Messages[0].Content[0].ImageURL.URL)
+	if !strings.HasPrefix(req.UserParts[0].ImageURL, "data:image/png;base64,") {
+		t.Fatalf("ImageURL = %q", req.UserParts[0].ImageURL)
 	}
-	if req.Messages[0].Content[1].Type != "text" || !strings.Contains(req.Messages[0].Content[1].Text, "Summarize this content.") {
-		t.Fatalf("text part = %#v", req.Messages[0].Content[1])
+	if req.UserParts[1].Type != "text" || !strings.Contains(req.UserParts[1].Text, "root body") {
+		t.Fatalf("text part = %#v", req.UserParts[1])
 	}
 }
 

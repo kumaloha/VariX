@@ -3,6 +3,7 @@ module github.com/kumaloha/VariX/varix
 go 1.25.0
 
 require (
+	github.com/kumaloha/forge v0.1.1-0.20260414080318-a23ac54c45b1
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.48.2
 )

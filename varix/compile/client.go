@@ -1,9 +1,7 @@
 package compile
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,26 +9,58 @@ import (
 	"time"
 
 	"github.com/kumaloha/VariX/varix/config"
+	"github.com/kumaloha/forge/llm"
 )
 
 const defaultDashScopeCompatibleBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
+type runtimeChat interface {
+	Call(ctx context.Context, req llm.ProviderRequest) (llm.Response, error)
+}
+
 type Client struct {
-	httpClient *http.Client
-	baseURL    string
-	apiKey     string
-	model      string
+	runtime runtimeChat
+	model   string
 }
 
 func NewClient(httpClient *http.Client, baseURL, apiKey, model string) *Client {
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 180 * time.Second}
+	if strings.TrimSpace(apiKey) == "" {
+		return nil
+	}
+	opts := []llm.DashscopeOption{
+		llm.WithAPIKey(apiKey),
+	}
+	if strings.TrimSpace(baseURL) != "" {
+		opts = append(opts, llm.WithAPIBase(baseURL))
+	}
+	if httpClient != nil && httpClient.Timeout > 0 {
+		opts = append(opts, llm.WithTimeout(httpClient.Timeout))
+	}
+	provider, err := llm.NewDashscope(opts...)
+	if err != nil {
+		return nil
+	}
+	return NewClientWithRuntime(llm.NewRuntime(llm.RuntimeConfig{
+		Provider: provider,
+		LLMConfig: llm.LLMConfig{
+			Default: llm.DefaultConfig{
+				Model:       strings.TrimSpace(model),
+				Search:      false,
+				Temperature: 0,
+				Thinking:    false,
+			},
+		},
+		MaxAttempts: 3,
+	}), strings.TrimSpace(model))
+}
+
+func NewClientWithRuntime(rt runtimeChat, model string) *Client {
+	if rt == nil {
+		return nil
 	}
 	return &Client{
-		httpClient: httpClient,
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		apiKey:     strings.TrimSpace(apiKey),
-		model:      strings.TrimSpace(model),
+		runtime: rt,
+		model:   strings.TrimSpace(model),
 	}
 }
 
@@ -60,13 +90,19 @@ func NewClientFromConfig(projectRoot string, httpClient *http.Client) *Client {
 }
 
 func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
-	if c == nil {
+	if c == nil || c.runtime == nil {
 		return Record{}, fmt.Errorf("compile client is nil")
 	}
 	reqs := InferGraphRequirements(bundle)
-	output, err := c.compileAttempt(ctx, bundle, BuildInstruction(reqs)+"\n\n"+BuildPrompt(bundle), reqs)
+	output, err := c.compileAttempt(ctx, bundle, BuildInstruction(reqs), BuildPrompt(bundle), reqs)
 	if err != nil {
-		output, err = c.compileAttempt(ctx, bundle, BuildInstruction(reqs)+"\n\n"+BuildPrompt(bundle)+fmt.Sprintf("\n\n上一次返回未满足要求。请重试，并确保：1）graph 至少 %d 个节点和 %d 条边；2）details 不为空对象；3）严格使用允许的节点和边类型；4）如果是长文，必须拆出更多中间事实、隐含条件和结论。", reqs.MinNodes, reqs.MinEdges), reqs)
+		output, err = c.compileAttempt(
+			ctx,
+			bundle,
+			BuildInstruction(reqs),
+			BuildPrompt(bundle)+fmt.Sprintf("\n\n上一次返回未满足要求。请重试，并确保：1）graph 至少 %d 个节点和 %d 条边；2）details 不为空对象；3）严格使用允许的节点和边类型；4）如果是长文，必须拆出更多中间事实、隐含条件和结论。", reqs.MinNodes, reqs.MinEdges),
+			reqs,
+		)
 		if err != nil {
 			return Record{}, err
 		}
@@ -82,17 +118,16 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	}, nil
 }
 
-func (c *Client) compileAttempt(ctx context.Context, bundle Bundle, prompt string, reqs GraphRequirements) (Output, error) {
-	reqBody, err := BuildQwen36Request(bundle, prompt)
+func (c *Client) compileAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string, reqs GraphRequirements) (Output, error) {
+	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
 	if err != nil {
 		return Output{}, err
 	}
-	reqBody.Model = c.model
-	rawResp, err := c.createChatCompletion(ctx, reqBody)
+	resp, err := c.runtime.Call(ctx, req)
 	if err != nil {
 		return Output{}, err
 	}
-	out, err := ParseOutput(rawResp)
+	out, err := ParseOutput(resp.Text)
 	if err != nil {
 		return Output{}, err
 	}
@@ -100,42 +135,6 @@ func (c *Client) compileAttempt(ctx context.Context, bundle Bundle, prompt strin
 		return Output{}, err
 	}
 	return out, nil
-}
-
-func (c *Client) createChatCompletion(ctx context.Context, payload ChatCompletionRequest) (string, error) {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("compile chat completion failed: status %d", resp.StatusCode)
-	}
-	var decoded struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return "", err
-	}
-	if len(decoded.Choices) == 0 || strings.TrimSpace(decoded.Choices[0].Message.Content) == "" {
-		return "", fmt.Errorf("empty compile response")
-	}
-	return decoded.Choices[0].Message.Content, nil
 }
 
 func firstConfiguredValue(projectRoot string, keys ...string) string {
