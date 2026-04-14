@@ -248,6 +248,42 @@ func TestParseOutputInfersPredictionDueAtFromRelativeWindow(t *testing.T) {
 	}
 }
 
+func TestParseOutputInfersPredictionDueAtFromBoundedCalendarWindow(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "current quarter", text: "本季度市场会承压", want: "2026-06-30T23:59:59Z"},
+		{name: "next quarter", text: "下季度市场会承压", want: "2026-09-30T23:59:59Z"},
+		{name: "next year", text: "明年市场会承压", want: "2027-12-31T23:59:59Z"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := `{
+	  "summary":"一句话",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n2","kind":"预测","text":"` + tc.text + `","prediction_start_at":"2026-04-14T00:00:00Z"}
+	    ],
+	    "edges":[{"from":"n1","to":"n2","kind":"推出"}]
+	  },
+	  "details":{"caveats":["说明"]},
+	  "confidence":"medium"
+	}`
+			out, err := ParseOutput(raw)
+			if err != nil {
+				t.Fatalf("ParseOutput() error = %v", err)
+			}
+			want := mustTime(t, tc.want)
+			if !out.Graph.Nodes[1].PredictionDueAt.Equal(want) {
+				t.Fatalf("PredictionDueAt = %v, want %v", out.Graph.Nodes[1].PredictionDueAt, want)
+			}
+		})
+	}
+}
+
 func TestParseOutputDoesNotInventPredictionDueAtForVagueYears(t *testing.T) {
 	raw := `{
 	  "summary":"一句话",

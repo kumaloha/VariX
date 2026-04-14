@@ -152,6 +152,69 @@ func TestSQLiteStore_AcceptMemoryNodesDeriveValidityFromOccurredAndPredictionTim
 	}
 }
 
+func TestSQLiteStore_AcceptMemoryNodesUseInferredPredictionDueAtForOrganizer(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	output, err := compile.ParseOutput(`{
+	  "summary":"summary",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n2","kind":"预测","text":"下季度市场会承压","prediction_start_at":"2026-04-14T00:00:00Z"}
+	    ],
+	    "edges":[{"from":"n1","to":"n2","kind":"推出"}]
+	  },
+	  "details":{"caveats":["detail"]},
+	  "confidence":"medium"
+	}`)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+
+	record := compile.Record{
+		UnitID:         "weibo:Q-quarter",
+		Source:         "weibo",
+		ExternalID:     "Q-quarter",
+		RootExternalID: "Q-quarter",
+		Model:          "qwen3.6-plus",
+		Output:         output,
+		CompiledAt:     time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+
+	got, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-quarter",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q-quarter",
+		NodeIDs:          []string{"n1", "n2"},
+	})
+	if err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+	wantDue := time.Date(2026, 9, 30, 23, 59, 59, 0, time.UTC)
+	if !got.Nodes[1].ValidTo.Equal(wantDue) {
+		t.Fatalf("prediction ValidTo = %s, want %s", got.Nodes[1].ValidTo, wantDue)
+	}
+
+	out, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-quarter", time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob() error = %v", err)
+	}
+	if len(out.ActiveNodes) != 1 || out.ActiveNodes[0].NodeID != "n1" {
+		t.Fatalf("ActiveNodes = %#v, want only fact node active after inferred prediction window", out.ActiveNodes)
+	}
+	if len(out.InactiveNodes) != 1 || out.InactiveNodes[0].NodeID != "n2" {
+		t.Fatalf("InactiveNodes = %#v, want inferred-window prediction inactive after quarter end", out.InactiveNodes)
+	}
+}
+
 func TestSQLiteStore_RepeatAcceptIsIdempotentInStateButAppendsEvent(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
