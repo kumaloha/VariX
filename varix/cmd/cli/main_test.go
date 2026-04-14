@@ -12,6 +12,7 @@ import (
 	c "github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/ingest/dispatcher"
 	"github.com/kumaloha/VariX/varix/ingest/types"
+	"github.com/kumaloha/VariX/varix/memory"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
@@ -165,6 +166,136 @@ func TestRunCompileCardRequiresLocator(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "usage: varix compile card") {
 		t.Fatalf("stderr = %q, want usage", stderr.String())
+	}
+}
+
+func TestRunMemoryAcceptRequiresFields(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "accept"}, "/tmp/project", &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run() code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "usage: varix memory accept") {
+		t.Fatalf("stderr = %q, want usage", stderr.String())
+	}
+}
+
+func TestRunMemoryAcceptPersistsNodeAndJob(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:Q1",
+			Source:         "weibo",
+			ExternalID:     "Q1",
+			RootExternalID: "Q1",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "accept", "--user", "u1", "--platform", "weibo", "--id", "Q1", "--node", "n1"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	var got memory.AcceptResult
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(stdout) error = %v", err)
+	}
+	if len(got.Nodes) != 1 || got.Nodes[0].NodeID != "n1" {
+		t.Fatalf("got = %#v", got)
+	}
+	if got.Job.JobID == 0 || got.Event.EventID == 0 {
+		t.Fatalf("job/event = %#v / %#v", got.Job, got.Event)
+	}
+}
+
+func TestRunMemoryAcceptBatchAndList(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:Q1",
+			Source:         "weibo",
+			ExternalID:     "Q1",
+			RootExternalID: "Q1",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "accept-batch", "--user", "u1", "--platform", "weibo", "--id", "Q1", "--nodes", "n1,n2"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("accept-batch code = %d, stderr = %s", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "list", "--user", "u1"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("list code = %d, stderr = %s", code, stderr.String())
+	}
+	var got []memory.AcceptedNode
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(list) error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(list) = %d, want 2", len(got))
 	}
 }
 

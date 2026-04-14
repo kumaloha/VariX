@@ -9,6 +9,7 @@ var ingestCommands = []string{
 	"poll",
 	"provenance-run",
 	"compile",
+	"memory",
 }
 
 func isIngestCommand(name string) bool {

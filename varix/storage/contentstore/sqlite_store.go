@@ -363,6 +363,44 @@ func (s *SQLiteStore) init() error {
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY(platform, external_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS user_memory_nodes (
+			memory_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL,
+			source_platform TEXT NOT NULL,
+			source_external_id TEXT NOT NULL,
+			root_external_id TEXT NOT NULL DEFAULT '',
+			node_id TEXT NOT NULL,
+			node_kind TEXT NOT NULL,
+			node_text TEXT NOT NULL,
+			source_model TEXT NOT NULL,
+			source_compiled_at TEXT NOT NULL,
+			accepted_at TEXT NOT NULL,
+			UNIQUE(user_id, source_platform, source_external_id, node_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS memory_acceptance_events (
+			event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL,
+			trigger_type TEXT NOT NULL,
+			source_platform TEXT NOT NULL,
+			source_external_id TEXT NOT NULL,
+			root_external_id TEXT NOT NULL DEFAULT '',
+			source_model TEXT NOT NULL,
+			source_compiled_at TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			accepted_count INTEGER NOT NULL,
+			accepted_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS memory_organization_jobs (
+			job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			trigger_event_id INTEGER NOT NULL,
+			user_id TEXT NOT NULL,
+			source_platform TEXT NOT NULL,
+			source_external_id TEXT NOT NULL,
+			status TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			started_at TEXT,
+			finished_at TEXT
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
