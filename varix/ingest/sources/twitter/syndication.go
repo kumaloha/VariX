@@ -460,8 +460,12 @@ func (c *SyndicationHTTPClient) fetchItemByID(ctx context.Context, tweetID strin
 	c.hydrateLongformTexts(ctx, &decoded)
 
 	fullArticle := ""
-	if decoded.Article != nil && decoded.Article.RestID != "" {
-		fullArticle, _ = c.fetchArticle(ctx, "https://x.com/i/article/"+decoded.Article.RestID)
+	if decoded.Article != nil {
+		if text, err := c.fetchArticlePlainText(ctx, tweetID); err == nil && strings.TrimSpace(text) != "" {
+			fullArticle = text
+		} else if decoded.Article.RestID != "" {
+			fullArticle, _ = c.fetchArticle(ctx, "https://x.com/i/article/"+decoded.Article.RestID)
+		}
 	}
 
 	item, err := ParseSyndicationData(decoded, fullArticle)
@@ -577,6 +581,66 @@ func (c *SyndicationHTTPClient) fetchLongformText(ctx context.Context, tweetID s
 	return extractGraphQLNoteText(decoded), nil
 }
 
+func (c *SyndicationHTTPClient) fetchArticlePlainText(ctx context.Context, tweetID string) (string, error) {
+	payload, err := c.fetchTweetResultByRestIDGraphQL(ctx, tweetID)
+	if err != nil {
+		return "", err
+	}
+	return extractGraphQLArticlePlainText(payload), nil
+}
+
+func (c *SyndicationHTTPClient) fetchTweetResultByRestIDGraphQL(ctx context.Context, tweetID string) (map[string]any, error) {
+	if strings.TrimSpace(c.authToken) == "" || strings.TrimSpace(c.ct0) == "" {
+		return nil, fmt.Errorf("twitter graphql auth missing")
+	}
+	endpoint, err := url.Parse("https://x.com/i/api/graphql/" + tweetResultByRestIDQueryID + "/TweetResultByRestId")
+	if err != nil {
+		return nil, err
+	}
+	query := endpoint.Query()
+	query.Set("variables", compactJSON(map[string]any{
+		"tweetId":                                tweetID,
+		"with_rux_injections":                    false,
+		"includePromotedContent":                 true,
+		"withCommunity":                          true,
+		"withQuickPromoteEligibilityTweetFields": true,
+		"withBirdwatchNotes":                     true,
+		"withVoice":                              true,
+	}))
+	query.Set("features", compactJSON(longformFeatureFlags()))
+	query.Set("fieldToggles", compactJSON(longformFieldToggles()))
+	endpoint.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("authorization", "Bearer "+webBearerToken)
+	req.Header.Set("x-csrf-token", c.ct0)
+	req.Header.Set("x-twitter-active-user", "yes")
+	req.Header.Set("x-twitter-auth-type", "OAuth2Session")
+	req.Header.Set("x-twitter-client-language", "en")
+	req.Header.Set("cookie", "auth_token="+c.authToken+"; ct0="+c.ct0)
+	req.Header.Set("user-agent", "Mozilla/5.0")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("twitter graphql fetch failed: status %d", resp.StatusCode)
+	}
+	if err := httputil.CheckContentLength(resp, 4<<20); err != nil {
+		return nil, err
+	}
+	var decoded map[string]any
+	if err := httputil.DecodeJSONLimited(resp.Body, 4<<20, &decoded); err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
+
 func compactJSON(value any) string {
 	payload, _ := json.Marshal(value)
 	return string(payload)
@@ -650,6 +714,35 @@ func extractGraphQLNoteText(payload map[string]any) string {
 	}
 	text, _ := current.(string)
 	return strings.TrimSpace(text)
+}
+
+func extractGraphQLArticlePlainText(payload map[string]any) string {
+	for _, path := range [][]string{
+		{"data", "tweetResult", "result", "article", "article_results", "result", "plain_text"},
+		{"data", "tweetResult", "result", "article", "article_results", "result", "summary_text"},
+	} {
+		current := any(payload)
+		ok := true
+		for _, key := range path {
+			asMap, isMap := current.(map[string]any)
+			if !isMap {
+				ok = false
+				break
+			}
+			current, isMap = asMap[key]
+			if !isMap {
+				ok = false
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		if text, isString := current.(string); isString && strings.TrimSpace(text) != "" {
+			return strings.TrimSpace(text)
+		}
+	}
+	return ""
 }
 
 func (c *SyndicationHTTPClient) hydrateThread(ctx context.Context, item *types.RawContent) {

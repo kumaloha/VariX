@@ -18,6 +18,9 @@ func TestDefaultSettings(t *testing.T) {
 	if got.ContentDBPath != filepath.Join(root, "data", "content.db") {
 		t.Fatalf("ContentDBPath = %q", got.ContentDBPath)
 	}
+	if got.AssetsDir != filepath.Join(root, "data", "assets") {
+		t.Fatalf("AssetsDir = %q", got.AssetsDir)
+	}
 	if got.StoreBackend != "sqlite" {
 		t.Fatalf("StoreBackend = %q, want %q", got.StoreBackend, "sqlite")
 	}

@@ -36,10 +36,15 @@ type Enricher interface {
 	Annotate(items []types.RawContent) []types.RawContent
 }
 
+type AttachmentLocalizer interface {
+	Localize(ctx context.Context, items []types.RawContent) []types.RawContent
+}
+
 type Service struct {
 	store                     Store
 	dispatcher                Dispatcher
 	enricher                  Enricher
+	localizer                 AttachmentLocalizer
 	now                       func() time.Time
 	reuseStoredCaptureQuality bool
 }
@@ -69,6 +74,12 @@ type Option func(*Service)
 func WithStoredCaptureReuse(enabled bool) Option {
 	return func(s *Service) {
 		s.reuseStoredCaptureQuality = enabled
+	}
+}
+
+func WithAttachmentLocalizer(localizer AttachmentLocalizer) Option {
+	return func(s *Service) {
+		s.localizer = localizer
 	}
 }
 
@@ -225,6 +236,7 @@ func (s *Service) FetchURL(ctx context.Context, rawURL string) ([]types.RawConte
 		return nil, err
 	}
 	items = s.hydrateReferences(ctx, items)
+	items = s.localize(ctx, items)
 	items = s.annotate(items)
 	items = s.preserveStoredCaptureQuality(ctx, items)
 	items = s.preserveStoredProvenance(ctx, items)
@@ -325,6 +337,7 @@ func (s *Service) Poll(ctx context.Context) (types.PollReport, []types.RawConten
 				continue
 			}
 			rawItems = s.hydrateReferences(ctx, rawItems)
+			rawItems = s.localize(ctx, rawItems)
 			rawItems = s.annotate(rawItems)
 			rawItems = s.preserveStoredCaptureQuality(ctx, rawItems)
 			// When a source returns empty results without error (e.g., Twitter 404/tombstone),
@@ -507,6 +520,13 @@ func (s *Service) annotate(items []types.RawContent) []types.RawContent {
 		return items
 	}
 	return s.enricher.Annotate(items)
+}
+
+func (s *Service) localize(ctx context.Context, items []types.RawContent) []types.RawContent {
+	if s.localizer == nil {
+		return items
+	}
+	return s.localizer.Localize(ctx, items)
 }
 
 func (s *Service) hydrateReferences(ctx context.Context, items []types.RawContent) []types.RawContent {
