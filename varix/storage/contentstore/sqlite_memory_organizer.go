@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -194,7 +195,12 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record) []memory
 	for _, node := range nodes {
 		active[node.NodeID] = struct{}{}
 	}
+	factStatusByNode := map[string]compile.FactStatus{}
+	for _, check := range record.Output.Verification.FactChecks {
+		factStatusByNode[check.NodeID] = check.Status
+	}
 	out := make([]memory.HierarchyLink, 0)
+	seen := map[string]struct{}{}
 	for _, edge := range record.Output.Graph.Edges {
 		if _, ok := active[edge.From]; !ok {
 			continue
@@ -202,13 +208,68 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record) []memory
 		if _, ok := active[edge.To]; !ok {
 			continue
 		}
-		out = append(out, memory.HierarchyLink{
+		if status, ok := factStatusByNode[edge.From]; ok && status != compile.FactStatusClearlyTrue {
+			continue
+		}
+		link := memory.HierarchyLink{
 			ParentNodeID: edge.From,
 			ChildNodeID:  edge.To,
 			Kind:         string(edge.Kind),
-		})
+		}
+		key := link.ParentNodeID + "->" + link.ChildNodeID
+		seen[key] = struct{}{}
+		out = append(out, link)
+	}
+
+	byRank := map[int][]memory.AcceptedNode{}
+	ranks := []int{}
+	seenRanks := map[int]struct{}{}
+	for _, node := range nodes {
+		rank := nodeKindRank(node.NodeKind)
+		byRank[rank] = append(byRank[rank], node)
+		if _, ok := seenRanks[rank]; !ok {
+			seenRanks[rank] = struct{}{}
+			ranks = append(ranks, rank)
+		}
+	}
+	sort.Ints(ranks)
+	for i := 0; i < len(ranks)-1; i++ {
+		lower := byRank[ranks[i]]
+		upper := byRank[ranks[i+1]]
+		for _, parent := range lower {
+			if status, ok := factStatusByNode[parent.NodeID]; ok && status != compile.FactStatusClearlyTrue {
+				continue
+			}
+			for _, child := range upper {
+				key := parent.NodeID + "->" + child.NodeID
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				out = append(out, memory.HierarchyLink{
+					ParentNodeID: parent.NodeID,
+					ChildNodeID:  child.NodeID,
+					Kind:         "inferred",
+				})
+			}
+		}
 	}
 	return out
+}
+
+func nodeKindRank(kind string) int {
+	switch kind {
+	case string(compile.NodeFact):
+		return 0
+	case string(compile.NodeAssumption):
+		return 1
+	case string(compile.NodeConclusion):
+		return 2
+	case string(compile.NodePrediction):
+		return 3
+	default:
+		return 100
+	}
 }
 
 func extractPredictionStatuses(nodes []memory.AcceptedNode, record compile.Record) []memory.PredictionStatus {

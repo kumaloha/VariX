@@ -293,3 +293,142 @@ func TestSQLiteStore_OrganizationDetectsNearDuplicateAndAntonymContradiction(t *
 		t.Fatalf("contradiction group = %#v, want 2 ids", out.ContradictionGroups[0])
 	}
 }
+
+func TestSQLiteStore_OrganizationBuildsHierarchyFromNodeKindsWhenEdgesAreTooCoarse(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "weibo:Q3",
+		Source:         "weibo",
+		ExternalID:     "Q3",
+		RootExternalID: "Q3",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "事实A", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeAssumption, Text: "条件B", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+					{ID: "n3", Kind: compile.NodeConclusion, Text: "结论C", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n3", Kind: compile.EdgeDerives},
+				},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u3",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q3",
+		NodeIDs:          []string{"n1", "n2", "n3"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+
+	out, err := store.RunNextMemoryOrganizationJob(context.Background(), "u3", time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob() error = %v", err)
+	}
+	if len(out.Hierarchy) < 2 {
+		t.Fatalf("len(Hierarchy) = %d, want at least 2", len(out.Hierarchy))
+	}
+	var saw12, saw23 bool
+	for _, link := range out.Hierarchy {
+		if link.ParentNodeID == "n1" && link.ChildNodeID == "n2" {
+			saw12 = true
+		}
+		if link.ParentNodeID == "n2" && link.ChildNodeID == "n3" {
+			saw23 = true
+		}
+	}
+	if !saw12 || !saw23 {
+		t.Fatalf("hierarchy = %#v, want inferred n1->n2 and n2->n3", out.Hierarchy)
+	}
+}
+
+func TestSQLiteStore_OrganizationHierarchySkipsUnverifiableFactParents(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "weibo:Q4",
+		Source:         "weibo",
+		ExternalID:     "Q4",
+		RootExternalID: "Q4",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "确定事实A", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeFact, Text: "存疑事实B", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+					{ID: "n3", Kind: compile.NodePrediction, Text: "预测C", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n3", Kind: compile.EdgePositive},
+					{From: "n2", To: "n3", Kind: compile.EdgePositive},
+				},
+			},
+			Details: compile.HiddenDetails{Caveats: []string{"detail"}},
+			Verification: compile.Verification{
+				VerifiedAt: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC),
+				Model:      "qwen3.6-plus",
+				FactChecks: []compile.FactCheck{
+					{NodeID: "n1", Status: compile.FactStatusClearlyTrue, Reason: "supported"},
+					{NodeID: "n2", Status: compile.FactStatusUnverifiable, Reason: "weak evidence"},
+				},
+				PredictionChecks: []compile.PredictionCheck{
+					{NodeID: "n3", Status: compile.PredictionStatusUnresolved, Reason: "pending", AsOf: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC)},
+				},
+			},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u4",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q4",
+		NodeIDs:          []string{"n1", "n2", "n3"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+
+	out, err := store.RunNextMemoryOrganizationJob(context.Background(), "u4", time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob() error = %v", err)
+	}
+	for _, link := range out.Hierarchy {
+		if link.ParentNodeID == "n2" && link.ChildNodeID == "n3" {
+			t.Fatalf("hierarchy contains unverifiable fact parent link: %#v", out.Hierarchy)
+		}
+	}
+	found := false
+	for _, link := range out.Hierarchy {
+		if link.ParentNodeID == "n1" && link.ChildNodeID == "n3" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("hierarchy = %#v, want n1->n3", out.Hierarchy)
+	}
+}
