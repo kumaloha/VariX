@@ -192,7 +192,7 @@ func TestClientCompileRetriesWhenDetailsEmpty(t *testing.T) {
 
 func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
-		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"预测","text":"预测B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","kind":"预测","text":"预测B","prediction_start_at":"2026-04-14T00:00:00Z","prediction_due_at":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
 		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-verifier-model"},
 		{Text: `{"prediction_checks":[{"node_id":"n2","status":"unresolved","reason":"still in window","as_of":"2026-04-15T00:00:00Z"}]}`, Model: "prediction-verifier-model"},
 	}}
@@ -218,6 +218,20 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 	}
 	if record.Output.Verification.PredictionChecks[0].Status != PredictionStatusUnresolved {
 		t.Fatalf("prediction check = %#v", record.Output.Verification.PredictionChecks[0])
+	}
+	factPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
+	if !containsAll(factPrompt, `"kind": "事实"`, `"occurred_at": "2026-04-14T00:00:00Z"`) {
+		t.Fatalf("fact verifier prompt missing occurred_at evidence: %q", factPrompt)
+	}
+	if strings.Contains(factPrompt, `"valid_from"`) {
+		t.Fatalf("fact verifier prompt should prefer occurred_at over legacy valid_from: %q", factPrompt)
+	}
+	predictionPrompt := provider.requests[2].UserParts[len(provider.requests[2].UserParts)-1].Text
+	if !containsAll(predictionPrompt, `"kind": "预测"`, `"prediction_start_at": "2026-04-14T00:00:00Z"`, `"prediction_due_at": "2026-07-14T00:00:00Z"`, `"as_of": "`) {
+		t.Fatalf("prediction verifier prompt missing prediction window evidence: %q", predictionPrompt)
+	}
+	if strings.Contains(predictionPrompt, `"valid_from"`) {
+		t.Fatalf("prediction verifier prompt should prefer prediction_start_at over legacy valid_from: %q", predictionPrompt)
 	}
 }
 
@@ -268,6 +282,61 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	}
 }
 
+func TestClientCompileCarriesStructuredWeiboEvidenceIntoVerifierPrompt(t *testing.T) {
+	provider := &compileMockProvider{responses: []llm.ProviderResponse{
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n1","kind":"正向"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-verifier-model"},
+	}}
+	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
+
+	_, err := client.Compile(context.Background(), Bundle{
+		UnitID:         "weibo:123",
+		Source:         "weibo",
+		ExternalID:     "123",
+		RootExternalID: "120",
+		AuthorName:     "alice",
+		AuthorID:       "u1",
+		URL:            "https://weibo.com/u1/123",
+		PostedAt:       mustClientTime(t, "2026-04-14T09:30:00Z"),
+		Content:        "直播里说风险开始暴露",
+		Quotes: []types.Quote{{
+			Content: "嘉宾说风险已经扩散。",
+		}},
+		References: []types.Reference{{
+			Content: "财报里确认应收回款放缓。",
+			URL:     "https://example.com/report",
+		}},
+		ThreadSegments: []types.ThreadSegment{{
+			Position: 2,
+			Content:  "补充了一条现场观察。",
+		}},
+		Attachments: []types.Attachment{{
+			Type:       "video",
+			Transcript: "视频里明确说今天上午开始挤兑。",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	factPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
+	for _, want := range []string{
+		`"root_external_id": "120"`,
+		`"author_name": "alice"`,
+		`"author_id": "u1"`,
+		`"url": "https://weibo.com/u1/123"`,
+		`"posted_at": "2026-04-14T09:30:00Z"`,
+		`财报里确认应收回款放缓。`,
+		`补充了一条现场观察。`,
+		`视频里明确说今天上午开始挤兑。`,
+		`[ATTACHMENT TRANSCRIPT 1]`,
+	} {
+		if !strings.Contains(factPrompt, want) {
+			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
+		}
+	}
+}
+
 func containsAll(haystack string, needles ...string) bool {
 	for _, needle := range needles {
 		if !strings.Contains(haystack, needle) {
@@ -275,4 +344,13 @@ func containsAll(haystack string, needles ...string) bool {
 		}
 	}
 	return true
+}
+
+func mustClientTime(t *testing.T, raw string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		t.Fatalf("time.Parse(%q) error = %v", raw, err)
+	}
+	return parsed
 }

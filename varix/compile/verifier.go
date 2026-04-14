@@ -195,15 +195,15 @@ func buildImplicitConditionVerificationPrompt(bundle Bundle, nodes []GraphNode) 
 
 func buildVerificationPrompt(bundle Bundle, nodes []GraphNode, extra map[string]any) (string, error) {
 	payload := map[string]any{
-		"unit_id":      bundle.UnitID,
-		"source":       bundle.Source,
-		"external_id":  bundle.ExternalID,
-		"nodes":        nodes,
-		"quotes":       bundle.Quotes,
-		"references":   bundle.References,
+		"unit_id":         bundle.UnitID,
+		"source":          bundle.Source,
+		"external_id":     bundle.ExternalID,
+		"nodes":           nodes,
+		"quotes":          bundle.Quotes,
+		"references":      bundle.References,
 		"thread_segments": bundle.ThreadSegments,
-		"attachments":  bundle.Attachments,
-		"text_context": bundle.TextContext(),
+		"attachments":     bundle.Attachments,
+		"text_context":    bundle.TextContext(),
 	}
 	if trimmed := strings.TrimSpace(bundle.RootExternalID); trimmed != "" {
 		payload["root_external_id"] = trimmed
