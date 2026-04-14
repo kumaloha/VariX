@@ -135,6 +135,10 @@ func TestClientCompileRetriesWhenFirstResponseHasEmptyGraph(t *testing.T) {
 	if len(provider.requests) != 3 {
 		t.Fatalf("call count = %d, want 3", len(provider.requests))
 	}
+	retryPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
+	if !containsAll(retryPrompt, "显式条件 + 预测", "不能整句都标成显式条件") {
+		t.Fatalf("retry prompt missing mixed-clause split guidance: %q", retryPrompt)
+	}
 	if len(record.Output.Graph.Nodes) != 2 {
 		t.Fatalf("nodes = %#v", record.Output.Graph.Nodes)
 	}

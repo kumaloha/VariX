@@ -100,7 +100,7 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 			ctx,
 			bundle,
 			BuildInstruction(reqs),
-			BuildPrompt(bundle)+fmt.Sprintf("\n\n上一次返回未满足要求。请重试，并确保：1）graph 至少 %d 个节点和 %d 条边；2）details 不为空对象；3）严格使用允许的节点和边类型；4）如果是长文，必须拆出更多中间事实、隐含条件和结论。", reqs.MinNodes, reqs.MinEdges),
+			BuildPrompt(bundle)+fmt.Sprintf("\n\n上一次返回未满足要求。请重试，并确保：1）graph 至少 %d 个节点和 %d 条边；2）details 不为空对象；3）严格使用允许的节点和边类型；4）如果一句话同时含有“若/如果/一旦”条件和未来结果，必须拆成“显式条件 + 预测”两个节点，不能整句都标成显式条件；5）如果是长文，必须拆出更多中间事实、隐含条件和结论。", reqs.MinNodes, reqs.MinEdges),
 			reqs,
 		)
 		if err != nil {
