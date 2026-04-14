@@ -24,6 +24,7 @@ func ParseOutput(raw string) (Output, error) {
 	_ = json.Unmarshal(payload["topics"], &out.Topics)
 	_ = json.Unmarshal(payload["confidence"], &out.Confidence)
 	_ = json.Unmarshal(payload["graph"], &out.Graph)
+	_ = json.Unmarshal(payload["verification"], &out.Verification)
 	if rawDetails, ok := payload["details"]; ok {
 		details, err := parseHiddenDetails(rawDetails)
 		if err != nil {

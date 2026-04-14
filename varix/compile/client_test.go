@@ -42,7 +42,7 @@ func newTestRuntime(provider llm.Provider, model string) *llm.Runtime {
 }
 
 func TestParseOutputAcceptsJSONString(t *testing.T) {
-	raw := `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`
+	raw := `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`
 	out, err := ParseOutput(raw)
 	if err != nil {
 		t.Fatalf("ParseOutput() error = %v", err)
@@ -53,10 +53,10 @@ func TestParseOutputAcceptsJSONString(t *testing.T) {
 }
 
 func TestClientCompileUsesForgeRuntime(t *testing.T) {
-	provider := &compileMockProvider{responses: []llm.ProviderResponse{{
-		Text:  `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`,
-		Model: "compile-model",
-	}}}
+	provider := &compileMockProvider{responses: []llm.ProviderResponse{
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "verifier-model"},
+	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
 	record, err := client.Compile(context.Background(), Bundle{
@@ -71,19 +71,22 @@ func TestClientCompileUsesForgeRuntime(t *testing.T) {
 	if record.Output.Summary != "一句话" {
 		t.Fatalf("Summary = %q", record.Output.Summary)
 	}
-	if len(provider.requests) != 1 {
-		t.Fatalf("provider calls = %d, want 1", len(provider.requests))
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider calls = %d, want 2", len(provider.requests))
 	}
 	if provider.requests[0].Model != "compile-model" {
 		t.Fatalf("request model = %q, want compile-model", provider.requests[0].Model)
 	}
+	if record.Output.Verification.Model == "" || len(record.Output.Verification.FactChecks) != 1 {
+		t.Fatalf("verification = %#v", record.Output.Verification)
+	}
 }
 
 func TestClientCompileCarriesAttachmentTranscriptIntoForgePrompt(t *testing.T) {
-	provider := &compileMockProvider{responses: []llm.ProviderResponse{{
-		Text:  `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`,
-		Model: "compile-model",
-	}}}
+	provider := &compileMockProvider{responses: []llm.ProviderResponse{
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "verifier-model"},
+	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
 	_, err := client.Compile(context.Background(), Bundle{
@@ -99,8 +102,8 @@ func TestClientCompileCarriesAttachmentTranscriptIntoForgePrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 1 {
-		t.Fatalf("provider calls = %d, want 1", len(provider.requests))
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider calls = %d, want 2", len(provider.requests))
 	}
 	if len(provider.requests[0].UserParts) == 0 {
 		t.Fatalf("provider request missing user parts: %#v", provider.requests[0])
@@ -114,7 +117,8 @@ func TestClientCompileCarriesAttachmentTranscriptIntoForgePrompt(t *testing.T) {
 func TestClientCompileRetriesWhenFirstResponseHasEmptyGraph(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
 		{Text: `{"summary":"一句话","graph":{},"details":{},"topics":[],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "verifier-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
@@ -127,8 +131,8 @@ func TestClientCompileRetriesWhenFirstResponseHasEmptyGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 2 {
-		t.Fatalf("call count = %d, want 2", len(provider.requests))
+	if len(provider.requests) != 3 {
+		t.Fatalf("call count = %d, want 3", len(provider.requests))
 	}
 	if len(record.Output.Graph.Nodes) != 2 {
 		t.Fatalf("nodes = %#v", record.Output.Graph.Nodes)
@@ -137,8 +141,9 @@ func TestClientCompileRetriesWhenFirstResponseHasEmptyGraph(t *testing.T) {
 
 func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
-		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A"},{"id":"n2","kind":"事实","text":"事实B"},{"id":"n3","kind":"隐含条件","text":"条件C"},{"id":"n4","kind":"结论","text":"结论D"}],"edges":[{"from":"n1","to":"n3","kind":"正向"},{"from":"n2","to":"n3","kind":"正向"},{"from":"n3","to":"n4","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"事实","text":"事实B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n3","kind":"隐含条件","text":"条件C","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n4","kind":"结论","text":"结论D","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n3","kind":"正向"},{"from":"n2","to":"n3","kind":"正向"},{"from":"n3","to":"n4","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"unverifiable","reason":"unclear"}]}`, Model: "verifier-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
@@ -151,8 +156,8 @@ func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 2 {
-		t.Fatalf("call count = %d, want 2", len(provider.requests))
+	if len(provider.requests) != 3 {
+		t.Fatalf("call count = %d, want 3", len(provider.requests))
 	}
 	if len(record.Output.Graph.Nodes) != 4 || len(record.Output.Graph.Edges) != 3 {
 		t.Fatalf("graph = %#v", record.Output.Graph)
@@ -161,8 +166,9 @@ func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 
 func TestClientCompileRetriesWhenDetailsEmpty(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
-		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "verifier-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
@@ -175,11 +181,42 @@ func TestClientCompileRetriesWhenDetailsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 2 {
-		t.Fatalf("call count = %d, want 2", len(provider.requests))
+	if len(provider.requests) != 3 {
+		t.Fatalf("call count = %d, want 3", len(provider.requests))
 	}
 	if len(record.Output.Details.Caveats) != 1 {
 		t.Fatalf("details = %#v", record.Output.Details)
+	}
+}
+
+func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
+	provider := &compileMockProvider{responses: []llm.ProviderResponse{
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"预测","text":"预测B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-verifier-model"},
+		{Text: `{"prediction_checks":[{"node_id":"n2","status":"unresolved","reason":"still in window","as_of":"2026-04-15T00:00:00Z"}]}`, Model: "prediction-verifier-model"},
+	}}
+	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
+
+	record, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "weibo:123",
+		Source:     "weibo",
+		ExternalID: "123",
+		Content:    "root body",
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(provider.requests) != 3 {
+		t.Fatalf("provider calls = %d, want 3", len(provider.requests))
+	}
+	if len(record.Output.Verification.FactChecks) != 1 || len(record.Output.Verification.PredictionChecks) != 1 {
+		t.Fatalf("verification = %#v", record.Output.Verification)
+	}
+	if record.Output.Verification.FactChecks[0].Status != FactStatusClearlyTrue {
+		t.Fatalf("fact check = %#v", record.Output.Verification.FactChecks[0])
+	}
+	if record.Output.Verification.PredictionChecks[0].Status != PredictionStatusUnresolved {
+		t.Fatalf("prediction check = %#v", record.Output.Verification.PredictionChecks[0])
 	}
 }
 

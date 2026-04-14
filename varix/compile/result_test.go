@@ -3,6 +3,7 @@ package compile
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestOutputValidateAcceptsSupportedGraphSchema(t *testing.T) {
@@ -10,8 +11,8 @@ func TestOutputValidateAcceptsSupportedGraphSchema(t *testing.T) {
 		Summary: "一句话总结",
 		Graph: ReasoningGraph{
 			Nodes: []GraphNode{
-				{ID: "n1", Kind: NodeFact, Text: "事实A"},
-				{ID: "n2", Kind: NodeConclusion, Text: "结论B"},
+				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n2", Kind: NodeConclusion, Text: "结论B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
 			},
 			Edges: []GraphEdge{
 				{From: "n1", To: "n2", Kind: EdgePositive},
@@ -29,8 +30,8 @@ func TestOutputValidateRejectsUnsupportedEdgeType(t *testing.T) {
 		Summary: "一句话总结",
 		Graph: ReasoningGraph{
 			Nodes: []GraphNode{
-				{ID: "n1", Kind: NodeFact, Text: "事实A"},
-				{ID: "n2", Kind: NodeConclusion, Text: "结论B"},
+				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n2", Kind: NodeConclusion, Text: "结论B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
 			},
 			Edges: []GraphEdge{
 				{From: "n1", To: "n2", Kind: EdgeKind("支撑")},
@@ -48,7 +49,7 @@ func TestOutputValidateRejectsUnknownNodeReference(t *testing.T) {
 		Summary: "一句话总结",
 		Graph: ReasoningGraph{
 			Nodes: []GraphNode{
-				{ID: "n1", Kind: NodeFact, Text: "事实A"},
+				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
 			},
 			Edges: []GraphEdge{
 				{From: "n1", To: "n2", Kind: EdgePositive},
@@ -66,8 +67,8 @@ func TestOutputValidateRejectsEmptyDetails(t *testing.T) {
 		Summary: "一句话总结",
 		Graph: ReasoningGraph{
 			Nodes: []GraphNode{
-				{ID: "n1", Kind: NodeFact, Text: "事实A"},
-				{ID: "n2", Kind: NodeConclusion, Text: "结论B"},
+				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n2", Kind: NodeConclusion, Text: "结论B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
 			},
 			Edges: []GraphEdge{
 				{From: "n1", To: "n2", Kind: EdgePositive},
@@ -84,7 +85,10 @@ func TestGraphAliasesDecode(t *testing.T) {
 	raw := `{
 	  "summary":"一句话",
 	  "graph":{
-	    "nodes":[{"id":"n1","kind":"事实","content":"事实A"},{"id":"n2","kind":"结论","content":"结论B"}],
+	    "nodes":[
+	      {"id":"n1","kind":"事实","content":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},
+	      {"id":"n2","kind":"结论","content":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}
+	    ],
 	    "edges":[{"source":"n1","target":"n2","kind":"推出"}]
 	  }
 	}`
@@ -97,4 +101,58 @@ func TestGraphAliasesDecode(t *testing.T) {
 	if out.Graph.Edges[0].From != "n1" || out.Graph.Edges[0].To != "n2" {
 		t.Fatalf("edge = %#v", out.Graph.Edges[0])
 	}
+	if out.Graph.Nodes[0].ValidFrom.IsZero() || out.Graph.Nodes[0].ValidTo.IsZero() {
+		t.Fatalf("validity window missing: %#v", out.Graph.Nodes[0])
+	}
+}
+
+func TestOutputValidateRejectsMissingValidityWindow(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Text: "事实A"},
+				{ID: "n2", Kind: NodeConclusion, Text: "结论B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{{From: "n1", To: "n2", Kind: EdgePositive}},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+	}
+	if err := out.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want validity window rejection")
+	}
+}
+
+func TestOutputValidateAcceptsVerificationSection(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n2", Kind: NodePrediction, Text: "预测B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{{From: "n1", To: "n2", Kind: EdgePositive}},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+		Verification: Verification{
+			VerifiedAt: mustTime(t, "2026-04-15T00:00:00Z"),
+			Model:      "verifier-model",
+			FactChecks: []FactCheck{{NodeID: "n1", Status: FactStatusClearlyTrue, Reason: "supported"}},
+			PredictionChecks: []PredictionCheck{{
+				NodeID: "n2", Status: PredictionStatusUnresolved, Reason: "still in window", AsOf: mustTime(t, "2026-04-15T00:00:00Z"),
+			}},
+		},
+	}
+	if err := out.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func mustTime(t *testing.T, raw string) time.Time {
+	t.Helper()
+	got, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		t.Fatalf("time.Parse(%q) error = %v", raw, err)
+	}
+	return got.UTC()
 }

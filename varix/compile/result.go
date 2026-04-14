@@ -26,9 +26,11 @@ const (
 )
 
 type GraphNode struct {
-	ID   string   `json:"id"`
-	Kind NodeKind `json:"kind"`
-	Text string   `json:"text"`
+	ID        string    `json:"id"`
+	Kind      NodeKind  `json:"kind"`
+	Text      string    `json:"text"`
+	ValidFrom time.Time `json:"valid_from,omitempty"`
+	ValidTo   time.Time `json:"valid_to,omitempty"`
 }
 
 func (n *GraphNode) UnmarshalJSON(data []byte) error {
@@ -94,12 +96,50 @@ func (d HiddenDetails) IsEmpty() bool {
 		len(d.Items) == 0
 }
 
+type FactStatus string
+
+const (
+	FactStatusClearlyTrue  FactStatus = "clearly_true"
+	FactStatusClearlyFalse FactStatus = "clearly_false"
+	FactStatusUnverifiable FactStatus = "unverifiable"
+)
+
+type PredictionStatus string
+
+const (
+	PredictionStatusUnresolved      PredictionStatus = "unresolved"
+	PredictionStatusResolvedTrue    PredictionStatus = "resolved_true"
+	PredictionStatusResolvedFalse   PredictionStatus = "resolved_false"
+	PredictionStatusStaleUnresolved PredictionStatus = "stale_unresolved"
+)
+
+type FactCheck struct {
+	NodeID string     `json:"node_id"`
+	Status FactStatus `json:"status"`
+	Reason string     `json:"reason,omitempty"`
+}
+
+type PredictionCheck struct {
+	NodeID string           `json:"node_id"`
+	Status PredictionStatus `json:"status"`
+	Reason string           `json:"reason,omitempty"`
+	AsOf   time.Time        `json:"as_of,omitempty"`
+}
+
+type Verification struct {
+	VerifiedAt       time.Time         `json:"verified_at,omitempty"`
+	Model            string            `json:"model,omitempty"`
+	FactChecks       []FactCheck       `json:"fact_checks,omitempty"`
+	PredictionChecks []PredictionCheck `json:"prediction_checks,omitempty"`
+}
+
 type Output struct {
-	Summary    string         `json:"summary,omitempty"`
-	Graph      ReasoningGraph `json:"graph,omitempty"`
-	Details    HiddenDetails  `json:"details,omitempty"`
-	Topics     []string       `json:"topics,omitempty"`
-	Confidence string         `json:"confidence,omitempty"`
+	Summary      string         `json:"summary,omitempty"`
+	Graph        ReasoningGraph `json:"graph,omitempty"`
+	Details      HiddenDetails  `json:"details,omitempty"`
+	Topics       []string       `json:"topics,omitempty"`
+	Confidence   string         `json:"confidence,omitempty"`
+	Verification Verification   `json:"verification,omitempty"`
 }
 
 type Record struct {
@@ -137,6 +177,12 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		if strings.TrimSpace(node.Text) == "" {
 			return fmt.Errorf("graph node text is required")
 		}
+		if node.ValidFrom.IsZero() || node.ValidTo.IsZero() {
+			return fmt.Errorf("graph node validity window is required: %s", node.ID)
+		}
+		if node.ValidTo.Before(node.ValidFrom) {
+			return fmt.Errorf("graph node validity window is invalid: %s", node.ID)
+		}
 		switch node.Kind {
 		case NodeFact, NodeAssumption, NodeConclusion, NodePrediction:
 		default:
@@ -155,6 +201,26 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		case EdgePositive, EdgeNegative, EdgeDerives, EdgePresets:
 		default:
 			return fmt.Errorf("unsupported edge kind: %s", edge.Kind)
+		}
+	}
+	for _, check := range o.Verification.FactChecks {
+		if _, ok := nodeIDs[check.NodeID]; !ok {
+			return fmt.Errorf("fact check references unknown node: %s", check.NodeID)
+		}
+		switch check.Status {
+		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
+		default:
+			return fmt.Errorf("unsupported fact status: %s", check.Status)
+		}
+	}
+	for _, check := range o.Verification.PredictionChecks {
+		if _, ok := nodeIDs[check.NodeID]; !ok {
+			return fmt.Errorf("prediction check references unknown node: %s", check.NodeID)
+		}
+		switch check.Status {
+		case PredictionStatusUnresolved, PredictionStatusResolvedTrue, PredictionStatusResolvedFalse, PredictionStatusStaleUnresolved:
+		default:
+			return fmt.Errorf("unsupported prediction status: %s", check.Status)
 		}
 	}
 	return nil

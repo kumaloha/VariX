@@ -208,7 +208,7 @@ func TestRunMemoryAcceptPersistsNodeAndJob(t *testing.T) {
 			Output: c.Output{
 				Summary: "一句话",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details: c.HiddenDetails{Caveats: []string{"说明"}},
@@ -266,7 +266,7 @@ func TestRunMemoryAcceptBatchAndList(t *testing.T) {
 			Output: c.Output{
 				Summary: "一句话",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details: c.HiddenDetails{Caveats: []string{"说明"}},
@@ -306,6 +306,16 @@ type fakeCompileClient struct {
 
 func (f fakeCompileClient) Compile(_ context.Context, _ c.Bundle) (c.Record, error) {
 	return f.record, f.err
+}
+
+func testGraphNode(id string, kind c.NodeKind, text string) c.GraphNode {
+	return c.GraphNode{
+		ID:        id,
+		Kind:      kind,
+		Text:      text,
+		ValidFrom: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC),
+		ValidTo:   time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC),
+	}
 }
 
 func TestRunCompileWritesCompiledRecordJSON(t *testing.T) {
@@ -359,7 +369,7 @@ func TestRunCompileWritesCompiledRecordJSON(t *testing.T) {
 				Output: c.Output{
 					Summary: "一句话",
 					Graph: c.ReasoningGraph{
-						Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+						Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 						Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 					},
 					Details: c.HiddenDetails{Caveats: []string{"说明"}},
@@ -417,7 +427,7 @@ func TestRunCompileReadsExistingRawCaptureByPlatformAndID(t *testing.T) {
 				Output: c.Output{
 					Summary: "一句话",
 					Graph: c.ReasoningGraph{
-						Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+						Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 						Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 					},
 					Details: c.HiddenDetails{Caveats: []string{"说明"}},
@@ -492,7 +502,7 @@ func TestRunCompileURLPrefersStoredRawCapture(t *testing.T) {
 				Output: c.Output{
 					Summary: "Dalio summary",
 					Graph: c.ReasoningGraph{
-						Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+						Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 						Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 					},
 					Details:    c.HiddenDetails{Caveats: []string{"说明"}},
@@ -568,7 +578,7 @@ func TestRunCompileUsesStoredCompiledOutputUnlessForced(t *testing.T) {
 				Output: c.Output{
 					Summary: "new summary should not be used",
 					Graph: c.ReasoningGraph{
-						Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+						Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 						Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 					},
 					Details: c.HiddenDetails{Caveats: []string{"说明"}},
@@ -591,7 +601,7 @@ func TestRunCompileUsesStoredCompiledOutputUnlessForced(t *testing.T) {
 			Output: c.Output{
 				Summary: "cached summary",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details: c.HiddenDetails{Caveats: []string{"说明"}},
@@ -644,7 +654,7 @@ func TestRunCompileForceBypassesStoredCompiledOutput(t *testing.T) {
 				Output: c.Output{
 					Summary: "forced summary",
 					Graph: c.ReasoningGraph{
-						Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+						Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 						Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 					},
 					Details: c.HiddenDetails{Caveats: []string{"说明"}},
@@ -676,7 +686,7 @@ func TestRunCompileForceBypassesStoredCompiledOutput(t *testing.T) {
 			Output: c.Output{
 				Summary: "cached summary",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details: c.HiddenDetails{Caveats: []string{"说明"}},
@@ -738,7 +748,7 @@ func TestRunCompileShowReadsCompiledRecordByPlatformAndID(t *testing.T) {
 			Output: c.Output{
 				Summary: "一句话",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details: c.HiddenDetails{Caveats: []string{"说明"}},
@@ -801,7 +811,7 @@ func TestRunCompileShowReadsCompiledRecordByURL(t *testing.T) {
 			Output: c.Output{
 				Summary: "Dalio summary",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details: c.HiddenDetails{Caveats: []string{"说明"}},
@@ -856,7 +866,7 @@ func TestRunCompileSummaryPrintsHumanReadableOutput(t *testing.T) {
 			Output: c.Output{
 				Summary: "一句话",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
@@ -920,7 +930,7 @@ func TestRunCompileSummaryReadsByURL(t *testing.T) {
 			Output: c.Output{
 				Summary: "Dalio summary",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
@@ -985,7 +995,7 @@ func TestRunCompileComparePrintsRawPreviewAndSummary(t *testing.T) {
 			Output: c.Output{
 				Summary: "一句话",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
@@ -1057,7 +1067,7 @@ func TestRunCompileCompareReadsByURL(t *testing.T) {
 			Output: c.Output{
 				Summary: "Dalio summary",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
@@ -1112,7 +1122,7 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 			Output: c.Output{
 				Summary: "一句话总结",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
@@ -1168,7 +1178,7 @@ func TestRunCompileCardCompactPrintsCompactView(t *testing.T) {
 			Output: c.Output{
 				Summary: "一句话总结",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}, {ID: "n3", Kind: c.NodePrediction, Text: "预测C"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B"), testGraphNode("n3", c.NodePrediction, "预测C")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
@@ -1231,7 +1241,7 @@ func TestRunCompileCardCompactReadsByURL(t *testing.T) {
 			Output: c.Output{
 				Summary: "一句话总结",
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "事实A"}, {ID: "n2", Kind: c.NodeConclusion, Text: "结论B"}, {ID: "n3", Kind: c.NodePrediction, Text: "预测C"}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B"), testGraphNode("n3", c.NodePrediction, "预测C")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
@@ -1287,9 +1297,9 @@ func TestRunCompileCardCollapsesLinearChain(t *testing.T) {
 				Summary: "一句话总结",
 				Graph: c.ReasoningGraph{
 					Nodes: []c.GraphNode{
-						{ID: "n1", Kind: c.NodeFact, Text: "事实A"},
-						{ID: "n2", Kind: c.NodeFact, Text: "事实B"},
-						{ID: "n3", Kind: c.NodeConclusion, Text: "结论C"},
+						testGraphNode("n1", c.NodeFact, "事实A"),
+						testGraphNode("n2", c.NodeFact, "事实B"),
+						testGraphNode("n3", c.NodeConclusion, "结论C"),
 					},
 					Edges: []c.GraphEdge{
 						{From: "n1", To: "n2", Kind: c.EdgePositive},

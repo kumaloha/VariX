@@ -107,6 +107,11 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 			return Record{}, err
 		}
 	}
+	verification, err := runVerifier(ctx, c.runtime, c.model, bundle, output)
+	if err != nil {
+		return Record{}, err
+	}
+	output.Verification = verification
 	return Record{
 		UnitID:         bundle.UnitID,
 		Source:         bundle.Source,

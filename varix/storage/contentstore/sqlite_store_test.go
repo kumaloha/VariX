@@ -189,6 +189,16 @@ func TestSQLiteStore_RecordPollReportPersistsRunAndTargets(t *testing.T) {
 	}
 }
 
+func testCompileGraphNode(id string, kind compile.NodeKind, text string) compile.GraphNode {
+	return compile.GraphNode{
+		ID:        id,
+		Kind:      kind,
+		Text:      text,
+		ValidFrom: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC),
+		ValidTo:   time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC),
+	}
+}
+
 func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
@@ -207,8 +217,8 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 			Summary: "summary text",
 			Graph: compile.ReasoningGraph{
 				Nodes: []compile.GraphNode{
-					{ID: "n1", Kind: compile.NodeFact, Text: "fact"},
-					{ID: "n2", Kind: compile.NodeConclusion, Text: "conclusion"},
+					testCompileGraphNode("n1", compile.NodeFact, "fact"),
+					testCompileGraphNode("n2", compile.NodeConclusion, "conclusion"),
 				},
 				Edges: []compile.GraphEdge{
 					{From: "n1", To: "n2", Kind: compile.EdgePositive},
