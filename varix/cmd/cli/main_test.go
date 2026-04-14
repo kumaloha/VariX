@@ -387,6 +387,108 @@ func TestRunMemoryOrganizeRunAndShow(t *testing.T) {
 	}
 }
 
+func TestRunMemoryOrganizedIncludesFrontendHints(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:Q2",
+			Source:         "weibo",
+			ExternalID:     "Q2",
+			RootExternalID: "Q2",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						testGraphNode("n1", c.NodeFact, "油价会上升"),
+						testGraphNode("n2", c.NodeFact, "油价将上行"),
+						testGraphNode("n3", c.NodePrediction, "能源股会受益"),
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n3", Kind: c.EdgePositive}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+				Verification: c.Verification{
+					VerifiedAt: time.Now().UTC(),
+					Model:      c.Qwen36PlusModel,
+					FactChecks: []c.FactCheck{{NodeID: "n1", Status: c.FactStatusClearlyTrue, Reason: "supported"}},
+					PredictionChecks: []c.PredictionCheck{{
+						NodeID: "n3", Status: c.PredictionStatusUnresolved, Reason: "still active", AsOf: time.Now().UTC(),
+					}},
+				},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+			UserID:           "u2",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "Q2",
+			NodeIDs:          []string{"n1", "n2", "n3"},
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "organize-run", "--user", "u2"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("organize-run code = %d, stderr = %s", code, stderr.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal(organize-run payload) error = %v", err)
+	}
+
+	dedupeGroups, ok := payload["dedupe_groups"].([]any)
+	if !ok || len(dedupeGroups) != 1 {
+		t.Fatalf("dedupe_groups = %#v, want one frontend-ready group", payload["dedupe_groups"])
+	}
+	firstDedupe, ok := dedupeGroups[0].(map[string]any)
+	if !ok {
+		t.Fatalf("dedupe_groups[0] = %#v, want object", dedupeGroups[0])
+	}
+	if strings.TrimSpace(stringValue(firstDedupe["canonical_text"])) == "" {
+		t.Fatalf("dedupe group missing canonical_text: %#v", firstDedupe)
+	}
+	if strings.TrimSpace(stringValue(firstDedupe["hint"])) == "" {
+		t.Fatalf("dedupe group missing hint: %#v", firstDedupe)
+	}
+
+	hierarchy, ok := payload["hierarchy"].([]any)
+	if !ok || len(hierarchy) == 0 {
+		t.Fatalf("hierarchy = %#v, want frontend-ready link entries", payload["hierarchy"])
+	}
+	firstLink, ok := hierarchy[0].(map[string]any)
+	if !ok {
+		t.Fatalf("hierarchy[0] = %#v, want object", hierarchy[0])
+	}
+	for _, key := range []string{"parent_kind", "child_kind", "source", "hint"} {
+		if strings.TrimSpace(stringValue(firstLink[key])) == "" {
+			t.Fatalf("hierarchy link missing %s: %#v", key, firstLink)
+		}
+	}
+}
+
 type fakeCompileClient struct {
 	record c.Record
 	err    error
@@ -404,6 +506,13 @@ func testGraphNode(id string, kind c.NodeKind, text string) c.GraphNode {
 		ValidFrom: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC),
 		ValidTo:   time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC),
 	}
+}
+
+func stringValue(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 func TestRunCompileWritesCompiledRecordJSON(t *testing.T) {
