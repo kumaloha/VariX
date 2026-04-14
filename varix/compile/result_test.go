@@ -25,6 +25,29 @@ func TestOutputValidateAcceptsSupportedGraphSchema(t *testing.T) {
 	}
 }
 
+func TestOutputValidateAcceptsExplicitAndImplicitConditions(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n2", Kind: NodeKind("显式条件"), Text: "如果政策落地", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n3", Kind: NodeKind("隐含条件"), Text: "流动性继续改善", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n4", Kind: NodeConclusion, Text: "结论B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{
+				{From: "n1", To: "n2", Kind: EdgePositive},
+				{From: "n2", To: "n3", Kind: EdgePresets},
+				{From: "n3", To: "n4", Kind: EdgeDerives},
+			},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+	}
+	if err := out.ValidateWithThresholds(4, 3); err != nil {
+		t.Fatalf("ValidateWithThresholds() error = %v", err)
+	}
+}
+
 func TestOutputValidateRejectsUnsupportedEdgeType(t *testing.T) {
 	out := Output{
 		Summary: "一句话总结",
