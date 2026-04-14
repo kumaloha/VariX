@@ -52,6 +52,8 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 	if err != nil {
 		return memory.OrganizationOutput{}, err
 	}
+	factStatusByNode := factStatusMap(record)
+	predictionStatusByNode := predictionStatusMap(record)
 
 	active := make([]memory.AcceptedNode, 0)
 	inactive := make([]memory.AcceptedNode, 0)
@@ -66,6 +68,9 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 			active = append(active, node)
 		}
 	}
+	dedupeGroups := buildDedupeGroups(active, factStatusByNode, predictionStatusByNode)
+	contradictionGroups := buildContradictionGroups(active)
+	hierarchy := buildHierarchy(active, record)
 
 	output := memory.OrganizationOutput{
 		JobID:               job.JobID,
@@ -75,12 +80,13 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 		GeneratedAt:         now,
 		ActiveNodes:         active,
 		InactiveNodes:       inactive,
-		DedupeGroups:        buildDedupeGroups(active),
-		ContradictionGroups: buildContradictionGroups(active),
-		Hierarchy:           buildHierarchy(active, record),
+		DedupeGroups:        dedupeGroups,
+		ContradictionGroups: contradictionGroups,
+		Hierarchy:           hierarchy,
 		PredictionStatuses:  extractPredictionStatuses(nodes, record),
 		FactVerifications:   extractFactVerifications(active, record),
 		OpenQuestions:       buildOpenQuestions(active, record),
+		NodeHints:           buildNodeHints(nodes, active, dedupeGroups, contradictionGroups, hierarchy, factStatusByNode, predictionStatusByNode),
 	}
 
 	res, err := tx.ExecContext(ctx, `INSERT INTO memory_organization_outputs(job_id, user_id, source_platform, source_external_id, payload_json, created_at)
@@ -157,17 +163,35 @@ func getCompiledOutputTx(ctx context.Context, tx *sql.Tx, platform, externalID s
 	return record, nil
 }
 
-func buildDedupeGroups(nodes []memory.AcceptedNode) []memory.DedupeGroup {
-	byText := map[string][]string{}
+func buildDedupeGroups(nodes []memory.AcceptedNode, factStatusByNode map[string]compile.FactStatus, predictionStatusByNode map[string]compile.PredictionStatus) []memory.DedupeGroup {
+	byText := map[string][]memory.AcceptedNode{}
 	for _, node := range nodes {
 		key := canonicalNodeText(node.NodeText)
-		byText[key] = append(byText[key], node.NodeID)
+		byText[key] = append(byText[key], node)
 	}
+	keys := make([]string, 0, len(byText))
+	for key := range byText {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
 	out := make([]memory.DedupeGroup, 0)
-	for _, ids := range byText {
-		if len(ids) > 1 {
-			out = append(out, memory.DedupeGroup{NodeIDs: ids})
+	for _, key := range keys {
+		groupNodes := byText[key]
+		if len(groupNodes) <= 1 {
+			continue
 		}
+		sort.SliceStable(groupNodes, func(i, j int) bool {
+			return compareNodesForDisplay(groupNodes[i], groupNodes[j], factStatusByNode, predictionStatusByNode)
+		})
+		ids := make([]string, 0, len(groupNodes))
+		for _, node := range groupNodes {
+			ids = append(ids, node.NodeID)
+		}
+		out = append(out, memory.DedupeGroup{
+			NodeIDs:              ids,
+			CanonicalText:        key,
+			RepresentativeNodeID: ids[0],
+		})
 	}
 	return out
 }
@@ -179,10 +203,12 @@ func buildContradictionGroups(nodes []memory.AcceptedNode) []memory.Contradictio
 			if canonicalNodeText(nodes[i].NodeText) == canonicalNodeText(nodes[j].NodeText) {
 				continue
 			}
-			if areContradictory(nodes[i].NodeText, nodes[j].NodeText) {
+			code, reason, ok := contradictionReason(nodes[i].NodeText, nodes[j].NodeText)
+			if ok {
 				out = append(out, memory.ContradictionGroup{
-					NodeIDs: []string{nodes[i].NodeID, nodes[j].NodeID},
-					Reason:  "negation-like contradiction",
+					NodeIDs:    []string{nodes[i].NodeID, nodes[j].NodeID},
+					Reason:     reason,
+					ReasonCode: code,
 				})
 			}
 		}
@@ -215,6 +241,7 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record) []memory
 			ParentNodeID: edge.From,
 			ChildNodeID:  edge.To,
 			Kind:         string(edge.Kind),
+			Source:       "graph",
 		}
 		key := link.ParentNodeID + "->" + link.ChildNodeID
 		seen[key] = struct{}{}
@@ -250,6 +277,7 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record) []memory
 					ParentNodeID: parent.NodeID,
 					ChildNodeID:  child.NodeID,
 					Kind:         "inferred",
+					Source:       "inferred",
 				})
 			}
 		}
@@ -325,6 +353,83 @@ func buildOpenQuestions(nodes []memory.AcceptedNode, record compile.Record) []st
 	return questions
 }
 
+func buildNodeHints(nodes, active []memory.AcceptedNode, dedupeGroups []memory.DedupeGroup, contradictionGroups []memory.ContradictionGroup, hierarchy []memory.HierarchyLink, factStatusByNode map[string]compile.FactStatus, predictionStatusByNode map[string]compile.PredictionStatus) []memory.NodeHint {
+	activeSet := map[string]struct{}{}
+	for _, node := range active {
+		activeSet[node.NodeID] = struct{}{}
+	}
+	preferredSet := map[string]struct{}{}
+	dedupePeers := map[string]map[string]struct{}{}
+	for _, group := range dedupeGroups {
+		if strings.TrimSpace(group.RepresentativeNodeID) != "" {
+			preferredSet[group.RepresentativeNodeID] = struct{}{}
+		}
+		for _, nodeID := range group.NodeIDs {
+			peerSet := ensureNodeSet(dedupePeers, nodeID)
+			for _, peerID := range group.NodeIDs {
+				if peerID == nodeID {
+					continue
+				}
+				peerSet[peerID] = struct{}{}
+			}
+		}
+	}
+	contradictionPeers := map[string]map[string]struct{}{}
+	for _, group := range contradictionGroups {
+		for _, nodeID := range group.NodeIDs {
+			peerSet := ensureNodeSet(contradictionPeers, nodeID)
+			for _, peerID := range group.NodeIDs {
+				if peerID == nodeID {
+					continue
+				}
+				peerSet[peerID] = struct{}{}
+			}
+		}
+	}
+	parentIDs := map[string]map[string]struct{}{}
+	childIDs := map[string]map[string]struct{}{}
+	for _, link := range hierarchy {
+		ensureNodeSet(parentIDs, link.ChildNodeID)[link.ParentNodeID] = struct{}{}
+		ensureNodeSet(childIDs, link.ParentNodeID)[link.ChildNodeID] = struct{}{}
+	}
+	out := make([]memory.NodeHint, 0, len(nodes))
+	for _, node := range nodes {
+		hint := memory.NodeHint{NodeID: node.NodeID}
+		if _, ok := activeSet[node.NodeID]; ok {
+			hint.State = "active"
+		} else {
+			hint.State = "inactive"
+		}
+		if _, ok := preferredSet[node.NodeID]; ok {
+			hint.PreferredForDisplay = true
+		}
+		if status, ok := factStatusByNode[node.NodeID]; ok {
+			hint.VerificationStatus = string(status)
+		}
+		if status, ok := predictionStatusByNode[node.NodeID]; ok {
+			hint.PredictionStatus = string(status)
+		}
+		hint.DedupePeerNodeIDs = sortedNodeSet(dedupePeers[node.NodeID])
+		hint.ContradictionNodeIDs = sortedNodeSet(contradictionPeers[node.NodeID])
+		hint.ParentNodeIDs = sortedNodeSet(parentIDs[node.NodeID])
+		hint.ChildNodeIDs = sortedNodeSet(childIDs[node.NodeID])
+		if hint.State == "active" {
+			switch {
+			case len(hint.ParentNodeIDs) == 0 && len(hint.ChildNodeIDs) > 0:
+				hint.HierarchyRole = "root"
+			case len(hint.ParentNodeIDs) > 0 && len(hint.ChildNodeIDs) == 0:
+				hint.HierarchyRole = "leaf"
+			case len(hint.ParentNodeIDs) > 0 && len(hint.ChildNodeIDs) > 0:
+				hint.HierarchyRole = "bridge"
+			default:
+				hint.HierarchyRole = "isolated"
+			}
+		}
+		out = append(out, hint)
+	}
+	return out
+}
+
 func normalizeNodeText(text string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
 }
@@ -334,6 +439,12 @@ func canonicalNodeText(text string) string {
 	replacer := strings.NewReplacer(
 		"，", "",
 		"。", "",
+		"！", "",
+		"？", "",
+		"!", "",
+		"?", "",
+		".", "",
+		",", "",
 		"：", "",
 		"；", "",
 		"、", "",
@@ -343,25 +454,43 @@ func canonicalNodeText(text string) string {
 		"）", "",
 		"(", "",
 		")", "",
+		"继续", "",
+		"仍", "",
+		"预计", "",
+		"预期", "",
+		"可能", "",
+		"有望", "",
+		"正在", "",
 		"会", "",
 		"将", "",
+		"将会", "",
+		"走高", "上升",
+		"上涨", "上升",
+		"攀升", "上升",
+		"回升", "上升",
 		"下滑", "下降",
+		"下跌", "下降",
+		"走低", "下降",
+		"回落", "下降",
 		"上行", "上升",
 		"下行", "下降",
 		"走弱", "下降",
 		"走强", "上升",
+		"减弱", "削弱",
+		"强化", "增强",
+		"支撑", "支持",
 	)
 	return replacer.Replace(normalized)
 }
 
-func areContradictory(a, b string) bool {
+func contradictionReason(a, b string) (string, string, bool) {
 	a = canonicalNodeText(a)
 	b = canonicalNodeText(b)
 	if strings.ReplaceAll(a, "不", "") == b || strings.ReplaceAll(b, "不", "") == a {
-		return true
+		return "negation", "negation-like contradiction", true
 	}
 	if strings.ReplaceAll(a, "不会", "") == b || strings.ReplaceAll(b, "不会", "") == a {
-		return true
+		return "negation", "negation-like contradiction", true
 	}
 	for _, pair := range [][2]string{
 		{"上升", "下降"},
@@ -370,13 +499,93 @@ func areContradictory(a, b string) bool {
 		{"紧张", "缓和"},
 		{"收缩", "扩张"},
 		{"宽松", "收紧"},
+		{"削弱", "增强"},
+		{"利多", "利空"},
+		{"支持", "压制"},
+		{"升温", "降温"},
 	} {
 		if strings.ReplaceAll(a, pair[0], pair[1]) == b || strings.ReplaceAll(a, pair[1], pair[0]) == b {
-			return true
+			return "antonym", "antonym-like contradiction", true
 		}
 		if strings.ReplaceAll(b, pair[0], pair[1]) == a || strings.ReplaceAll(b, pair[1], pair[0]) == a {
-			return true
+			return "antonym", "antonym-like contradiction", true
 		}
 	}
-	return false
+	return "", "", false
+}
+
+func factStatusMap(record compile.Record) map[string]compile.FactStatus {
+	out := make(map[string]compile.FactStatus, len(record.Output.Verification.FactChecks))
+	for _, check := range record.Output.Verification.FactChecks {
+		out[check.NodeID] = check.Status
+	}
+	return out
+}
+
+func predictionStatusMap(record compile.Record) map[string]compile.PredictionStatus {
+	out := make(map[string]compile.PredictionStatus, len(record.Output.Verification.PredictionChecks))
+	for _, check := range record.Output.Verification.PredictionChecks {
+		out[check.NodeID] = check.Status
+	}
+	return out
+}
+
+func compareNodesForDisplay(a, b memory.AcceptedNode, factStatusByNode map[string]compile.FactStatus, predictionStatusByNode map[string]compile.PredictionStatus) bool {
+	scoreA := displayScore(a, factStatusByNode, predictionStatusByNode)
+	scoreB := displayScore(b, factStatusByNode, predictionStatusByNode)
+	if scoreA != scoreB {
+		return scoreA > scoreB
+	}
+	lenA := len([]rune(canonicalNodeText(a.NodeText)))
+	lenB := len([]rune(canonicalNodeText(b.NodeText)))
+	if lenA != lenB {
+		return lenA < lenB
+	}
+	if !a.AcceptedAt.Equal(b.AcceptedAt) {
+		return a.AcceptedAt.Before(b.AcceptedAt)
+	}
+	return a.NodeID < b.NodeID
+}
+
+func displayScore(node memory.AcceptedNode, factStatusByNode map[string]compile.FactStatus, predictionStatusByNode map[string]compile.PredictionStatus) int {
+	score := 0
+	switch factStatusByNode[node.NodeID] {
+	case compile.FactStatusClearlyTrue:
+		score += 40
+	case compile.FactStatusUnverifiable:
+		score -= 10
+	case compile.FactStatusClearlyFalse:
+		score -= 20
+	}
+	switch predictionStatusByNode[node.NodeID] {
+	case compile.PredictionStatusResolvedTrue, compile.PredictionStatusResolvedFalse:
+		score += 20
+	case compile.PredictionStatusUnresolved:
+		score += 5
+	case compile.PredictionStatusStaleUnresolved:
+		score -= 5
+	}
+	score -= nodeKindRank(node.NodeKind) * 2
+	return score
+}
+
+func ensureNodeSet(byNode map[string]map[string]struct{}, nodeID string) map[string]struct{} {
+	set, ok := byNode[nodeID]
+	if !ok {
+		set = map[string]struct{}{}
+		byNode[nodeID] = set
+	}
+	return set
+}
+
+func sortedNodeSet(set map[string]struct{}) []string {
+	if len(set) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(set))
+	for nodeID := range set {
+		out = append(out, nodeID)
+	}
+	sort.Strings(out)
+	return out
 }
