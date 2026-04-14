@@ -298,7 +298,7 @@ func TestSQLiteStore_OrganizationDetectsNearDuplicateAndAntonymContradiction(t *
 	}
 }
 
-func TestSQLiteStore_OrganizationCollapsesDuplicateSidesIntoSingleContradictionGroup(t *testing.T) {
+func TestSQLiteStore_OrganizationCollapsesDuplicateSidesIntoSingleGroupedContradiction(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
 	if err != nil {

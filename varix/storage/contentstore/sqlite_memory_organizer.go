@@ -168,7 +168,7 @@ type canonicalNodeGroup struct {
 	ids       []string
 }
 
-func buildDedupeGroups(nodes []memory.AcceptedNode) []memory.DedupeGroup {
+func buildDedupeGroups(nodes []memory.AcceptedNode, _ map[string]compile.FactStatus, _ map[string]compile.PredictionStatus) []memory.DedupeGroup {
 	groups := groupNodesByCanonicalText(nodes)
 	out := make([]memory.DedupeGroup, 0, len(groups))
 	for _, group := range groups {
@@ -181,6 +181,7 @@ func buildDedupeGroups(nodes []memory.AcceptedNode) []memory.DedupeGroup {
 			RepresentativeNodeID: ids[0],
 			CanonicalText:        group.canonical,
 			Reason:               "canonicalized text match",
+			Hint:                 "merge-near-duplicate",
 		})
 	}
 	return out
@@ -257,7 +258,9 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record) []memory
 		}
 		link := memory.HierarchyLink{
 			ParentNodeID: edge.From,
+			ParentKind:   nodeKindByID[edge.From],
 			ChildNodeID:  edge.To,
+			ChildKind:    nodeKindByID[edge.To],
 			Kind:         string(edge.Kind),
 			Source:       "graph",
 			Hint:         graphHierarchyHint(edge.Kind),
@@ -294,7 +297,9 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record) []memory
 				seen[key] = struct{}{}
 				out = append(out, memory.HierarchyLink{
 					ParentNodeID: parent.NodeID,
+					ParentKind:   parent.NodeKind,
 					ChildNodeID:  child.NodeID,
+					ChildKind:    child.NodeKind,
 					Kind:         "inferred",
 					Source:       "inferred",
 					Hint:         inferredHierarchyHint(parent.NodeKind, child.NodeKind),
@@ -386,6 +391,43 @@ func buildOpenQuestions(nodes []memory.AcceptedNode, record compile.Record) []st
 		}
 	}
 	return questions
+}
+
+func factStatusMap(record compile.Record) map[string]compile.FactStatus {
+	out := make(map[string]compile.FactStatus, len(record.Output.Verification.FactChecks))
+	for _, check := range record.Output.Verification.FactChecks {
+		out[check.NodeID] = check.Status
+	}
+	return out
+}
+
+func predictionStatusMap(record compile.Record) map[string]compile.PredictionStatus {
+	out := make(map[string]compile.PredictionStatus, len(record.Output.Verification.PredictionChecks))
+	for _, check := range record.Output.Verification.PredictionChecks {
+		out[check.NodeID] = check.Status
+	}
+	return out
+}
+
+func ensureNodeSet(m map[string]map[string]struct{}, key string) map[string]struct{} {
+	if existing, ok := m[key]; ok {
+		return existing
+	}
+	set := map[string]struct{}{}
+	m[key] = set
+	return set
+}
+
+func sortedNodeSet(m map[string]struct{}) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for id := range m {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func buildNodeHints(nodes, active []memory.AcceptedNode, dedupeGroups []memory.DedupeGroup, contradictionGroups []memory.ContradictionGroup, hierarchy []memory.HierarchyLink, factStatusByNode map[string]compile.FactStatus, predictionStatusByNode map[string]compile.PredictionStatus) []memory.NodeHint {

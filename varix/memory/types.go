@@ -57,6 +57,7 @@ type DedupeGroup struct {
 	RepresentativeNodeID string   `json:"representative_node_id,omitempty"`
 	CanonicalText        string   `json:"canonical_text,omitempty"`
 	Reason               string   `json:"reason,omitempty"`
+	Hint                 string   `json:"hint,omitempty"`
 }
 
 type ContradictionGroup struct {
@@ -67,9 +68,12 @@ type ContradictionGroup struct {
 
 type HierarchyLink struct {
 	ParentNodeID string `json:"parent_node_id"`
+	ParentKind   string `json:"parent_kind,omitempty"`
 	ChildNodeID  string `json:"child_node_id"`
+	ChildKind    string `json:"child_kind,omitempty"`
 	Kind         string `json:"kind"`
 	Source       string `json:"source,omitempty"`
+	Hint         string `json:"hint,omitempty"`
 }
 
 type NodeHint struct {
