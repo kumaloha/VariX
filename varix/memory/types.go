@@ -53,18 +53,35 @@ type OrganizationJob struct {
 }
 
 type DedupeGroup struct {
-	NodeIDs []string `json:"node_ids"`
+	NodeIDs              []string `json:"node_ids"`
+	CanonicalText        string   `json:"canonical_text,omitempty"`
+	RepresentativeNodeID string   `json:"representative_node_id,omitempty"`
 }
 
 type ContradictionGroup struct {
-	NodeIDs []string `json:"node_ids"`
-	Reason  string   `json:"reason,omitempty"`
+	NodeIDs    []string `json:"node_ids"`
+	Reason     string   `json:"reason,omitempty"`
+	ReasonCode string   `json:"reason_code,omitempty"`
 }
 
 type HierarchyLink struct {
 	ParentNodeID string `json:"parent_node_id"`
 	ChildNodeID  string `json:"child_node_id"`
 	Kind         string `json:"kind"`
+	Source       string `json:"source,omitempty"`
+}
+
+type NodeHint struct {
+	NodeID                string   `json:"node_id"`
+	State                 string   `json:"state,omitempty"`
+	PreferredForDisplay   bool     `json:"preferred_for_display,omitempty"`
+	VerificationStatus    string   `json:"verification_status,omitempty"`
+	PredictionStatus      string   `json:"prediction_status,omitempty"`
+	DedupePeerNodeIDs     []string `json:"dedupe_peer_node_ids,omitempty"`
+	ContradictionNodeIDs  []string `json:"contradiction_node_ids,omitempty"`
+	ParentNodeIDs         []string `json:"parent_node_ids,omitempty"`
+	ChildNodeIDs          []string `json:"child_node_ids,omitempty"`
+	HierarchyRole         string   `json:"hierarchy_role,omitempty"`
 }
 
 type OrganizationOutput struct {
@@ -82,6 +99,7 @@ type OrganizationOutput struct {
 	PredictionStatuses  []PredictionStatus   `json:"prediction_statuses,omitempty"`
 	FactVerifications   []FactVerification   `json:"fact_verifications,omitempty"`
 	OpenQuestions       []string             `json:"open_questions,omitempty"`
+	NodeHints           []NodeHint           `json:"node_hints,omitempty"`
 }
 
 type PredictionStatus struct {
