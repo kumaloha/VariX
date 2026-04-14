@@ -1469,7 +1469,7 @@ func TestRunCompileCardCompactPrintsCompactView(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Key points", "- 事实A", "- 结论B", "- 预测C", "Main logic", "事实A --推出--> 结论B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- 预测C", "Main logic", "事实A --推出--> 结论B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -1532,7 +1532,7 @@ func TestRunCompileCardCompactReadsByURL(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Key points", "- 事实A", "Main logic", "事实A --推出--> 结论B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- 预测C", "Main logic", "事实A --推出--> 结论B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}

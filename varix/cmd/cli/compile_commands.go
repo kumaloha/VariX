@@ -405,14 +405,10 @@ func formatCompileCard(record c.Record) string {
 func formatCompactCompileCard(record c.Record) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Summary\n%s\n\n", record.Output.Summary)
-	points := pickKeyPoints(record)
-	if len(points) > 0 {
-		fmt.Fprintf(&b, "Key points\n")
-		for _, point := range points {
-			fmt.Fprintf(&b, "- %s\n", point)
-		}
-		b.WriteString("\n")
-	}
+	writeCompactNodeSection(&b, "Facts", pickNodesByKinds(record, 2, c.NodeFact))
+	writeCompactNodeSection(&b, "Conditions", pickConditionPoints(record, 3))
+	writeCompactNodeSection(&b, "Conclusions", pickNodesByKinds(record, 2, c.NodeConclusion))
+	writeCompactNodeSection(&b, "Predictions", pickNodesByKinds(record, 2, c.NodePrediction))
 	if chains := logicChains(record); len(chains) > 0 {
 		fmt.Fprintf(&b, "Main logic\n- %s\n\n", chains[0])
 	}
@@ -420,14 +416,53 @@ func formatCompactCompileCard(record c.Record) string {
 	return b.String()
 }
 
-func pickKeyPoints(record c.Record) []string {
-	out := make([]string, 0, 3)
+func writeCompactNodeSection(b *strings.Builder, title string, items []string) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "%s\n", title)
+	for _, item := range items {
+		fmt.Fprintf(b, "- %s\n", item)
+	}
+	b.WriteString("\n")
+}
+
+func pickNodesByKinds(record c.Record, max int, kinds ...c.NodeKind) []string {
+	allowed := map[c.NodeKind]struct{}{}
+	for _, kind := range kinds {
+		allowed[kind] = struct{}{}
+	}
+	out := make([]string, 0, max)
 	for _, node := range record.Output.Graph.Nodes {
 		if strings.TrimSpace(node.Text) == "" {
 			continue
 		}
+		if _, ok := allowed[node.Kind]; !ok {
+			continue
+		}
 		out = append(out, truncate(node.Text, 100))
-		if len(out) == 3 {
+		if len(out) == max {
+			break
+		}
+	}
+	return out
+}
+
+func pickConditionPoints(record c.Record, max int) []string {
+	out := make([]string, 0, max)
+	for _, node := range record.Output.Graph.Nodes {
+		if strings.TrimSpace(node.Text) == "" {
+			continue
+		}
+		switch node.Kind {
+		case c.NodeExplicitCondition:
+			out = append(out, "[显] "+truncate(node.Text, 100))
+		case c.NodeImplicitCondition:
+			out = append(out, "[隐] "+truncate(node.Text, 100))
+		default:
+			continue
+		}
+		if len(out) == max {
 			break
 		}
 	}

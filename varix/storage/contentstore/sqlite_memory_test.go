@@ -152,6 +152,66 @@ func TestSQLiteStore_AcceptMemoryNodesDeriveValidityFromOccurredAndPredictionTim
 	}
 }
 
+func TestSQLiteStore_AcceptMemoryNodesDeriveQuarterDueAtFromParsedPredictionText(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	raw := `{
+	  "summary":"一句话",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-10T09:00:00Z"},
+	      {"id":"n2","kind":"预测","text":"下季度市场会承压","prediction_start_at":"2026-04-12T00:00:00Z"},
+	      {"id":"n3","kind":"结论","text":"结论C"}
+	    ],
+	    "edges":[
+	      {"from":"n1","to":"n3","kind":"推出"},
+	      {"from":"n3","to":"n2","kind":"推出"}
+	    ]
+	  },
+	  "details":{"caveats":["detail"]},
+	  "confidence":"medium"
+	}`
+	output, err := compile.ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	record := compile.Record{
+		UnitID:         "weibo:Q-quarter",
+		Source:         "weibo",
+		ExternalID:     "Q-quarter",
+		RootExternalID: "Q-quarter",
+		Model:          "qwen3.6-plus",
+		Output:         output,
+		CompiledAt:     time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+
+	got, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-quarter",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q-quarter",
+		NodeIDs:          []string{"n2"},
+	})
+	if err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+	if len(got.Nodes) != 1 {
+		t.Fatalf("len(Nodes) = %d, want 1", len(got.Nodes))
+	}
+	wantStart := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	wantDue := time.Date(2026, 9, 30, 23, 59, 59, 0, time.UTC)
+	if !got.Nodes[0].ValidFrom.Equal(wantStart) || !got.Nodes[0].ValidTo.Equal(wantDue) {
+		t.Fatalf("prediction validity = %s..%s, want %s..%s", got.Nodes[0].ValidFrom, got.Nodes[0].ValidTo, wantStart, wantDue)
+	}
+}
+
 func TestSQLiteStore_AcceptMemoryNodesUseInferredPredictionDueAtForOrganizer(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
