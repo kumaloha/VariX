@@ -159,7 +159,7 @@ func getCompiledOutputTx(ctx context.Context, tx *sql.Tx, platform, externalID s
 func buildDedupeGroups(nodes []memory.AcceptedNode) []memory.DedupeGroup {
 	byText := map[string][]string{}
 	for _, node := range nodes {
-		key := normalizeNodeText(node.NodeText)
+		key := canonicalNodeText(node.NodeText)
 		byText[key] = append(byText[key], node.NodeID)
 	}
 	out := make([]memory.DedupeGroup, 0)
@@ -175,6 +175,9 @@ func buildContradictionGroups(nodes []memory.AcceptedNode) []memory.Contradictio
 	out := make([]memory.ContradictionGroup, 0)
 	for i := 0; i < len(nodes); i++ {
 		for j := i + 1; j < len(nodes); j++ {
+			if canonicalNodeText(nodes[i].NodeText) == canonicalNodeText(nodes[j].NodeText) {
+				continue
+			}
 			if areContradictory(nodes[i].NodeText, nodes[j].NodeText) {
 				out = append(out, memory.ContradictionGroup{
 					NodeIDs: []string{nodes[i].NodeID, nodes[j].NodeID},
@@ -265,14 +268,54 @@ func normalizeNodeText(text string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
 }
 
+func canonicalNodeText(text string) string {
+	normalized := normalizeNodeText(text)
+	replacer := strings.NewReplacer(
+		"，", "",
+		"。", "",
+		"：", "",
+		"；", "",
+		"、", "",
+		"“", "",
+		"”", "",
+		"（", "",
+		"）", "",
+		"(", "",
+		")", "",
+		"会", "",
+		"将", "",
+		"下滑", "下降",
+		"上行", "上升",
+		"下行", "下降",
+		"走弱", "下降",
+		"走强", "上升",
+	)
+	return replacer.Replace(normalized)
+}
+
 func areContradictory(a, b string) bool {
-	a = normalizeNodeText(a)
-	b = normalizeNodeText(b)
+	a = canonicalNodeText(a)
+	b = canonicalNodeText(b)
 	if strings.ReplaceAll(a, "不", "") == b || strings.ReplaceAll(b, "不", "") == a {
 		return true
 	}
 	if strings.ReplaceAll(a, "不会", "") == b || strings.ReplaceAll(b, "不会", "") == a {
 		return true
+	}
+	for _, pair := range [][2]string{
+		{"上升", "下降"},
+		{"增加", "减少"},
+		{"恶化", "改善"},
+		{"紧张", "缓和"},
+		{"收缩", "扩张"},
+		{"宽松", "收紧"},
+	} {
+		if strings.ReplaceAll(a, pair[0], pair[1]) == b || strings.ReplaceAll(a, pair[1], pair[0]) == b {
+			return true
+		}
+		if strings.ReplaceAll(b, pair[0], pair[1]) == a || strings.ReplaceAll(b, pair[1], pair[0]) == a {
+			return true
+		}
 	}
 	return false
 }

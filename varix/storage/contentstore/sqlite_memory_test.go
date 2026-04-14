@@ -234,3 +234,62 @@ func TestSQLiteStore_RunNextMemoryOrganizationJobProducesOutput(t *testing.T) {
 		t.Fatalf("JobID = %d, want %d", got.JobID, out.JobID)
 	}
 }
+
+func TestSQLiteStore_OrganizationDetectsNearDuplicateAndAntonymContradiction(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "weibo:Q2",
+		Source:         "weibo",
+		ExternalID:     "Q2",
+		RootExternalID: "Q2",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "美国安全信誉下降会削弱石油美元回流。", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeFact, Text: "美国安全信誉下滑会削弱石油美元回流", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+					{ID: "n3", Kind: compile.NodeFact, Text: "油价会上升", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+					{ID: "n4", Kind: compile.NodeFact, Text: "油价会下降", ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n3", Kind: compile.EdgePositive}},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u2",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q2",
+		NodeIDs:          []string{"n1", "n2", "n3", "n4"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+	out, err := store.RunNextMemoryOrganizationJob(context.Background(), "u2", time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob() error = %v", err)
+	}
+	if len(out.DedupeGroups) != 1 {
+		t.Fatalf("len(DedupeGroups) = %d, want 1", len(out.DedupeGroups))
+	}
+	if len(out.DedupeGroups[0].NodeIDs) != 2 {
+		t.Fatalf("dedupe group = %#v, want 2 ids", out.DedupeGroups[0])
+	}
+	if len(out.ContradictionGroups) != 1 {
+		t.Fatalf("len(ContradictionGroups) = %d, want 1", len(out.ContradictionGroups))
+	}
+	if len(out.ContradictionGroups[0].NodeIDs) != 2 {
+		t.Fatalf("contradiction group = %#v, want 2 ids", out.ContradictionGroups[0])
+	}
+}
