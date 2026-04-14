@@ -27,3 +27,17 @@ Stored metadata includes at least:
 - `root_external_id`
 
 See `docs/compile-persistence.md` for the full product/engineering contract.
+
+## Memory organization
+
+VariX also persists a derived **organized memory view** for each accepted-memory
+event stream.
+
+Current organizer contract:
+- active vs inactive nodes are split strictly by validity windows
+- dedupe and contradiction groups are heuristic overlays, not memory rewrites
+- hierarchy links carry `source` + `hint` metadata for frontend rendering
+- verifier and validity signals can suppress structural influence without
+  deleting accepted memory truth
+
+See `docs/memory-organization.md` for the organizer output contract.
