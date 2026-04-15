@@ -1179,6 +1179,17 @@ func TestRunMemoryGlobalV2CardFiltersByItemType(t *testing.T) {
 	}
 }
 
+func TestRunMemoryGlobalV2CardRejectsInvalidItemType(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-v2-card", "--user", "u-any", "--item-type", "foo"}, "/tmp/project", &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("invalid item-type code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "item-type must be one of: conclusion, conflict") {
+		t.Fatalf("stderr = %q, want explicit item-type guidance", stderr.String())
+	}
+}
+
 type fakeCompileClient struct {
 	record c.Record
 	err    error

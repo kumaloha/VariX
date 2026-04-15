@@ -504,6 +504,10 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 		fmt.Fprintln(stderr, "usage: varix memory global-v2-card --user <user_id>")
 		return 2
 	}
+	if trimmed := strings.TrimSpace(*itemType); trimmed != "" && trimmed != "conclusion" && trimmed != "conflict" {
+		fmt.Fprintln(stderr, "item-type must be one of: conclusion, conflict")
+		return 2
+	}
 	app, err := buildApp(projectRoot)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
