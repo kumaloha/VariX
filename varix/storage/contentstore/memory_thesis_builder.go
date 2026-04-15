@@ -55,6 +55,10 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 					continue
 				}
 			}
+			if !sameGlobalClusterFamily(left, right) && sharedObjectLabel(left.NodeText, right.NodeText) != "" {
+				addEdge(left.NodeID, right.NodeID)
+				continue
+			}
 			if !sameGlobalClusterFamily(left, right) {
 				continue
 			}

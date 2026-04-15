@@ -333,6 +333,70 @@ func TestBuildCandidateTheses_DoesNotTreatAnyFinancialAssetMentionAsDebtTheme(t 
 	}
 }
 
+func TestBuildCandidateTheses_MergesCrossSourceFactAndConclusionOnSameObject(t *testing.T) {
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	nodes := []memory.AcceptedNode{
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "S1",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeFact),
+			NodeText:         "1970年代美沙达成石油美元协议，石油收入回流购买美国金融资产",
+			AcceptedAt:       now,
+		},
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "twitter",
+			SourceExternalID: "S2",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeConclusion),
+			NodeText:         "石油美元循环面临断裂风险",
+			AcceptedAt:       now,
+		},
+	}
+
+	got := buildCandidateTheses(nodes, now)
+	if len(got) != 1 {
+		t.Fatalf("len(buildCandidateTheses) = %d, want 1 thesis for cross-source same-object fact+conclusion", len(got))
+	}
+	if got[0].TopicLabel != "关于「石油美元」的判断" {
+		t.Fatalf("TopicLabel = %q, want shared object label", got[0].TopicLabel)
+	}
+}
+
+func TestBuildCandidateTheses_MergesCrossSourceConditionAndConclusionOnSameObject(t *testing.T) {
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	nodes := []memory.AcceptedNode{
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "S1",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeExplicitCondition),
+			NodeText:         "若石油价格维持在每桶100美元",
+			AcceptedAt:       now,
+		},
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "twitter",
+			SourceExternalID: "S2",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeConclusion),
+			NodeText:         "释放石油储备等舒缓性措施无法根本平抑油价",
+			AcceptedAt:       now,
+		},
+	}
+
+	got := buildCandidateTheses(nodes, now)
+	if len(got) != 1 {
+		t.Fatalf("len(buildCandidateTheses) = %d, want 1 thesis for cross-source same-object condition+conclusion", len(got))
+	}
+	if got[0].TopicLabel != "关于「油价」的判断" {
+		t.Fatalf("TopicLabel = %q, want shared object label", got[0].TopicLabel)
+	}
+}
+
 func TestBuildCandidateTheses_CompressesLargePetrodollarPrivateCreditTopicLabel(t *testing.T) {
 	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
 	nodes := []memory.AcceptedNode{
