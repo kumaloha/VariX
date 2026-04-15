@@ -984,6 +984,18 @@ func TestRunMemoryGlobalV2CardPrintsMechanismSection(t *testing.T) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
 	}
+	whyStart := strings.Index(out, "Why\n")
+	if whyStart == -1 {
+		t.Fatalf("stdout = %q, want Why section", out)
+	}
+	nextStart := strings.Index(out[whyStart+4:], "\n\nWhat next")
+	if nextStart == -1 {
+		t.Fatalf("stdout = %q, want What next section after Why", out)
+	}
+	whyBlock := out[whyStart : whyStart+4+nextStart]
+	if strings.Contains(whyBlock, "宏观负面冲击会放大金融系统脆弱性") {
+		t.Fatalf("Why section should not repeat mechanism text: %q", whyBlock)
+	}
 }
 
 func TestRunMemoryGlobalV2CardRunFlagBuildsFreshOutput(t *testing.T) {
