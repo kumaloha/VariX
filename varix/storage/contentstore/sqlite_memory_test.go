@@ -1311,3 +1311,82 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationBuildsNeutralClustersAcrossSourc
 		t.Fatalf("latest global output = %#v", got)
 	}
 }
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationMergesCrossSourceSharedProposition(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	recordA := compile.Record{
+		UnitID:         "weibo:S1",
+		Source:         "weibo",
+		ExternalID:     "S1",
+		RootExternalID: "S1",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeConclusion, Text: "石油美元回流正在削弱", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodePrediction, Text: "未来几年美国资产承压", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	recordB := compile.Record{
+		UnitID:         "twitter:S2",
+		Source:         "twitter",
+		ExternalID:     "S2",
+		RootExternalID: "S2",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeConclusion, Text: "石油美元回流面临断裂风险", OccurredAt: time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodePrediction, Text: "未来几年金融资产承压", PredictionStartAt: time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 10, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), recordA); err != nil {
+		t.Fatalf("UpsertCompiledOutput(recordA) error = %v", err)
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), recordB); err != nil {
+		t.Fatalf("UpsertCompiledOutput(recordB) error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-merge", SourcePlatform: "weibo", SourceExternalID: "S1", NodeIDs: []string{"n1", "n2"}}); err != nil {
+		t.Fatalf("AcceptMemoryNodes(weibo) error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-merge", SourcePlatform: "twitter", SourceExternalID: "S2", NodeIDs: []string{"n1", "n2"}}); err != nil {
+		t.Fatalf("AcceptMemoryNodes(twitter) error = %v", err)
+	}
+
+	out, err := store.RunGlobalMemoryOrganization(context.Background(), "u-merge", time.Date(2026, 4, 14, 9, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganization() error = %v", err)
+	}
+	foundMerged := false
+	for _, cluster := range out.Clusters {
+		if strings.Contains(cluster.CanonicalProposition, "石油美元回流") {
+			foundMerged = true
+			if len(cluster.SupportingNodeIDs)+len(cluster.PredictiveNodeIDs) < 2 {
+				t.Fatalf("cluster = %#v, want cross-source merged supporting/predictive members", cluster)
+			}
+		}
+	}
+	if !foundMerged {
+		t.Fatalf("Clusters = %#v, want shared proposition cluster around 石油美元回流", out.Clusters)
+	}
+}

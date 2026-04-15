@@ -125,6 +125,11 @@ func buildGlobalClusters(nodes []memory.AcceptedNode, dedupeGroups []memory.Dedu
 		adj[a][b] = struct{}{}
 		adj[b][a] = struct{}{}
 	}
+	nodeIDs := make([]string, 0, len(byID))
+	for id := range byID {
+		nodeIDs = append(nodeIDs, id)
+	}
+	sort.Strings(nodeIDs)
 	for _, group := range dedupeGroups {
 		for i := 0; i < len(group.NodeIDs); i++ {
 			for j := i + 1; j < len(group.NodeIDs); j++ {
@@ -139,15 +144,21 @@ func buildGlobalClusters(nodes []memory.AcceptedNode, dedupeGroups []memory.Dedu
 			}
 		}
 	}
+	for i := 0; i < len(nodeIDs); i++ {
+		for j := i + 1; j < len(nodeIDs); j++ {
+			left := byID[nodeIDs[i]]
+			right := byID[nodeIDs[j]]
+			if !sameGlobalClusterFamily(left, right) {
+				continue
+			}
+			if phrase, ok := sharedSemanticPhrase(left.NodeText, right.NodeText); ok && strings.TrimSpace(phrase) != "" {
+				addEdge(left.NodeID, right.NodeID)
+			}
+		}
+	}
 
 	seen := map[string]struct{}{}
 	var clusters []memory.GlobalCluster
-	nodeIDs := make([]string, 0, len(byID))
-	for id := range byID {
-		nodeIDs = append(nodeIDs, id)
-	}
-	sort.Strings(nodeIDs)
-
 	for _, start := range nodeIDs {
 		if _, ok := seen[start]; ok {
 			continue
@@ -162,6 +173,39 @@ func buildGlobalClusters(nodes []memory.AcceptedNode, dedupeGroups []memory.Dedu
 		return clusters[i].CanonicalProposition < clusters[j].CanonicalProposition
 	})
 	return clusters
+}
+
+func sameGlobalClusterFamily(left, right memory.AcceptedNode) bool {
+	bucket := func(kind string) string {
+		switch kind {
+		case string(compile.NodeFact), string(compile.NodeConclusion), string(compile.NodePrediction):
+			return "claim"
+		case string(compile.NodeExplicitCondition), string(compile.NodeImplicitCondition):
+			return "condition"
+		default:
+			return "other"
+		}
+	}
+	return bucket(left.NodeKind) == bucket(right.NodeKind)
+}
+
+func sharedSemanticPhrase(a, b string) (string, bool) {
+	a = canonicalNodeText(a)
+	b = canonicalNodeText(b)
+	if a == "" || b == "" {
+		return "", false
+	}
+	phrase := longestCommonSubstring([]rune(a), []rune(b))
+	phrase = strings.TrimSpace(phrase)
+	if len([]rune(phrase)) < 4 {
+		return "", false
+	}
+	for _, banned := range []string{"金融资产", "投资者", "周期", "风险", "资产", "市场", "美国"} {
+		if phrase == banned {
+			return "", false
+		}
+	}
+	return phrase, true
 }
 
 func globalMemoryNodeRef(node memory.AcceptedNode) string {
@@ -381,6 +425,33 @@ func commonPrefix(values []string) string {
 		}
 	}
 	return string(prefix)
+}
+
+func longestCommonSubstring(a, b []rune) string {
+	if len(a) == 0 || len(b) == 0 {
+		return ""
+	}
+	dp := make([][]int, len(a)+1)
+	for i := range dp {
+		dp[i] = make([]int, len(b)+1)
+	}
+	bestLen := 0
+	bestEnd := 0
+	for i := 1; i <= len(a); i++ {
+		for j := 1; j <= len(b); j++ {
+			if a[i-1] == b[j-1] {
+				dp[i][j] = dp[i-1][j-1] + 1
+				if dp[i][j] > bestLen {
+					bestLen = dp[i][j]
+					bestEnd = i
+				}
+			}
+		}
+	}
+	if bestLen == 0 {
+		return ""
+	}
+	return string(a[bestEnd-bestLen : bestEnd])
 }
 
 func listAllUserMemoryTx(ctx context.Context, tx *sql.Tx, userID string) ([]memory.AcceptedNode, error) {
