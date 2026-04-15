@@ -39,5 +39,14 @@ Current organizer contract:
 - hierarchy links carry `source` + `hint` metadata for frontend rendering
 - verifier and validity signals can suppress structural influence without
   deleting accepted memory truth
+- v1 cluster outputs remain available while the new v2 thesis-first pipeline
+  rolls out in parallel
+
+Useful memory commands:
+- `memory global-organize-run|global-organized|global-card` for the existing
+  cluster-first global memory view
+- `memory global-v2-organize-run|global-v2-organized` for raw thesis-first v2
+  JSON output
+- `memory global-v2-card` for a human-readable v2 first-layer card surface
 
 See `docs/memory-organization.md` for the organizer output contract.

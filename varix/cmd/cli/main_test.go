@@ -737,6 +737,239 @@ func TestRunMemoryGlobalCardPrintsClusterSections(t *testing.T) {
 	}
 }
 
+func TestRunMemoryGlobalV2OrganizeAndShow(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:GV2",
+			Source:         "weibo",
+			ExternalID:     "GV2",
+			RootExternalID: "GV2",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						{ID: "n1", Kind: c.NodeFact, Text: "流动性收紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n2", Kind: c.NodeConclusion, Text: "风险资产承压"},
+						{ID: "n3", Kind: c.NodePrediction, Text: "未来数月波动加大", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}, {From: "n2", To: "n3", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-v2-cli", SourcePlatform: "weibo", SourceExternalID: "GV2", NodeIDs: []string{"n1", "n2", "n3"}}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-v2-organize-run", "--user", "u-v2-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("global-v2-organize-run code = %d, stderr = %s", code, stderr.String())
+	}
+	var out memory.GlobalMemoryV2Output
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(global-v2-organize-run) error = %v", err)
+	}
+	if len(out.CognitiveCards) == 0 || len(out.TopMemoryItems) == 0 {
+		t.Fatalf("v2 output = %#v, want cards + top items", out)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "global-v2-organized", "--user", "u-v2-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("global-v2-organized code = %d, stderr = %s", code, stderr.String())
+	}
+	var got memory.GlobalMemoryV2Output
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(global-v2-organized) error = %v", err)
+	}
+	if got.OutputID == 0 || len(got.CognitiveConclusions) == 0 {
+		t.Fatalf("v2 stored output = %#v, want persisted v2 result", got)
+	}
+}
+
+func TestRunMemoryGlobalV2CardPrintsConclusionSections(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:GV2C",
+			Source:         "weibo",
+			ExternalID:     "GV2C",
+			RootExternalID: "GV2C",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						{ID: "n1", Kind: c.NodeFact, Text: "流动性收紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n2", Kind: c.NodeConclusion, Text: "风险资产承压"},
+						{ID: "n3", Kind: c.NodePrediction, Text: "未来数月波动加大", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n4", Kind: c.NodeExplicitCondition, Text: "若融资环境继续恶化"},
+					},
+					Edges: []c.GraphEdge{
+						{From: "n1", To: "n2", Kind: c.EdgeDerives},
+						{From: "n2", To: "n3", Kind: c.EdgeDerives},
+						{From: "n4", To: "n3", Kind: c.EdgePresets},
+					},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-v2-card", SourcePlatform: "weibo", SourceExternalID: "GV2C", NodeIDs: []string{"n1", "n2", "n3", "n4"}}); err != nil {
+			return nil, err
+		}
+		if _, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-card", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-v2-card", "--user", "u-v2-card"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("global-v2-card code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Conclusion", "Signal", "Logic", "Why", "Conditions", "What next", "Sources", "weibo:GV2C", "流动性收紧", "若融资环境继续恶化", "未来数月波动加大"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q in %q", want, out)
+		}
+	}
+}
+
+func TestRunMemoryGlobalV2CardPrintsConflictSides(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		recordA := c.Record{
+			UnitID:         "weibo:CF1",
+			Source:         "weibo",
+			ExternalID:     "CF1",
+			RootExternalID: "CF1",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						{ID: "n1", Kind: c.NodeFact, Text: "供给趋紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n2", Kind: c.NodeConclusion, Text: "油价会上升"},
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		recordB := c.Record{
+			UnitID:         "twitter:CF2",
+			Source:         "twitter",
+			ExternalID:     "CF2",
+			RootExternalID: "CF2",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						{ID: "n1", Kind: c.NodeFact, Text: "需求走弱", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n2", Kind: c.NodeConclusion, Text: "油价会下降"},
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), recordA); err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), recordB); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-v2-conflict-card", SourcePlatform: "weibo", SourceExternalID: "CF1", NodeIDs: []string{"n2"}}); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-v2-conflict-card", SourcePlatform: "twitter", SourceExternalID: "CF2", NodeIDs: []string{"n2"}}); err != nil {
+			return nil, err
+		}
+		if _, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-conflict-card", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-v2-card", "--user", "u-v2-conflict-card"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("global-v2-card code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Conflict", "Side A", "Side B", "Sources A", "Sources B", "weibo:CF1", "twitter:CF2", "油价会上升", "油价会下降"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q in %q", want, out)
+		}
+	}
+}
+
 type fakeCompileClient struct {
 	record c.Record
 	err    error
