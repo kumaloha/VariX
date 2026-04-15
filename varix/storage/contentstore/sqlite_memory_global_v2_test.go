@@ -546,6 +546,65 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationV2AbstractsBankResilienceOutput(
 	}
 }
 
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2AbstractsDebtPurchasingPowerOutput(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "twitter:DEBT1",
+		Source:         "twitter",
+		ExternalID:     "DEBT1",
+		RootExternalID: "DEBT1",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "过去500年历史显示债务与资本市场周期反复导致财富大起大落，且当前主要经济体名义与实际利率均处于历史极低水平", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeExplicitCondition, Text: "若金融资产承诺规模远超实物财富支撑，且央行被迫大量印钞以缓解债务违约压力"},
+					{ID: "n3", Kind: compile.NodeConclusion, Text: "传统现金与债券资产的实际购买力将不可避免地下降，货币面临系统性贬值风险", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n3", Kind: compile.EdgeDerives},
+					{From: "n2", To: "n3", Kind: compile.EdgePresets},
+				},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-v2-debt",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "DEBT1",
+		NodeIDs:          []string{"n1", "n2", "n3"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-debt", time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.CognitiveConclusions) != 1 {
+		t.Fatalf("len(CognitiveConclusions) = %d, want 1", len(out.CognitiveConclusions))
+	}
+	if got, want := out.CognitiveConclusions[0].Headline, "债务与货币贬值压力正在侵蚀现金与债券购买力"; got != want {
+		t.Fatalf("Headline = %q, want %q", got, want)
+	}
+	if got, want := out.TopMemoryItems[0].SignalStrength, "high"; got != want {
+		t.Fatalf("SignalStrength = %q, want %q", got, want)
+	}
+}
+
 func TestSQLiteStore_RunGlobalMemoryOrganizationV2ReattachesSameSourceSingletons(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
