@@ -332,3 +332,21 @@ func TestBuildCandidateTheses_DoesNotTreatAnyFinancialAssetMentionAsDebtTheme(t 
 		t.Fatalf("len(buildCandidateTheses) = %d, want 2 theses; mentioning 美国金融资产 alone should not trigger debt-theme merge", len(got))
 	}
 }
+
+func TestBuildCandidateTheses_CompressesLargePetrodollarPrivateCreditTopicLabel(t *testing.T) {
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	nodes := []memory.AcceptedNode{
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "Q1", NodeID: "n1", NodeKind: string(compile.NodeFact), NodeText: "1970年代美沙达成石油美元协议，形成中东石油收入回流购买美国金融资产的闭环", AcceptedAt: now},
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "Q1", NodeID: "n2", NodeKind: string(compile.NodeImplicitCondition), NodeText: "私募信贷基金通过监管套利进行期限错配，积累流动性隐患", AcceptedAt: now},
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "Q1", NodeID: "n3", NodeKind: string(compile.NodeConclusion), NodeText: "石油美元循环面临断裂风险，且私募信贷正积累类似2008年次贷危机的流动性隐患", AcceptedAt: now},
+	}
+
+	got := buildCandidateTheses(nodes, now)
+	if len(got) != 1 {
+		t.Fatalf("len(buildCandidateTheses) = %d, want 1", len(got))
+	}
+	want := "关于「石油美元与私募信贷流动性风险」的判断"
+	if got[0].TopicLabel != want {
+		t.Fatalf("TopicLabel = %q, want %q", got[0].TopicLabel, want)
+	}
+}

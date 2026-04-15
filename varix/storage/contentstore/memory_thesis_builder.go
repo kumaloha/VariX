@@ -131,6 +131,9 @@ func thesisTopicLabel(component []string, byID map[string]memory.AcceptedNode) s
 	if len(component) == 1 {
 		return byID[component[0]].NodeText
 	}
+	if label := aggregateTopicLabel(component, byID); label != "" {
+		return label
+	}
 	left := byID[component[0]].NodeText
 	right := byID[component[1]].NodeText
 	if label := sharedObjectLabel(left, right); label != "" {
@@ -143,6 +146,24 @@ func thesisTopicLabel(component []string, byID map[string]memory.AcceptedNode) s
 		return label
 	}
 	return byID[component[0]].NodeText
+}
+
+func aggregateTopicLabel(component []string, byID map[string]memory.AcceptedNode) string {
+	texts := make([]string, 0, len(component))
+	for _, id := range component {
+		if node, ok := byID[id]; ok {
+			texts = append(texts, canonicalNodeText(node.NodeText))
+		}
+	}
+	all := strings.Join(texts, "\n")
+	switch {
+	case strings.Contains(all, "石油美元") && strings.Contains(all, "私募信贷") && containsAnyText(all, "流动性隐患", "流动性风险", "流动性脆弱"):
+		return "关于「石油美元与私募信贷流动性风险」的判断"
+	case strings.Contains(all, "流动性收紧") && strings.Contains(all, "风险资产承压"):
+		return "关于「流动性收紧与风险资产承压」的判断"
+	default:
+		return ""
+	}
 }
 
 func thesisClusterReason(component []string, byID map[string]memory.AcceptedNode) string {
