@@ -59,6 +59,12 @@ varix memory global-compare --run --user <user_id> --limit 3
 ```
 Use when you want a smaller sample from both v1 and v2.
 
+### What the compare output now includes
+- section counts for v1 and v2
+- optional v2-side filtering (`--item-type`)
+- optional output shortening (`--limit`)
+- explicit no-match guidance when the filtered v2 side is empty
+
 ---
 
 ## 3. Read raw v2 JSON
