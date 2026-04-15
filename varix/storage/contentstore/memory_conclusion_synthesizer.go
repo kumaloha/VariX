@@ -58,6 +58,12 @@ func synthesizeConclusionHeadline(thesis memory.CausalThesis, card memory.Cognit
 	if len(card.KeyEvidence) > 0 {
 		driver = strings.TrimSpace(card.KeyEvidence[0])
 	}
+	if abstract := abstractHeadlineFromDebtPurchasingPower(thesis, card); abstract != "" {
+		return abstract
+	}
+	if abstract := abstractHeadlineFromPetrodollarPrivateCredit(thesis, card); abstract != "" {
+		return abstract
+	}
 	if len(card.Predictions) > 0 && strings.TrimSpace(card.Predictions[0]) != "" {
 		if abstract := abstractHeadlineFromPressureAndVolatility(driver, headline, strings.TrimSpace(card.Predictions[0])); abstract != "" {
 			return abstract
@@ -74,6 +80,26 @@ func synthesizeConclusionHeadline(thesis memory.CausalThesis, card memory.Cognit
 		return headline
 	}
 	return headline
+}
+
+func abstractHeadlineFromDebtPurchasingPower(thesis memory.CausalThesis, card memory.CognitiveCard) string {
+	if !strings.Contains(thesis.CoreQuestion, "债务") {
+		return ""
+	}
+	if !strings.Contains(card.Title, "购买力") {
+		return ""
+	}
+	return "债务与货币贬值压力正在侵蚀现金与债券购买力"
+}
+
+func abstractHeadlineFromPetrodollarPrivateCredit(thesis memory.CausalThesis, card memory.CognitiveCard) string {
+	if !strings.Contains(thesis.CoreQuestion, "石油美元") || !strings.Contains(thesis.CoreQuestion, "私募信贷") {
+		return ""
+	}
+	if !strings.Contains(card.Title, "流动性隐患") {
+		return ""
+	}
+	return "石油美元与私募信贷流动性风险正在推高美国资产脆弱性"
 }
 
 func abstractHeadlineFromPressureAndVolatility(driver, headline, prediction string) string {
@@ -143,7 +169,7 @@ func firstNonZeroTime(values ...time.Time) time.Time {
 
 func signalStrengthForConclusion(conclusion memory.CognitiveConclusion) string {
 	switch {
-	case strings.Contains(conclusion.Headline, "推向") && strings.TrimSpace(conclusion.Subheadline) != "":
+	case (strings.Contains(conclusion.Headline, "推向") || strings.Contains(conclusion.Headline, "推高") || strings.Contains(conclusion.Headline, "侵蚀")) && strings.TrimSpace(conclusion.Subheadline) != "":
 		return "high"
 	case strings.Contains(conclusion.Headline, "并可能导致"):
 		return "high"
