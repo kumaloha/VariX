@@ -79,6 +79,7 @@ Important fields:
 - `summary`
 - `causal_chain`
 - `key_evidence`
+- `mechanism`
 - `conditions`
 - `predictions`
 
@@ -106,6 +107,7 @@ Two item types:
 - contradiction blocks abstraction
 - a single source may still produce a conclusion if the causal chain is strong
 - card summaries follow the full core path
+- card rendering can expose mechanism nodes separately from evidence/conditions
 - conditions are separated from key evidence
 - key evidence focuses on core supporting drivers
 - conflict wording is humanized for product-facing surfaces
@@ -131,6 +133,11 @@ Compare surfaces:
 - `varix memory global-compare --user <user_id> --item-type conclusion`
 - `varix memory global-compare --user <user_id> --item-type conflict`
 - `varix memory global-compare --user <user_id> --limit 5`
+
+Review-friendly behaviors:
+- invalid filter values fail fast with explicit guidance
+- empty filtered views render a no-match message instead of blank output
+- compare headers include item counts and current v2 filter context
 
 ---
 

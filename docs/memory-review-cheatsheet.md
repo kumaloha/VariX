@@ -89,7 +89,7 @@ Use when you want the last persisted v2 output without recomputing.
 - topic labels are short enough to name a cognition object
 - conflicts appear as conflicts, not forced conclusions
 - headlines sound more abstract than the raw node text
-- `Why`, `Conditions`, `What next`, and `Sources` are clearly separated
+- `Why`, `Mechanism`, `Conditions`, `What next`, and `Sources` are clearly separated
 - `Why A / Why B` on conflict cards point to real supporting context
 
 ### Warning signs
