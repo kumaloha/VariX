@@ -127,6 +127,55 @@ func TestCollectorFetchParsesHTMLArticle(t *testing.T) {
 	}
 }
 
+func TestCollectorFetchPrefersShareholderLetterBodyOverInfographicArticle(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+				Body: io.NopCloser(strings.NewReader(`<!doctype html>
+<html>
+  <head>
+    <title>Shareholder Letter</title>
+  </head>
+  <body>
+    <div class="cmp-text">
+      <h2><span class="title-medium">Dear Fellow Shareholders,</span></h2>
+      <p>First substantive paragraph about the economy and the company.</p>
+      <p>Second substantive paragraph about long-term strategy and risks.</p>
+    </div>
+    <article class="jpmc-infographic">
+      <h2>Earnings 2005-2025</h2>
+      <img alt="Chart image" src="https://cdn.example.test/chart.png">
+      <p>See Text Version</p>
+    </article>
+  </body>
+</html>`)),
+			}, nil
+		}),
+	}
+
+	c := New(client)
+	got, err := c.Fetch(context.Background(), types.ParsedURL{
+		Platform:     types.PlatformWeb,
+		ContentType:  types.ContentTypePost,
+		PlatformID:   "web-letter",
+		CanonicalURL: "https://example.test/letter",
+	})
+	if err != nil {
+		t.Fatalf("Fetch() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(Fetch()) = %d, want 1", len(got))
+	}
+	if !strings.Contains(got[0].Content, "First substantive paragraph") {
+		t.Fatalf("Content = %q, want shareholder letter body", got[0].Content)
+	}
+	if strings.Contains(got[0].Content, "See Text Version") {
+		t.Fatalf("Content = %q, should not prioritize infographic text", got[0].Content)
+	}
+}
+
 func TestCollectorFetchRejectsPDFBinary(t *testing.T) {
 	client := &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {

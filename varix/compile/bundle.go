@@ -30,6 +30,10 @@ func BuildBundle(raw types.RawContent) Bundle {
 	if raw.Metadata.Thread != nil && strings.TrimSpace(raw.Metadata.Thread.RootExternalID) != "" {
 		rootExternalID = raw.Metadata.Thread.RootExternalID
 	}
+	localImagePaths := collectLocalImagePaths(raw)
+	if shouldSuppressLocalImages(raw) {
+		localImagePaths = nil
+	}
 	return Bundle{
 		UnitID:          fmt.Sprintf("%s:%s", raw.Source, raw.ExternalID),
 		Source:          raw.Source,
@@ -44,8 +48,18 @@ func BuildBundle(raw types.RawContent) Bundle {
 		References:      raw.References,
 		ThreadSegments:  raw.ThreadSegments,
 		Attachments:     raw.Attachments,
-		LocalImagePaths: collectLocalImagePaths(raw),
+		LocalImagePaths: localImagePaths,
 	}
+}
+
+func shouldSuppressLocalImages(raw types.RawContent) bool {
+	if strings.TrimSpace(strings.ToLower(raw.Source)) != "web" {
+		return false
+	}
+	if len(raw.Attachments) < 4 {
+		return false
+	}
+	return len([]rune(strings.TrimSpace(raw.Content))) >= 2000
 }
 
 func (b Bundle) ApproxTextLength() int {

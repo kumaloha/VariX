@@ -3,6 +3,7 @@ package contentstore
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -1479,5 +1480,149 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationDerivesHigherLevelMacroTheme(t *
 	}
 	if !foundTheme {
 		t.Fatalf("Clusters = %#v, want higher-level macro theme cluster", out.Clusters)
+	}
+}
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationKeepsJPMStyleNodesInMacroClusters(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	records := []compile.Record{
+		{
+			UnitID:         "twitter:D1",
+			Source:         "twitter",
+			ExternalID:     "D1",
+			RootExternalID: "D1",
+			Model:          "qwen3.6-plus",
+			Output: compile.Output{
+				Summary:    "summary",
+				Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+				Confidence: "medium",
+				Graph: compile.ReasoningGraph{
+					Nodes: []compile.GraphNode{
+						{ID: "n1", Kind: compile.NodeConclusion, Text: "传统现金与债券资产的实际购买力将不可避免地下降，货币面临系统性贬值风险", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n2", Kind: compile.NodePrediction, Text: "未来几年未进行分散配置的投资者将面临财富缩水", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					},
+					Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+				},
+			},
+			CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+		},
+		{
+			UnitID:         "weibo:O1",
+			Source:         "weibo",
+			ExternalID:     "O1",
+			RootExternalID: "O1",
+			Model:          "qwen3.6-plus",
+			Output: compile.Output{
+				Summary:    "summary",
+				Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+				Confidence: "medium",
+				Graph: compile.ReasoningGraph{
+					Nodes: []compile.GraphNode{
+						{ID: "n1", Kind: compile.NodeConclusion, Text: "石油美元循环面临断裂风险，且私募信贷正积累流动性隐患", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n2", Kind: compile.NodePrediction, Text: "未来几年美债美股承压", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					},
+					Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+				},
+			},
+			CompiledAt: time.Date(2026, 4, 14, 8, 5, 0, 0, time.UTC),
+		},
+		{
+			UnitID:         "weibo:E1",
+			Source:         "weibo",
+			ExternalID:     "E1",
+			RootExternalID: "E1",
+			Model:          "qwen3.6-plus",
+			Output: compile.Output{
+				Summary:    "summary",
+				Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+				Confidence: "medium",
+				Graph: compile.ReasoningGraph{
+					Nodes: []compile.GraphNode{
+						{ID: "n1", Kind: compile.NodeFact, Text: "美国就业市场逼近衰退临界点，AI冲击白领就业，高收入家庭消费收缩", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n2", Kind: compile.NodeConclusion, Text: "美国经济面临衰退风险", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					},
+					Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+				},
+			},
+			CompiledAt: time.Date(2026, 4, 14, 8, 10, 0, 0, time.UTC),
+		},
+		{
+			UnitID:         "web:J1",
+			Source:         "web",
+			ExternalID:     "J1",
+			RootExternalID: "J1",
+			Model:          "qwen3.6-plus",
+			Output: compile.Output{
+				Summary:    "summary",
+				Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+				Confidence: "medium",
+				Graph: compile.ReasoningGraph{
+					Nodes: []compile.GraphNode{
+						{ID: "n4", Kind: compile.NodeExplicitCondition, Text: "若伊朗战争持续引发显著的大宗商品价格冲击与全球供应链重塑"},
+						{ID: "n5", Kind: compile.NodeExplicitCondition, Text: "若银行去监管化政策能够被妥善设计与执行"},
+						{ID: "n6", Kind: compile.NodeImplicitCondition, Text: "当前高资产价格环境在遭遇宏观负面冲击时将放大金融系统脆弱性", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n7", Kind: compile.NodeConclusion, Text: "宏观风险正在累积，金融体系安全取决于监管与资产价格韧性", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n9", Kind: compile.NodePrediction, Text: "妥善实施的银行去监管将提升金融体系安全性并更好支持经济增长", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					},
+					Edges: []compile.GraphEdge{
+						{From: "n6", To: "n7", Kind: compile.EdgePositive},
+						{From: "n5", To: "n9", Kind: compile.EdgeDerives},
+						{From: "n7", To: "n9", Kind: compile.EdgeDerives},
+					},
+				},
+			},
+			CompiledAt: time.Date(2026, 4, 14, 8, 15, 0, 0, time.UTC),
+		},
+	}
+	for _, record := range records {
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			t.Fatalf("UpsertCompiledOutput(%s) error = %v", record.UnitID, err)
+		}
+	}
+	for _, req := range []memory.AcceptRequest{
+		{UserID: "u-jpm", SourcePlatform: "twitter", SourceExternalID: "D1", NodeIDs: []string{"n1"}},
+		{UserID: "u-jpm", SourcePlatform: "weibo", SourceExternalID: "O1", NodeIDs: []string{"n1"}},
+		{UserID: "u-jpm", SourcePlatform: "weibo", SourceExternalID: "E1", NodeIDs: []string{"n1"}},
+		{UserID: "u-jpm", SourcePlatform: "web", SourceExternalID: "J1", NodeIDs: []string{"n4", "n5", "n6", "n9"}},
+	} {
+		if _, err := store.AcceptMemoryNodes(context.Background(), req); err != nil {
+			t.Fatalf("AcceptMemoryNodes(%s:%s) error = %v", req.SourcePlatform, req.SourceExternalID, err)
+		}
+	}
+
+	out, err := store.RunGlobalMemoryOrganization(context.Background(), "u-jpm", time.Date(2026, 4, 14, 9, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganization() error = %v", err)
+	}
+
+	find := func(proposition string) *memory.GlobalCluster {
+		for i := range out.Clusters {
+			if out.Clusters[i].CanonicalProposition == proposition {
+				return &out.Clusters[i]
+			}
+		}
+		return nil
+	}
+	debtCluster := find("关于「债务周期与金融资产实际回报」的判断")
+	if debtCluster == nil || !slices.Contains(debtCluster.ConditionalNodeIDs, "web:J1:n6") {
+		t.Fatalf("debtCluster = %#v, want web:J1:n6 to merge into debt cluster", debtCluster)
+	}
+	oilCluster := find("关于「石油美元、油价与流动性风险」的判断")
+	if oilCluster == nil || !slices.Contains(oilCluster.ConditionalNodeIDs, "web:J1:n4") {
+		t.Fatalf("oilCluster = %#v, want web:J1:n4 to merge into oil/liquidity cluster", oilCluster)
+	}
+	bankCluster := find("关于「银行监管与金融系统安全」的判断")
+	if bankCluster == nil || !slices.Contains(bankCluster.ConditionalNodeIDs, "web:J1:n5") || !slices.Contains(bankCluster.PredictiveNodeIDs, "web:J1:n9") {
+		t.Fatalf("bankCluster = %#v, want web:J1:n5 + web:J1:n9 to share regulation cluster", bankCluster)
+	}
+	employmentCluster := find("美国就业市场逼近衰退临界点，AI冲击白领就业，高收入家庭消费收缩")
+	if employmentCluster != nil && slices.Contains(employmentCluster.ConditionalNodeIDs, "web:J1:n4") {
+		t.Fatalf("employmentCluster = %#v, want web:J1:n4 excluded from employment cluster", employmentCluster)
 	}
 }

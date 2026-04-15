@@ -22,6 +22,7 @@ var (
 	htmlAuthorMeta             = regexp.MustCompile(`(?is)<meta[^>]+(?:name|property)=["'](?:author|article:author)["'][^>]+content=["'](.*?)["']`)
 	htmlPublishedMeta          = regexp.MustCompile(`(?is)<meta[^>]+(?:name|property)=["'](?:article:published_time|og:published_time|pubdate)["'][^>]+content=["'](.*?)["']`)
 	htmlCanonical              = regexp.MustCompile(`(?is)<link[^>]+rel=["'][^"']*canonical[^"']*["'][^>]+href=["'](.*?)["']`)
+	htmlShareholderLetter      = regexp.MustCompile(`(?is)<h2[^>]*>\s*(?:<span[^>]*>)?\s*Dear Fellow Shareholders,\s*(?:</span>)?\s*</h2>(.*?)(?:<article\b[^>]*class=["'][^"']*jpmc-infographic[^"']*["']|<div\b[^>]*class=["'][^"']*infographic[^"']*["']|</body>)`)
 	htmlArticle                = regexp.MustCompile(`(?is)<article\b[^>]*>(.*?)</article>`)
 	htmlBody                   = regexp.MustCompile(`(?is)<body\b[^>]*>(.*?)</body>`)
 	htmlImage                  = regexp.MustCompile(`(?is)<img[^>]+src=["'](.*?)["']`)
@@ -89,7 +90,10 @@ func parseHTMLDocument(rawURL, externalID, body string) types.RawContent {
 		}
 	}
 
-	articleHTML := firstMatch(htmlArticle, body)
+	articleHTML := firstMatch(htmlShareholderLetter, body)
+	if articleHTML == "" {
+		articleHTML = firstMatch(htmlArticle, body)
+	}
 	if articleHTML == "" {
 		articleHTML = firstMatch(htmlBody, body)
 	}

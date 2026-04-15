@@ -54,6 +54,24 @@ func TestBuildBundleCollectsRootAndLocalImages(t *testing.T) {
 	}
 }
 
+func TestBuildBundleSuppressesWebInfographicImagesForLongformBodies(t *testing.T) {
+	raw := types.RawContent{
+		Source:     "web",
+		ExternalID: "article-1",
+		Content:    strings.Repeat("正文", 1500),
+		Attachments: []types.Attachment{
+			{Type: "image", StoredPath: "/tmp/1.png"},
+			{Type: "image", StoredPath: "/tmp/2.png"},
+			{Type: "image", StoredPath: "/tmp/3.png"},
+			{Type: "image", StoredPath: "/tmp/4.png"},
+		},
+	}
+	got := BuildBundle(raw)
+	if len(got.LocalImagePaths) != 0 {
+		t.Fatalf("len(LocalImagePaths) = %d, want 0 for longform web article", len(got.LocalImagePaths))
+	}
+}
+
 func TestBundleTextContextIncludesStructuredSections(t *testing.T) {
 	b := Bundle{
 		Content: "root body",

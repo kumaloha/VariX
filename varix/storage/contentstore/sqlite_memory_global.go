@@ -227,11 +227,13 @@ func sharedMacroTheme(a, b string) string {
 func macroThemeKey(text string) string {
 	text = canonicalNodeText(text)
 	switch {
-	case containsAnyText(text, "石油美元", "油价", "霍尔木兹", "私募信贷", "流动性", "挤兑", "美债", "美股", "华尔街"):
+	case containsAnyText(text, "银行去监管", "去监管", "金融体系安全", "银行体系更安全", "支持经济增长"):
+		return "macro-bank-regulation"
+	case containsAnyText(text, "石油美元", "油价", "霍尔木兹", "私募信贷", "流动性", "挤兑", "美债", "美股", "华尔街", "伊朗", "中东", "大宗商品", "供应链"):
 		return "macro-liquidity"
-	case containsAnyText(text, "债务", "金融资产", "货币", "央行", "通胀", "购买力", "回报"):
+	case containsAnyText(text, "债务", "金融资产", "货币", "央行", "通胀", "购买力", "回报", "资产价格", "利率", "脆弱性"):
 		return "macro-debt"
-	case containsAnyText(text, "供应链", "能源短缺", "生活成本", "k型", "衰退"):
+	case containsAnyText(text, "能源短缺", "生活成本", "k型"):
 		return "macro-supply-shock"
 	default:
 		return ""
@@ -437,9 +439,11 @@ func deriveMacroThemeProposition(component []string, byID map[string]memory.Acce
 		return false
 	}
 	switch {
-	case hasAny("石油美元", "油价", "霍尔木兹") && hasAny("流动性", "挤兑", "私募信贷", "美债", "美股"):
+	case hasAny("银行去监管", "去监管", "金融体系安全", "银行体系更安全"):
+		return "关于「银行监管与金融系统安全」的判断", true
+	case hasAny("石油美元", "油价", "霍尔木兹", "伊朗", "中东") && hasAny("流动性", "挤兑", "私募信贷", "美债", "美股", "供应链", "大宗商品"):
 		return "关于「石油美元、油价与流动性风险」的判断", true
-	case hasAny("债务", "金融资产", "货币", "央行") && hasAny("购买力", "贬值", "通胀", "回报"):
+	case hasAny("债务", "金融资产", "货币", "央行", "资产价格", "利率") && hasAny("购买力", "贬值", "通胀", "回报", "脆弱性"):
 		return "关于「债务周期与金融资产实际回报」的判断", true
 	case hasAny("黑天鹅", "挤兑", "系统性", "危机") && hasAny("华尔街", "金融市场", "联储", "qe", "量化宽松"):
 		return "关于「系统性金融风险与政策应对」的判断", true
