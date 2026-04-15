@@ -126,6 +126,7 @@ Human-readable cards:
 - `varix memory global-v2-card --user <user_id> --item-type conclusion`
 - `varix memory global-v2-card --user <user_id> --item-type conflict`
 - `varix memory global-v2-card --user <user_id> --limit 5`
+- v2 card output includes an `Items` header for the currently rendered slice
 
 Compare surfaces:
 - `varix memory global-compare --user <user_id>`
@@ -133,6 +134,7 @@ Compare surfaces:
 - `varix memory global-compare --user <user_id> --item-type conclusion`
 - `varix memory global-compare --user <user_id> --item-type conflict`
 - `varix memory global-compare --user <user_id> --limit 5`
+- compare output includes section counts for both v1 and v2
 
 Review-friendly behaviors:
 - invalid filter values fail fast with explicit guidance

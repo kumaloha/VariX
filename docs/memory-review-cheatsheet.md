@@ -10,7 +10,7 @@ A short operator-oriented guide for reviewing VariX memory outputs.
 ```bash
 varix memory global-v2-card --run --user <user_id>
 ```
-Use when you want the latest thesis-first memory cards in a human-readable form.
+Use when you want the latest thesis-first memory cards in a human-readable form. The output now starts with an `Items` count for the current slice.
 
 ### Only conclusions
 ```bash
@@ -89,7 +89,7 @@ Use when you want the last persisted v2 output without recomputing.
 - topic labels are short enough to name a cognition object
 - conflicts appear as conflicts, not forced conclusions
 - headlines sound more abstract than the raw node text
-- `Why`, `Mechanism`, `Conditions`, `What next`, and `Sources` are clearly separated
+- `Items`, `Why`, `Mechanism`, `Conditions`, `What next`, and `Sources` are clearly separated
 - `Why A / Why B` on conflict cards point to real supporting context
 
 ### Warning signs
