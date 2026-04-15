@@ -1271,6 +1271,9 @@ func TestRunMemoryGlobalV2CardFiltersByItemType(t *testing.T) {
 	if strings.Contains(stdout.String(), "Conclusion") || !strings.Contains(stdout.String(), "Conflict") {
 		t.Fatalf("conflict-only stdout = %q, want only conflict items", stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "Items (1, filter=conflict)") {
+		t.Fatalf("stdout = %q, want item header with filter context", stdout.String())
+	}
 
 	stdout.Reset()
 	stderr.Reset()
@@ -1280,6 +1283,9 @@ func TestRunMemoryGlobalV2CardFiltersByItemType(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "Conflict") || !strings.Contains(stdout.String(), "Conclusion") {
 		t.Fatalf("conclusion-only stdout = %q, want only conclusion items", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "Items (1, filter=conclusion)") {
+		t.Fatalf("stdout = %q, want item header with filter context", stdout.String())
 	}
 }
 
@@ -1340,6 +1346,9 @@ func TestRunMemoryGlobalV2CardReportsWhenFilterMatchesNothing(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "No conflict items") {
 		t.Fatalf("stdout = %q, want no-match guidance", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "Items (0, filter=conflict)") {
+		t.Fatalf("stdout = %q, want empty item header with filter context", stdout.String())
 	}
 }
 

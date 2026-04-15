@@ -539,10 +539,10 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 	filtered := filterGlobalV2Items(out, strings.TrimSpace(*itemType))
 	filtered = limitGlobalV2Items(filtered, *limit)
 	if strings.TrimSpace(*itemType) != "" && len(filtered.TopMemoryItems) == 0 {
-		fmt.Fprintf(stdout, "No %s items for user %s\n", strings.TrimSpace(*itemType), strings.TrimSpace(*userID))
+		fmt.Fprintf(stdout, "Items (0, filter=%s)\n\nNo %s items for user %s\n", strings.TrimSpace(*itemType), strings.TrimSpace(*itemType), strings.TrimSpace(*userID))
 		return 0
 	}
-	fmt.Fprint(stdout, formatGlobalV2Cards(filtered))
+	fmt.Fprint(stdout, formatGlobalV2Cards(filtered, strings.TrimSpace(*itemType)))
 	return 0
 }
 
@@ -648,9 +648,13 @@ func formatGlobalClusterCards(out memory.GlobalOrganizationOutput) string {
 	return b.String()
 }
 
-func formatGlobalV2Cards(out memory.GlobalMemoryV2Output) string {
+func formatGlobalV2Cards(out memory.GlobalMemoryV2Output, itemType string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Items\n%d\n\n", len(out.TopMemoryItems))
+	if strings.TrimSpace(itemType) != "" {
+		fmt.Fprintf(&b, "Items (%d, filter=%s)\n\n", len(out.TopMemoryItems), strings.TrimSpace(itemType))
+	} else {
+		fmt.Fprintf(&b, "Items\n%d\n\n", len(out.TopMemoryItems))
+	}
 	cardByID := map[string]memory.CognitiveCard{}
 	for _, card := range out.CognitiveCards {
 		cardByID[card.CardID] = card
