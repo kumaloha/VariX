@@ -551,6 +551,7 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
 	runNow := fs.Bool("run", false, "recompute both v1 and v2 outputs before comparing")
+	limit := fs.Int("limit", 0, "optional max number of v1 and v2 items to show")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -603,7 +604,7 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 			return 1
 		}
 	}
-	fmt.Fprint(stdout, formatGlobalCompare(v1, v2))
+	fmt.Fprint(stdout, formatGlobalCompare(limitGlobalOrganizationOutput(v1, *limit), limitGlobalV2Items(v2, *limit)))
 	return 0
 }
 
@@ -714,6 +715,15 @@ func limitGlobalV2Items(out memory.GlobalMemoryV2Output, limit int) memory.Globa
 	}
 	limited := out
 	limited.TopMemoryItems = append([]memory.TopMemoryItem(nil), out.TopMemoryItems[:limit]...)
+	return limited
+}
+
+func limitGlobalOrganizationOutput(out memory.GlobalOrganizationOutput, limit int) memory.GlobalOrganizationOutput {
+	if limit <= 0 || len(out.Clusters) <= limit {
+		return out
+	}
+	limited := out
+	limited.Clusters = append([]memory.GlobalCluster(nil), out.Clusters[:limit]...)
 	return limited
 }
 
