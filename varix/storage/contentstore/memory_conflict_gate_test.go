@@ -40,6 +40,9 @@ func TestDetectThesisConflict_BlocksConclusionConflict(t *testing.T) {
 	if len(got.Conflict.SideASourceRefs) == 0 || len(got.Conflict.SideBSourceRefs) == 0 {
 		t.Fatalf("Conflict side source refs = %#v, want source refs on both sides", got.Conflict)
 	}
+	if len(got.Conflict.SideAWhy) == 0 || len(got.Conflict.SideBWhy) == 0 {
+		t.Fatalf("Conflict side why = %#v, want readable support on both sides", got.Conflict)
+	}
 }
 
 func TestDetectThesisConflict_DoesNotFlagSupportingNodes(t *testing.T) {

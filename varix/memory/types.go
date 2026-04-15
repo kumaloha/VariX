@@ -166,6 +166,8 @@ type ConflictSet struct {
 	SideBNodeIDs    []string  `json:"side_b_node_ids,omitempty"`
 	SideASourceRefs []string  `json:"side_a_source_refs,omitempty"`
 	SideBSourceRefs []string  `json:"side_b_source_refs,omitempty"`
+	SideAWhy        []string  `json:"side_a_why,omitempty"`
+	SideBWhy        []string  `json:"side_b_why,omitempty"`
 	SideASummary    string    `json:"side_a_summary,omitempty"`
 	SideBSummary    string    `json:"side_b_summary,omitempty"`
 	ConflictReason  string    `json:"conflict_reason,omitempty"`

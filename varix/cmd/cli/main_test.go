@@ -963,7 +963,7 @@ func TestRunMemoryGlobalV2CardPrintsConflictSides(t *testing.T) {
 		t.Fatalf("global-v2-card code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Conflict", "Side A", "Side B", "Sources A", "Sources B", "weibo:CF1", "twitter:CF2", "油价会上升", "油价会下降"} {
+	for _, want := range []string{"Conflict", "Side A", "Side B", "Why A", "Why B", "Sources A", "Sources B", "weibo:CF1", "twitter:CF2", "油价会上升", "油价会下降"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}

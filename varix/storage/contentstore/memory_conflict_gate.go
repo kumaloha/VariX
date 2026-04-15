@@ -37,6 +37,8 @@ func detectThesisConflict(thesis memory.CandidateThesis, nodesByID map[string]me
 				[]string{right.NodeID},
 				[]string{left.SourcePlatform + ":" + left.SourceExternalID},
 				[]string{right.SourcePlatform + ":" + right.SourceExternalID},
+				conflictSideWhy(left, nodesByID),
+				conflictSideWhy(right, nodesByID),
 				left.NodeText,
 				right.NodeText,
 				reason,
@@ -91,7 +93,7 @@ func conditionConflictReason(a, b string) (string, bool) {
 	return "", false
 }
 
-func buildConflictSet(thesis memory.CandidateThesis, leftIDs, rightIDs, leftSourceRefs, rightSourceRefs []string, leftSummary, rightSummary, reason string, now time.Time) memory.ConflictSet {
+func buildConflictSet(thesis memory.CandidateThesis, leftIDs, rightIDs, leftSourceRefs, rightSourceRefs, leftWhy, rightWhy []string, leftSummary, rightSummary, reason string, now time.Time) memory.ConflictSet {
 	return memory.ConflictSet{
 		ConflictID:      thesis.ThesisID + "-conflict",
 		ThesisID:        thesis.ThesisID,
@@ -101,6 +103,8 @@ func buildConflictSet(thesis memory.CandidateThesis, leftIDs, rightIDs, leftSour
 		SideBNodeIDs:    append([]string(nil), rightIDs...),
 		SideASourceRefs: append([]string(nil), leftSourceRefs...),
 		SideBSourceRefs: append([]string(nil), rightSourceRefs...),
+		SideAWhy:        append([]string(nil), leftWhy...),
+		SideBWhy:        append([]string(nil), rightWhy...),
 		SideASummary:    strings.TrimSpace(leftSummary),
 		SideBSummary:    strings.TrimSpace(rightSummary),
 		ConflictReason:  reason,
@@ -108,4 +112,26 @@ func buildConflictSet(thesis memory.CandidateThesis, leftIDs, rightIDs, leftSour
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
+}
+
+func conflictSideWhy(target memory.AcceptedNode, nodesByID map[string]memory.AcceptedNode) []string {
+	out := make([]string, 0, 2)
+	for _, node := range nodesByID {
+		if node.SourcePlatform != target.SourcePlatform || node.SourceExternalID != target.SourceExternalID {
+			continue
+		}
+		if node.NodeID == target.NodeID {
+			continue
+		}
+		switch node.NodeKind {
+		case string(compile.NodeFact), string(compile.NodeExplicitCondition), string(compile.NodeImplicitCondition):
+			if text := strings.TrimSpace(node.NodeText); text != "" {
+				out = append(out, text)
+			}
+		}
+	}
+	if len(out) == 0 && strings.TrimSpace(target.NodeText) != "" {
+		out = append(out, strings.TrimSpace(target.NodeText))
+	}
+	return uniquePreservingOrder(out)
 }

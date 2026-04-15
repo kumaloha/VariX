@@ -576,6 +576,8 @@ func formatGlobalV2Cards(out memory.GlobalMemoryV2Output) string {
 				}
 				writeStringSection(&b, "Side A", []string{conflict.SideASummary})
 				writeStringSection(&b, "Side B", []string{conflict.SideBSummary})
+				writeStringSection(&b, "Why A", conflict.SideAWhy)
+				writeStringSection(&b, "Why B", conflict.SideBWhy)
 				writeStringSection(&b, "Sources A", conflict.SideASourceRefs)
 				writeStringSection(&b, "Sources B", conflict.SideBSourceRefs)
 			}
