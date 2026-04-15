@@ -157,9 +157,21 @@ func compiledConflictWhy(ctx context.Context, store *SQLiteStore, globalNodeIDs 
 	type supportNode struct {
 		text     string
 		priority int
+		depth    int
 		order    int
 	}
 	supports := make([]supportNode, 0)
+	appendSupport := func(node compile.GraphNode, depth int) {
+		if text := strings.TrimSpace(node.Text); text != "" {
+			supports = append(supports, supportNode{
+				text:     text,
+				priority: conflictSupportPriority(node.Kind),
+				depth:    depth,
+				order:    len(supports),
+			})
+		}
+	}
+	directSupportIDs := make([]string, 0)
 	for _, edge := range record.Output.Graph.Edges {
 		if edge.To != localNodeID {
 			continue
@@ -170,12 +182,22 @@ func compiledConflictWhy(ctx context.Context, store *SQLiteStore, globalNodeIDs 
 		}
 		switch node.Kind {
 		case compile.NodeFact, compile.NodeExplicitCondition, compile.NodeImplicitCondition:
-			if text := strings.TrimSpace(node.Text); text != "" {
-				supports = append(supports, supportNode{
-					text:     text,
-					priority: conflictSupportPriority(node.Kind),
-					order:    len(supports),
-				})
+			appendSupport(node, 0)
+			directSupportIDs = append(directSupportIDs, node.ID)
+		}
+	}
+	for _, supportID := range directSupportIDs {
+		for _, edge := range record.Output.Graph.Edges {
+			if edge.To != supportID {
+				continue
+			}
+			node, ok := nodeByID[edge.From]
+			if !ok {
+				continue
+			}
+			switch node.Kind {
+			case compile.NodeFact, compile.NodeExplicitCondition, compile.NodeImplicitCondition:
+				appendSupport(node, 1)
 			}
 		}
 	}
@@ -183,6 +205,9 @@ func compiledConflictWhy(ctx context.Context, store *SQLiteStore, globalNodeIDs 
 		return nil, nil
 	}
 	sort.SliceStable(supports, func(i, j int) bool {
+		if supports[i].depth != supports[j].depth {
+			return supports[i].depth < supports[j].depth
+		}
 		if supports[i].priority != supports[j].priority {
 			return supports[i].priority < supports[j].priority
 		}
