@@ -341,3 +341,122 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationV2CompressesPetrodollarPrivateCr
 		t.Fatalf("Headline = %q, want %q", got, want)
 	}
 }
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2AbstractsOilShockOutput(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "weibo:O1",
+		Source:         "weibo",
+		ExternalID:     "O1",
+		RootExternalID: "O1",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "乌克兰战争、伊朗冲突及中东地缘紧张局势持续升级", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeExplicitCondition, Text: "若霍尔木兹海峡未能恢复通航秩序"},
+					{ID: "n3", Kind: compile.NodeConclusion, Text: "释放石油储备等舒缓性措施无法根本平抑油价，危机核心在于海峡封锁", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n4", Kind: compile.NodePrediction, Text: "布伦特原油价格将攀升至每桶130-150美元甚至更高", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n3", Kind: compile.EdgeDerives},
+					{From: "n2", To: "n4", Kind: compile.EdgePresets},
+					{From: "n3", To: "n4", Kind: compile.EdgeDerives},
+				},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-v2-oil",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "O1",
+		NodeIDs:          []string{"n1", "n2", "n3", "n4"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-oil", time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.CognitiveConclusions) != 1 {
+		t.Fatalf("len(CognitiveConclusions) = %d, want 1", len(out.CognitiveConclusions))
+	}
+	if got, want := out.CognitiveConclusions[0].Headline, "油价冲击与海峡封锁风险正在放大能源与市场压力"; got != want {
+		t.Fatalf("Headline = %q, want %q", got, want)
+	}
+}
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2AbstractsBankResilienceOutput(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "web:JPM1",
+		Source:         "web",
+		ExternalID:     "JPM1",
+		RootExternalID: "JPM1",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "2025年摩根大通实现创纪录营收1856亿美元与净利润570亿美元，ROTCE达20%", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeImplicitCondition, Text: "当前高资产价格环境在遭遇宏观负面冲击时将放大金融系统脆弱性", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n3", Kind: compile.NodeConclusion, Text: "宏观高利率与资产价格风险正在累积，但摩根大通具备抵御波动的能力", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n4", Kind: compile.NodePrediction, Text: "摩根大通将在复杂宏观环境下维持长期稳健增长与股东回报", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n3", Kind: compile.EdgeDerives},
+					{From: "n2", To: "n3", Kind: compile.EdgePositive},
+					{From: "n3", To: "n4", Kind: compile.EdgeDerives},
+				},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-v2-jpm",
+		SourcePlatform:   "web",
+		SourceExternalID: "JPM1",
+		NodeIDs:          []string{"n1", "n2", "n3", "n4"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-jpm", time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.CognitiveConclusions) != 1 {
+		t.Fatalf("len(CognitiveConclusions) = %d, want 1", len(out.CognitiveConclusions))
+	}
+	if got, want := out.CognitiveConclusions[0].Headline, "高利率与资产价格脆弱性并存，但头部银行仍展现经营韧性"; got != want {
+		t.Fatalf("Headline = %q, want %q", got, want)
+	}
+	if got, want := out.TopMemoryItems[0].SignalStrength, "high"; got != want {
+		t.Fatalf("SignalStrength = %q, want %q", got, want)
+	}
+}
