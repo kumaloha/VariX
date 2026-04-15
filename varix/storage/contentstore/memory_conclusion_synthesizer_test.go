@@ -98,6 +98,23 @@ func TestBuildTopMemoryItems_SetsSignalStrength(t *testing.T) {
 	}
 }
 
+func TestBuildTopMemoryItems_TreatsJPMResilienceHeadlineAsHighSignal(t *testing.T) {
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	conclusions := []memory.CognitiveConclusion{{
+		ConclusionID: "conclusion-1",
+		Headline:     "高利率与资产价格脆弱性并存，但头部银行仍展现经营韧性",
+		Subheadline:  "创纪录营收 → 资产价格脆弱性 → 复杂宏观环境下的经营韧性",
+	}}
+
+	got := buildTopMemoryItems(nil, conclusions, now)
+	if len(got) != 1 {
+		t.Fatalf("len(buildTopMemoryItems) = %d, want 1", len(got))
+	}
+	if got[0].SignalStrength != "high" {
+		t.Fatalf("SignalStrength = %q, want high for bank-resilience abstraction", got[0].SignalStrength)
+	}
+}
+
 func TestBuildTopMemoryItems_HumanizesConflictReason(t *testing.T) {
 	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
 	conflicts := []memory.ConflictSet{{

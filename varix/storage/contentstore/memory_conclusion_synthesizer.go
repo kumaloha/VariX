@@ -195,7 +195,7 @@ func firstNonZeroTime(values ...time.Time) time.Time {
 
 func signalStrengthForConclusion(conclusion memory.CognitiveConclusion) string {
 	switch {
-	case (strings.Contains(conclusion.Headline, "推向") || strings.Contains(conclusion.Headline, "推高") || strings.Contains(conclusion.Headline, "侵蚀") || strings.Contains(conclusion.Headline, "放大")) && strings.TrimSpace(conclusion.Subheadline) != "":
+	case (strings.Contains(conclusion.Headline, "推向") || strings.Contains(conclusion.Headline, "推高") || strings.Contains(conclusion.Headline, "侵蚀") || strings.Contains(conclusion.Headline, "放大") || strings.Contains(conclusion.Headline, "展现经营韧性")) && strings.TrimSpace(conclusion.Subheadline) != "":
 		return "high"
 	case strings.Contains(conclusion.Headline, "并可能导致"):
 		return "high"
