@@ -131,6 +131,91 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationV2SurfacesConflictSets(t *testin
 	}
 }
 
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2PrefersFactSupportFirstInConflictWhy(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	recordA := compile.Record{
+		UnitID:         "weibo:CF1",
+		Source:         "weibo",
+		ExternalID:     "CF1",
+		RootExternalID: "CF1",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeExplicitCondition, Text: "若供给持续收缩"},
+					{ID: "n2", Kind: compile.NodeFact, Text: "供给趋紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n3", Kind: compile.NodeConclusion, Text: "油价会上升", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n3", Kind: compile.EdgePresets},
+					{From: "n2", To: "n3", Kind: compile.EdgeDerives},
+				},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	recordB := compile.Record{
+		UnitID:         "twitter:CF2",
+		Source:         "twitter",
+		ExternalID:     "CF2",
+		RootExternalID: "CF2",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "需求走弱", OccurredAt: time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeConclusion, Text: "油价会下降", OccurredAt: time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 10, 0, 0, time.UTC),
+	}
+	for _, record := range []compile.Record{recordA, recordB} {
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			t.Fatalf("UpsertCompiledOutput(%s) error = %v", record.UnitID, err)
+		}
+	}
+	for _, req := range []memory.AcceptRequest{
+		{UserID: "u-v2-conflict-rank", SourcePlatform: "weibo", SourceExternalID: "CF1", NodeIDs: []string{"n3"}},
+		{UserID: "u-v2-conflict-rank", SourcePlatform: "twitter", SourceExternalID: "CF2", NodeIDs: []string{"n2"}},
+	} {
+		if _, err := store.AcceptMemoryNodes(context.Background(), req); err != nil {
+			t.Fatalf("AcceptMemoryNodes(%s:%s) error = %v", req.SourcePlatform, req.SourceExternalID, err)
+		}
+	}
+
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-conflict-rank", time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.ConflictSets) == 0 {
+		t.Fatalf("ConflictSets = %#v, want at least one blocked conflict", out.ConflictSets)
+	}
+	conflict := out.ConflictSets[0]
+	var got []string
+	if len(conflict.SideASourceRefs) > 0 && conflict.SideASourceRefs[0] == "weibo:CF1" {
+		got = conflict.SideAWhy
+	} else {
+		got = conflict.SideBWhy
+	}
+	if len(got) < 2 || got[0] != "供给趋紧" || got[1] != "若供给持续收缩" {
+		t.Fatalf("graph-backed why = %#v, want fact before condition", got)
+	}
+}
+
 func TestSQLiteStore_RunGlobalMemoryOrganizationV2BuildsCausalThesesAndCards(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))

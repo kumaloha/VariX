@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -153,7 +154,12 @@ func compiledConflictWhy(ctx context.Context, store *SQLiteStore, globalNodeIDs 
 	for _, node := range record.Output.Graph.Nodes {
 		nodeByID[node.ID] = node
 	}
-	why := make([]string, 0)
+	type supportNode struct {
+		text     string
+		priority int
+		order    int
+	}
+	supports := make([]supportNode, 0)
 	for _, edge := range record.Output.Graph.Edges {
 		if edge.To != localNodeID {
 			continue
@@ -165,12 +171,26 @@ func compiledConflictWhy(ctx context.Context, store *SQLiteStore, globalNodeIDs 
 		switch node.Kind {
 		case compile.NodeFact, compile.NodeExplicitCondition, compile.NodeImplicitCondition:
 			if text := strings.TrimSpace(node.Text); text != "" {
-				why = append(why, text)
+				supports = append(supports, supportNode{
+					text:     text,
+					priority: conflictSupportPriority(node.Kind),
+					order:    len(supports),
+				})
 			}
 		}
 	}
-	if len(why) == 0 {
+	if len(supports) == 0 {
 		return nil, nil
+	}
+	sort.SliceStable(supports, func(i, j int) bool {
+		if supports[i].priority != supports[j].priority {
+			return supports[i].priority < supports[j].priority
+		}
+		return supports[i].order < supports[j].order
+	})
+	why := make([]string, 0, len(supports))
+	for _, support := range supports {
+		why = append(why, support.text)
 	}
 	return uniquePreservingOrder(why), []string{platform + ":" + externalID}
 }
@@ -181,4 +201,17 @@ func splitGlobalNodeRef(ref string) (platform, externalID, localNodeID string, o
 		return "", "", "", false
 	}
 	return parts[0], parts[1], parts[2], true
+}
+
+func conflictSupportPriority(kind compile.NodeKind) int {
+	switch kind {
+	case compile.NodeFact:
+		return 0
+	case compile.NodeExplicitCondition:
+		return 1
+	case compile.NodeImplicitCondition:
+		return 2
+	default:
+		return 99
+	}
 }
