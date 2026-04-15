@@ -20,11 +20,13 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 
 	byID := make(map[string]memory.AcceptedNode, len(nodes))
 	nodeIDs := make([]string, 0, len(nodes))
+	sourceCounts := map[string]int{}
 	for _, node := range nodes {
 		ref := globalMemoryNodeRef(node)
 		node.NodeID = ref
 		byID[ref] = node
 		nodeIDs = append(nodeIDs, ref)
+		sourceCounts[node.SourcePlatform+":"+node.SourceExternalID]++
 	}
 	sort.Strings(nodeIDs)
 
@@ -48,7 +50,7 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 			left := byID[nodeIDs[i]]
 			right := byID[nodeIDs[j]]
 			if left.SourcePlatform == right.SourcePlatform && left.SourceExternalID == right.SourceExternalID {
-				if hierarchyTransitionAllowed(left.NodeKind, right.NodeKind) || hierarchyTransitionAllowed(right.NodeKind, left.NodeKind) {
+				if sameSourceCausalPairAllowed(left, right, sourceCounts[left.SourcePlatform+":"+left.SourceExternalID]) {
 					addEdge(left.NodeID, right.NodeID)
 					continue
 				}
@@ -98,6 +100,28 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ThesisID < out[j].ThesisID })
 	return out
+}
+
+func sameSourceCausalPairAllowed(left, right memory.AcceptedNode, sourceCount int) bool {
+	if !(hierarchyTransitionAllowed(left.NodeKind, right.NodeKind) || hierarchyTransitionAllowed(right.NodeKind, left.NodeKind)) {
+		return false
+	}
+	if sourceCount <= 4 {
+		return true
+	}
+	if _, ok := contradictionReason(left.NodeText, right.NodeText); ok {
+		return true
+	}
+	if sharedMechanismTheme(left.NodeText, right.NodeText) {
+		return true
+	}
+	if sharedObjectLabel(left.NodeText, right.NodeText) != "" {
+		return true
+	}
+	if phrase, ok := sharedSemanticPhrase(left.NodeText, right.NodeText); ok && strings.TrimSpace(phrase) != "" {
+		return true
+	}
+	return false
 }
 
 func thesisTopicLabel(component []string, byID map[string]memory.AcceptedNode) string {
@@ -177,7 +201,7 @@ func mechanismThemeKey(text string) string {
 		return "private-credit-liquidity"
 	case containsAnyText(text, "银行去监管", "监管松绑", "去监管", "金融体系安全", "系统更安全"):
 		return "bank-deregulation-safety"
-	case containsAnyText(text, "债务", "金融资产", "实际回报", "购买力"):
+	case containsAnyText(text, "债务", "实际回报", "购买力"):
 		return "debt-real-return"
 	default:
 		return ""
@@ -197,7 +221,6 @@ func sharedObjectLabel(a, b string) string {
 		"金融体系安全",
 		"风险资产",
 		"债务",
-		"金融资产",
 	} {
 		if strings.Contains(a, needle) && strings.Contains(b, needle) {
 			return fmt.Sprintf("关于「%s」的判断", needle)

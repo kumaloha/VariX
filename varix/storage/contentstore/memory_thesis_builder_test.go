@@ -257,3 +257,78 @@ func TestBuildCandidateTheses_UsesSharedMechanismThemeReason(t *testing.T) {
 		t.Fatalf("ClusterReason = %q, want shared_mechanism_theme", got[0].ClusterReason)
 	}
 }
+
+func TestBuildCandidateTheses_DoesNotOvermergeLargeSingleSourceMemory(t *testing.T) {
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	nodes := []memory.AcceptedNode{
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "BIG1", NodeID: "n1", NodeKind: string(compile.NodeFact), NodeText: "流动性收紧", AcceptedAt: now},
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "BIG1", NodeID: "n2", NodeKind: string(compile.NodeConclusion), NodeText: "风险资产承压", AcceptedAt: now},
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "BIG1", NodeID: "n3", NodeKind: string(compile.NodePrediction), NodeText: "未来数月波动加大", AcceptedAt: now},
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "BIG1", NodeID: "n4", NodeKind: string(compile.NodeFact), NodeText: "银行去监管推进", AcceptedAt: now},
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "BIG1", NodeID: "n5", NodeKind: string(compile.NodeConclusion), NodeText: "金融体系更安全", AcceptedAt: now},
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "BIG1", NodeID: "n6", NodeKind: string(compile.NodePrediction), NodeText: "经济增长改善", AcceptedAt: now},
+	}
+
+	got := buildCandidateTheses(nodes, now)
+	if len(got) < 2 {
+		t.Fatalf("len(buildCandidateTheses) = %d, want at least 2 theses instead of one giant source-wide thesis", len(got))
+	}
+}
+
+func TestBuildCandidateTheses_DoesNotMergeBroadDebtThemeWithPetrodollarLiquidityTheme(t *testing.T) {
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	nodes := []memory.AcceptedNode{
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "twitter",
+			SourceExternalID: "D1",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeConclusion),
+			NodeText:         "传统现金与债券资产的实际购买力将不可避免地下降，货币面临系统性贬值风险",
+			AcceptedAt:       now,
+		},
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "P1",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeConclusion),
+			NodeText:         "石油美元循环面临断裂风险，且私募信贷正积累类似2008年次贷危机的流动性隐患",
+			AcceptedAt:       now,
+		},
+	}
+
+	got := buildCandidateTheses(nodes, now)
+	if len(got) != 2 {
+		t.Fatalf("len(buildCandidateTheses) = %d, want 2 separate theses for broad debt theme vs petrodollar/liquidity theme", len(got))
+	}
+}
+
+func TestBuildCandidateTheses_DoesNotTreatAnyFinancialAssetMentionAsDebtTheme(t *testing.T) {
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	nodes := []memory.AcceptedNode{
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "twitter",
+			SourceExternalID: "D1",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeConclusion),
+			NodeText:         "传统现金与债券资产的实际购买力将不可避免地下降",
+			AcceptedAt:       now,
+		},
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "P1",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeFact),
+			NodeText:         "1970年代美沙达成石油美元协议，石油收入回流购买美国金融资产",
+			AcceptedAt:       now,
+		},
+	}
+
+	got := buildCandidateTheses(nodes, now)
+	if len(got) != 2 {
+		t.Fatalf("len(buildCandidateTheses) = %d, want 2 theses; mentioning 美国金融资产 alone should not trigger debt-theme merge", len(got))
+	}
+}
