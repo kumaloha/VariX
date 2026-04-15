@@ -679,6 +679,77 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationV2MergesCrossSourceConditionAndC
 	}
 }
 
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2DoesNotMergeSameThemeDifferentQuestion(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	recordA := compile.Record{
+		UnitID:         "weibo:NF1",
+		Source:         "weibo",
+		ExternalID:     "NF1",
+		RootExternalID: "NF1",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "油价上涨", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeConclusion, Text: "油价上涨会推升通胀压力", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	recordB := compile.Record{
+		UnitID:         "twitter:NF2",
+		Source:         "twitter",
+		ExternalID:     "NF2",
+		RootExternalID: "NF2",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "高油价", OccurredAt: time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeConclusion, Text: "高油价会提升能源企业利润", OccurredAt: time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 10, 0, 0, time.UTC),
+	}
+	for _, record := range []compile.Record{recordA, recordB} {
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			t.Fatalf("UpsertCompiledOutput(%s) error = %v", record.UnitID, err)
+		}
+	}
+	for _, req := range []memory.AcceptRequest{
+		{UserID: "u-v2-no-false-merge", SourcePlatform: "weibo", SourceExternalID: "NF1", NodeIDs: []string{"n1", "n2"}},
+		{UserID: "u-v2-no-false-merge", SourcePlatform: "twitter", SourceExternalID: "NF2", NodeIDs: []string{"n1", "n2"}},
+	} {
+		if _, err := store.AcceptMemoryNodes(context.Background(), req); err != nil {
+			t.Fatalf("AcceptMemoryNodes(%s:%s) error = %v", req.SourcePlatform, req.SourceExternalID, err)
+		}
+	}
+
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-no-false-merge", time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.CandidateTheses) != 2 {
+		t.Fatalf("len(CandidateTheses) = %d, want 2 separate theses", len(out.CandidateTheses))
+	}
+}
+
 func TestSQLiteStore_RunGlobalMemoryOrganizationV2ReattachesSameSourceSingletons(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
