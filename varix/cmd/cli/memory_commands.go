@@ -609,7 +609,7 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 			return 1
 		}
 	}
-	fmt.Fprint(stdout, formatGlobalCompare(limitGlobalOrganizationOutput(v1, *limit), limitGlobalV2Items(filterGlobalV2Items(v2, strings.TrimSpace(*itemType)), *limit)))
+	fmt.Fprint(stdout, formatGlobalCompare(limitGlobalOrganizationOutput(v1, *limit), limitGlobalV2Items(filterGlobalV2Items(v2, strings.TrimSpace(*itemType)), *limit), strings.TrimSpace(*itemType)))
 	return 0
 }
 
@@ -732,7 +732,7 @@ func limitGlobalOrganizationOutput(out memory.GlobalOrganizationOutput, limit in
 	return limited
 }
 
-func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMemoryV2Output) string {
+func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMemoryV2Output, itemType string) string {
 	var b strings.Builder
 	b.WriteString("V1 cluster-first\n")
 	for _, cluster := range v1.Clusters {
@@ -742,6 +742,10 @@ func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMem
 		}
 	}
 	b.WriteString("\nV2 thesis-first\n")
+	if strings.TrimSpace(itemType) != "" && len(v2.TopMemoryItems) == 0 {
+		fmt.Fprintf(&b, "No %s items\n", strings.TrimSpace(itemType))
+		return b.String()
+	}
 	for _, item := range v2.TopMemoryItems {
 		fmt.Fprintf(&b, "- %s: %s\n", item.ItemType, item.Headline)
 		if strings.TrimSpace(item.Subheadline) != "" {

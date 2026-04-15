@@ -1521,6 +1521,59 @@ func TestRunMemoryGlobalCompareFiltersV2ItemType(t *testing.T) {
 	}
 }
 
+func TestRunMemoryGlobalCompareReportsWhenFilteredV2SideIsEmpty(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID: "weibo:EC1", Source: "weibo", ExternalID: "EC1", RootExternalID: "EC1", Model: c.Qwen36PlusModel,
+			Output: c.Output{Summary: "s", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{
+				{ID: "n1", Kind: c.NodeFact, Text: "流动性收紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: c.NodeConclusion, Text: "风险资产承压"},
+				{ID: "n3", Kind: c.NodePrediction, Text: "未来数月波动加大", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+			}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}, {From: "n2", To: "n3", Kind: c.EdgeDerives}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-compare-empty-filter", SourcePlatform: "weibo", SourceExternalID: "EC1", NodeIDs: []string{"n1", "n2", "n3"}}); err != nil {
+			return nil, err
+		}
+		if _, err := store.RunGlobalMemoryOrganization(context.Background(), "u-compare-empty-filter", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		if _, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-compare-empty-filter", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-compare", "--user", "u-compare-empty-filter", "--item-type", "conflict"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("global-compare empty filter code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No conflict items") {
+		t.Fatalf("stdout = %q, want no-match guidance while keeping compare context", stdout.String())
+	}
+}
+
 func TestRunMemoryGlobalCompareSuggestsRunWhenNoStoredOutputs(t *testing.T) {
 	prevBuildApp := buildApp
 	prevOpenSQLiteStore := openSQLiteStore
