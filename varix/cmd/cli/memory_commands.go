@@ -490,6 +490,7 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 	fs := flag.NewFlagSet("memory global-v2-card", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
+	runNow := fs.Bool("run", false, "recompute v2 output before rendering")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -508,7 +509,12 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 		return 1
 	}
 	defer store.Close()
-	out, err := store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
+	var out memory.GlobalMemoryV2Output
+	if *runNow {
+		out, err = store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+	} else {
+		out, err = store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

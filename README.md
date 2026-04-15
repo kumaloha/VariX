@@ -48,5 +48,7 @@ Useful memory commands:
 - `memory global-v2-organize-run|global-v2-organized` for raw thesis-first v2
   JSON output
 - `memory global-v2-card` for a human-readable v2 first-layer card surface
+- `memory global-v2-card --run` to recompute the latest v2 output and render
+  cards in one step
 
 See `docs/memory-organization.md` for the organizer output contract.
