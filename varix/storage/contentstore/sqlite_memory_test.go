@@ -1390,3 +1390,88 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationMergesCrossSourceSharedPropositi
 		t.Fatalf("Clusters = %#v, want shared proposition cluster around 石油美元回流", out.Clusters)
 	}
 }
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationDerivesHigherLevelMacroTheme(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	recordA := compile.Record{
+		UnitID:         "weibo:M1",
+		Source:         "weibo",
+		ExternalID:     "M1",
+		RootExternalID: "M1",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeConclusion, Text: "石油美元循环面临断裂风险", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodePrediction, Text: "未来几年美债美股承压", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	recordB := compile.Record{
+		UnitID:         "weibo:M2",
+		Source:         "weibo",
+		ExternalID:     "M2",
+		RootExternalID: "M2",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeConclusion, Text: "私募信贷流动性风险正在上升", OccurredAt: time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodePrediction, Text: "未来几年华尔街可能遭遇挤兑冲击", PredictionStartAt: time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 10, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), recordA); err != nil {
+		t.Fatalf("UpsertCompiledOutput(recordA) error = %v", err)
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), recordB); err != nil {
+		t.Fatalf("UpsertCompiledOutput(recordB) error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-theme", SourcePlatform: "weibo", SourceExternalID: "M1", NodeIDs: []string{"n1", "n2"}}); err != nil {
+		t.Fatalf("AcceptMemoryNodes(M1) error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-theme", SourcePlatform: "weibo", SourceExternalID: "M2", NodeIDs: []string{"n1", "n2"}}); err != nil {
+		t.Fatalf("AcceptMemoryNodes(M2) error = %v", err)
+	}
+
+	out, err := store.RunGlobalMemoryOrganization(context.Background(), "u-theme", time.Date(2026, 4, 14, 9, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganization() error = %v", err)
+	}
+	foundTheme := false
+	for _, cluster := range out.Clusters {
+		if cluster.CanonicalProposition == "关于「石油美元、油价与流动性风险」的判断" {
+			foundTheme = true
+			if len(cluster.SupportingNodeIDs) == 0 || len(cluster.PredictiveNodeIDs) == 0 {
+				t.Fatalf("cluster = %#v, want merged supporting and predictive members", cluster)
+			}
+			if len(cluster.SupportingNodeIDs)+len(cluster.PredictiveNodeIDs) < 3 {
+				t.Fatalf("cluster = %#v, want richer higher-level theme members", cluster)
+			}
+			if !strings.Contains(cluster.Summary, "支持信息包括") || !strings.Contains(cluster.Summary, "相关预测包括") {
+				t.Fatalf("cluster summary = %q, want synthesized role-aware summary", cluster.Summary)
+			}
+		}
+	}
+	if !foundTheme {
+		t.Fatalf("Clusters = %#v, want higher-level macro theme cluster", out.Clusters)
+	}
+}

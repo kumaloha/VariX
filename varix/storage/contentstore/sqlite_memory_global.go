@@ -148,6 +148,10 @@ func buildGlobalClusters(nodes []memory.AcceptedNode, dedupeGroups []memory.Dedu
 		for j := i + 1; j < len(nodeIDs); j++ {
 			left := byID[nodeIDs[i]]
 			right := byID[nodeIDs[j]]
+			if theme := sharedMacroTheme(left.NodeText, right.NodeText); theme != "" {
+				addEdge(left.NodeID, right.NodeID)
+				continue
+			}
 			if !sameGlobalClusterFamily(left, right) {
 				continue
 			}
@@ -206,6 +210,41 @@ func sharedSemanticPhrase(a, b string) (string, bool) {
 		}
 	}
 	return phrase, true
+}
+
+func sharedMacroTheme(a, b string) string {
+	left := macroThemeKey(a)
+	right := macroThemeKey(b)
+	if left == "" || right == "" {
+		return ""
+	}
+	if left == right {
+		return left
+	}
+	return ""
+}
+
+func macroThemeKey(text string) string {
+	text = canonicalNodeText(text)
+	switch {
+	case containsAnyText(text, "石油美元", "油价", "霍尔木兹", "私募信贷", "流动性", "挤兑", "美债", "美股", "华尔街"):
+		return "macro-liquidity"
+	case containsAnyText(text, "债务", "金融资产", "货币", "央行", "通胀", "购买力", "回报"):
+		return "macro-debt"
+	case containsAnyText(text, "供应链", "能源短缺", "生活成本", "k型", "衰退"):
+		return "macro-supply-shock"
+	default:
+		return ""
+	}
+}
+
+func containsAnyText(text string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func globalMemoryNodeRef(node memory.AcceptedNode) string {
@@ -270,10 +309,16 @@ func buildGlobalCluster(component []string, byID map[string]memory.AcceptedNode,
 	sort.Strings(predictive)
 
 	rep := chooseRepresentativeNode(component, byID)
+	canonical := buildCanonicalProposition(component, byID)
+	if len(conflicting) > 0 && !strings.HasPrefix(canonical, "关于「") {
+		if conflictCanonical, ok := deriveContradictionProposition(conflicting, byID); ok {
+			canonical = conflictCanonical
+		}
+	}
 	return memory.GlobalCluster{
 		ClusterID:            "cluster:" + strings.Join(component, "|"),
-		CanonicalProposition: buildCanonicalProposition(component, byID),
-		Summary:              buildClusterSummary(component, byID),
+		CanonicalProposition: canonical,
+		Summary:              buildClusterSummary(canonical, supporting, conflicting, conditional, predictive, byID),
 		RepresentativeNodeID: rep,
 		SupportingNodeIDs:    supporting,
 		ConflictingNodeIDs:   conflicting,
@@ -282,6 +327,26 @@ func buildGlobalCluster(component []string, byID map[string]memory.AcceptedNode,
 		Active:               true,
 		UpdatedAt:            now,
 	}
+}
+
+func deriveContradictionProposition(conflicting []string, byID map[string]memory.AcceptedNode) (string, bool) {
+	if len(conflicting) < 2 {
+		return "", false
+	}
+	left := canonicalNodeText(strings.TrimSpace(byID[conflicting[0]].NodeText))
+	right := canonicalNodeText(strings.TrimSpace(byID[conflicting[1]].NodeText))
+	if left == "" || right == "" {
+		return "", false
+	}
+	phrase := longestCommonSubstring([]rune(left), []rune(right))
+	phrase = strings.TrimSpace(phrase)
+	if len([]rune(phrase)) < 2 {
+		phrase = truncateText(left, 20)
+	}
+	if phrase == "" {
+		return "", false
+	}
+	return "关于「" + phrase + "」的判断", true
 }
 
 func chooseRepresentativeNode(component []string, byID map[string]memory.AcceptedNode) string {
@@ -319,6 +384,9 @@ func representativeRank(kind string) int {
 }
 
 func buildCanonicalProposition(component []string, byID map[string]memory.AcceptedNode) string {
+	if proposition, ok := deriveMacroThemeProposition(component, byID); ok {
+		return proposition
+	}
 	if proposition, ok := deriveNeutralProposition(component, byID); ok {
 		return proposition
 	}
@@ -333,6 +401,38 @@ func buildCanonicalProposition(component []string, byID map[string]memory.Accept
 	text = strings.TrimPrefix(text, "假如")
 	text = strings.TrimSpace(text)
 	return truncateText(text, 80)
+}
+
+func deriveMacroThemeProposition(component []string, byID map[string]memory.AcceptedNode) (string, bool) {
+	texts := make([]string, 0, len(component))
+	for _, id := range component {
+		if text := strings.TrimSpace(byID[id].NodeText); text != "" {
+			texts = append(texts, canonicalNodeText(text))
+		}
+	}
+	if len(texts) < 2 {
+		return "", false
+	}
+	hasAny := func(needles ...string) bool {
+		for _, text := range texts {
+			for _, needle := range needles {
+				if strings.Contains(text, needle) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	switch {
+	case hasAny("石油美元", "油价", "霍尔木兹") && hasAny("流动性", "挤兑", "私募信贷", "美债", "美股"):
+		return "关于「石油美元、油价与流动性风险」的判断", true
+	case hasAny("债务", "金融资产", "货币", "央行") && hasAny("购买力", "贬值", "通胀", "回报"):
+		return "关于「债务周期与金融资产实际回报」的判断", true
+	case hasAny("黑天鹅", "挤兑", "系统性", "危机") && hasAny("华尔街", "金融市场", "联储", "qe", "量化宽松"):
+		return "关于「系统性金融风险与政策应对」的判断", true
+	default:
+		return "", false
+	}
 }
 
 func deriveNeutralProposition(component []string, byID map[string]memory.AcceptedNode) (string, bool) {
@@ -366,9 +466,50 @@ func deriveNeutralProposition(component []string, byID map[string]memory.Accepte
 	return "关于「" + truncateText(prefix, 40) + "」的判断", true
 }
 
-func buildClusterSummary(component []string, byID map[string]memory.AcceptedNode) string {
-	repID := chooseRepresentativeNode(component, byID)
-	return truncateText(strings.TrimSpace(byID[repID].NodeText), 120)
+func buildClusterSummary(canonical string, supporting, conflicting, conditional, predictive []string, byID map[string]memory.AcceptedNode) string {
+	parts := make([]string, 0, 4)
+	if trimmed := strings.TrimSpace(canonical); trimmed != "" {
+		parts = append(parts, trimmed)
+	}
+	if text := summarizeRoleTexts(supporting, byID); text != "" {
+		parts = append(parts, "支持信息包括"+text)
+	}
+	if text := summarizeRoleTexts(conditional, byID); text != "" {
+		parts = append(parts, "条件包括"+text)
+	}
+	if text := summarizeRoleTexts(predictive, byID); text != "" {
+		parts = append(parts, "相关预测包括"+text)
+	}
+	if text := summarizeRoleTexts(conflicting, byID); text != "" {
+		parts = append(parts, "但也存在冲突观点："+text)
+	}
+	if len(parts) == 0 {
+		return "未命名认知簇"
+	}
+	return truncateText(strings.Join(parts, "；"), 180)
+}
+
+func summarizeRoleTexts(ids []string, byID map[string]memory.AcceptedNode) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	items := make([]string, 0, 2)
+	for _, id := range ids {
+		text := strings.TrimSpace(byID[id].NodeText)
+		if text == "" {
+			continue
+		}
+		text = strings.TrimPrefix(text, "若")
+		text = strings.TrimPrefix(text, "如果")
+		text = strings.TrimPrefix(text, "一旦")
+		text = strings.TrimPrefix(text, "假如")
+		text = strings.TrimSpace(text)
+		items = append(items, truncateText(text, 40))
+		if len(items) == 2 {
+			break
+		}
+	}
+	return strings.Join(items, "；")
 }
 
 func buildGlobalOpenQuestions(clusters []memory.GlobalCluster) []string {
