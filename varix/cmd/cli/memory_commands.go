@@ -741,7 +741,11 @@ func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMem
 			fmt.Fprintf(&b, "  summary: %s\n", cluster.Summary)
 		}
 	}
-	fmt.Fprintf(&b, "\nV2 thesis-first (%d)\n", len(v2.TopMemoryItems))
+	if strings.TrimSpace(itemType) != "" {
+		fmt.Fprintf(&b, "\nV2 thesis-first (%d, filter=%s)\n", len(v2.TopMemoryItems), strings.TrimSpace(itemType))
+	} else {
+		fmt.Fprintf(&b, "\nV2 thesis-first (%d)\n", len(v2.TopMemoryItems))
+	}
 	if strings.TrimSpace(itemType) != "" && len(v2.TopMemoryItems) == 0 {
 		fmt.Fprintf(&b, "No %s items\n", strings.TrimSpace(itemType))
 		return b.String()

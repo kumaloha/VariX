@@ -1519,6 +1519,9 @@ func TestRunMemoryGlobalCompareFiltersV2ItemType(t *testing.T) {
 	if !strings.Contains(stdout.String(), "conflict:") || strings.Contains(stdout.String(), "conclusion:") {
 		t.Fatalf("stdout = %q, want only v2 conflict items while keeping v1 section", stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "V2 thesis-first (1, filter=conflict)") {
+		t.Fatalf("stdout = %q, want filter annotation in V2 header", stdout.String())
+	}
 }
 
 func TestRunMemoryGlobalCompareReportsWhenFilteredV2SideIsEmpty(t *testing.T) {
@@ -1571,6 +1574,9 @@ func TestRunMemoryGlobalCompareReportsWhenFilteredV2SideIsEmpty(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "No conflict items") {
 		t.Fatalf("stdout = %q, want no-match guidance while keeping compare context", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "V2 thesis-first (0, filter=conflict)") {
+		t.Fatalf("stdout = %q, want filtered count annotation even when empty", stdout.String())
 	}
 }
 
