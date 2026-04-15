@@ -8,7 +8,7 @@ strictly about improving semantic stability and product quality.
 
 ---
 
-## Priority 1 — Reduce bridge-node false merges
+## Priority 1 — Reduce bridge-node false merges (Partially improved)
 
 ### Problem
 `buildCandidateTheses` still relies on pairwise links + connected components.
@@ -31,9 +31,15 @@ This is the highest-risk remaining error because a false merge corrupts:
 Real review sets no longer produce giant mixed theses from loosely connected
 macro material.
 
+### Current progress
+- same-theme-different-question separation is now covered at organizer level
+- broad debt/object overmerge heuristics have been narrowed
+- some same-source singleton nodes now reattach more safely
+- remaining risk is still transitive bridge-node overmerge across longer chains
+
 ---
 
-## Priority 2 — Recover cross-role same-topic grouping more systematically
+## Priority 2 — Recover cross-role same-topic grouping more systematically (Partially improved)
 
 ### Problem
 Some same-topic content is still only merged when a narrow shared-object rule
@@ -57,9 +63,13 @@ weak theses and loses abstraction quality.
 Same-topic cross-source narratives merge more consistently without reviving
 theme-wide overmerge.
 
+### Current progress
+- cross-source fact↔conclusion and condition↔conclusion same-object cases are now covered
+- remaining gaps are broader cross-role families beyond the currently tested patterns
+
 ---
 
-## Priority 3 — Improve conflict-side evidence selection beyond shallow graph-local ranking
+## Priority 3 — Improve conflict-side evidence selection beyond shallow graph-local ranking (Partially improved)
 
 ### Problem
 `Why A / Why B` is now graph-backed and ordered, but still shallow:
@@ -81,9 +91,15 @@ the contradiction surface.
 Conflict cards read like “here is the strongest case for each side,” not “here
 are the first few nearby nodes.”
 
+### Current progress
+- side explanations are graph-backed
+- fact-first ordering is in place
+- one extra upstream layer can now be included behind direct supports
+- remaining work is stronger scoring of the *best* support rather than local graph order
+
 ---
 
-## Priority 4 — Expand headline abstraction families gradually and test-first
+## Priority 4 — Expand headline abstraction families gradually and test-first (Partially improved)
 
 ### Problem
 Headline abstraction is now clearly better, but still pattern-driven and sparse.
@@ -109,9 +125,16 @@ Add narrowly-scoped abstraction families only when:
 More real-user conclusions read like higher-order cognition instead of sentence
 compression.
 
+### Current progress
+- debt/purchasing-power
+- petrodollar/private-credit
+- oil-shock
+- bank-resilience
+all now have explicit abstraction patterns plus organizer-level protection for key cases
+
 ---
 
-## Priority 5 — Strengthen compare output from “summary juxtaposition” toward “structural diff”
+## Priority 5 — Strengthen compare output from “summary juxtaposition” toward “structural diff” (Not started)
 
 ### Problem
 `global-compare` is already useful, but it is still essentially:
