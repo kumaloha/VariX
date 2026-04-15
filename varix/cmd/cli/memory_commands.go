@@ -14,7 +14,7 @@ import (
 
 func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized|global-organize-run|global-organized> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized|global-organize-run|global-organized|global-card> ...")
 		return 2
 	}
 	switch args[0] {
@@ -36,8 +36,10 @@ func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Write
 		return runMemoryGlobalOrganizeRun(args[1:], projectRoot, stdout, stderr)
 	case "global-organized":
 		return runMemoryGlobalOrganized(args[1:], projectRoot, stdout, stderr)
+	case "global-card":
+		return runMemoryGlobalCard(args[1:], projectRoot, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized|global-organize-run|global-organized> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized|global-organize-run|global-organized|global-card> ...")
 		return 2
 	}
 }
@@ -373,4 +375,88 @@ func runMemoryGlobalOrganized(args []string, projectRoot string, stdout, stderr 
 	}
 	fmt.Fprintln(stdout, string(payload))
 	return 0
+}
+
+func runMemoryGlobalCard(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory global-card", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" {
+		fmt.Fprintln(stderr, "usage: varix memory global-card --user <user_id>")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	out, err := store.GetLatestGlobalMemoryOrganizationOutput(context.Background(), strings.TrimSpace(*userID))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprint(stdout, formatGlobalClusterCards(out))
+	return 0
+}
+
+func formatGlobalClusterCards(out memory.GlobalOrganizationOutput) string {
+	var b strings.Builder
+	nodeText := map[string]string{}
+	for _, node := range out.ActiveNodes {
+		nodeText[node.NodeID] = node.NodeText
+	}
+	for _, node := range out.InactiveNodes {
+		nodeText[node.NodeID] = node.NodeText
+	}
+	for i, cluster := range out.Clusters {
+		if i > 0 {
+			b.WriteString("\n---\n\n")
+		}
+		fmt.Fprintf(&b, "Cluster\n%s\n\n", cluster.CanonicalProposition)
+		if strings.TrimSpace(cluster.Summary) != "" {
+			fmt.Fprintf(&b, "Summary\n%s\n\n", cluster.Summary)
+		}
+		writeNodeSection(&b, "Why", cluster.CoreSupportingNodeIDs, nodeText)
+		writeNodeSection(&b, "Conditions", cluster.CoreConditionalNodeIDs, nodeText)
+		writeNodeSection(&b, "Current judgment", cluster.CoreConclusionNodeIDs, nodeText)
+		writeNodeSection(&b, "What next", cluster.CorePredictiveNodeIDs, nodeText)
+		if len(cluster.ConflictingNodeIDs) > 0 {
+			writeNodeSection(&b, "Conflicts", cluster.ConflictingNodeIDs, nodeText)
+		}
+		if len(cluster.SynthesizedEdges) > 0 {
+			fmt.Fprintf(&b, "Logic\n")
+			for _, edge := range cluster.SynthesizedEdges {
+				fmt.Fprintf(&b, "- %s --%s--> %s\n", resolveNodeLabel(edge.From, nodeText), edge.Kind, resolveNodeLabel(edge.To, nodeText))
+			}
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+func writeNodeSection(b *strings.Builder, title string, ids []string, nodeText map[string]string) {
+	if len(ids) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "%s\n", title)
+	for _, id := range ids {
+		fmt.Fprintf(b, "- %s\n", resolveNodeLabel(id, nodeText))
+	}
+	b.WriteString("\n")
+}
+
+func resolveNodeLabel(id string, nodeText map[string]string) string {
+	if text := strings.TrimSpace(nodeText[id]); text != "" {
+		return text
+	}
+	return id
 }
