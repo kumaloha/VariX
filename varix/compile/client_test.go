@@ -196,6 +196,19 @@ func TestClientCompileRetriesWhenDetailsEmpty(t *testing.T) {
 }
 
 func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
+	prevBuildFactRetrievalContext := buildFactRetrievalContext
+	t.Cleanup(func() { buildFactRetrievalContext = prevBuildFactRetrievalContext })
+	buildFactRetrievalContext = func(ctx context.Context, bundle Bundle, nodes []GraphNode) ([]map[string]any, error) {
+		return []map[string]any{{
+			"node_id": "n1",
+			"results": []map[string]any{{
+				"url":     "https://example.com/fact",
+				"title":   "Example",
+				"excerpt": "验证材料",
+			}},
+		}}, nil
+	}
+
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","kind":"预测","text":"预测B","prediction_start_at":"2026-04-14T00:00:00Z","prediction_due_at":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
 		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-verifier-model"},
@@ -225,7 +238,7 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 		t.Fatalf("prediction check = %#v", record.Output.Verification.PredictionChecks[0])
 	}
 	factPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
-	if !containsAll(factPrompt, `"kind": "事实"`, `"occurred_at": "2026-04-14T00:00:00Z"`, `"as_of": "`) {
+	if !containsAll(factPrompt, `"kind": "事实"`, `"occurred_at": "2026-04-14T00:00:00Z"`, `"as_of": "`, `"retrieval_context"`, `"https://example.com/fact"`) {
 		t.Fatalf("fact verifier prompt missing occurred_at evidence: %q", factPrompt)
 	}
 	if strings.Contains(factPrompt, `"valid_from"`) {

@@ -73,6 +73,7 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	c.EnableFactWebVerification()
 	client := buildCompileClient(projectRoot)
 	if client == nil {
 		fmt.Fprintln(stderr, "compile client config missing")

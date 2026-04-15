@@ -14,6 +14,10 @@ type verifierCall interface {
 	Call(ctx context.Context, req llm.ProviderRequest) (llm.Response, error)
 }
 
+var buildFactRetrievalContext = func(ctx context.Context, bundle Bundle, nodes []GraphNode) ([]map[string]any, error) {
+	return nil, nil
+}
+
 func runVerifier(ctx context.Context, rt verifierCall, model string, bundle Bundle, output Output) (Verification, error) {
 	verification := Verification{}
 
@@ -176,9 +180,13 @@ func unmarshalVerifierPayload(raw string, target any) error {
 }
 
 func buildFactVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
-	return buildVerificationPrompt(bundle, nodes, map[string]any{
+	extra := map[string]any{
 		"as_of": time.Now().UTC().Format(time.RFC3339),
-	})
+	}
+	if retrieval, err := buildFactRetrievalContext(context.Background(), bundle, nodes); err == nil && len(retrieval) > 0 {
+		extra["retrieval_context"] = retrieval
+	}
+	return buildVerificationPrompt(bundle, nodes, extra)
 }
 
 func buildPredictionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
