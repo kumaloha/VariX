@@ -734,14 +734,14 @@ func limitGlobalOrganizationOutput(out memory.GlobalOrganizationOutput, limit in
 
 func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMemoryV2Output, itemType string) string {
 	var b strings.Builder
-	b.WriteString("V1 cluster-first\n")
+	fmt.Fprintf(&b, "V1 cluster-first (%d)\n", len(v1.Clusters))
 	for _, cluster := range v1.Clusters {
 		fmt.Fprintf(&b, "- %s\n", cluster.CanonicalProposition)
 		if strings.TrimSpace(cluster.Summary) != "" {
 			fmt.Fprintf(&b, "  summary: %s\n", cluster.Summary)
 		}
 	}
-	b.WriteString("\nV2 thesis-first\n")
+	fmt.Fprintf(&b, "\nV2 thesis-first (%d)\n", len(v2.TopMemoryItems))
 	if strings.TrimSpace(itemType) != "" && len(v2.TopMemoryItems) == 0 {
 		fmt.Fprintf(&b, "No %s items\n", strings.TrimSpace(itemType))
 		return b.String()
