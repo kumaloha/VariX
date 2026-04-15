@@ -943,6 +943,70 @@ func TestRunMemoryGlobalV2CardRunFlagBuildsFreshOutput(t *testing.T) {
 	}
 }
 
+func TestRunMemoryGlobalV2CardSuggestsRunWhenNoStoredOutput(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-v2-card", "--user", "u-empty"}, "/tmp/project", &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("global-v2-card code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "memory global-v2-card --run --user u-empty") {
+		t.Fatalf("stderr = %q, want --run guidance", stderr.String())
+	}
+}
+
+func TestRunMemoryGlobalV2OrganizedSuggestsOrganizeRunWhenEmpty(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-v2-organized", "--user", "u-empty"}, "/tmp/project", &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("global-v2-organized code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "memory global-v2-organize-run --user u-empty") {
+		t.Fatalf("stderr = %q, want organize-run guidance", stderr.String())
+	}
+}
+
 func TestRunMemoryGlobalV2CardPrintsConflictSides(t *testing.T) {
 	prevBuildApp := buildApp
 	prevOpenSQLiteStore := openSQLiteStore

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -443,6 +444,10 @@ func runMemoryGlobalV2Organized(args []string, projectRoot string, stdout, stder
 	defer store.Close()
 	out, err := store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
 	if err != nil {
+		if err == sql.ErrNoRows {
+			fmt.Fprintf(stderr, "no v2 global memory output yet; run: varix memory global-v2-organize-run --user %s\n", strings.TrimSpace(*userID))
+			return 1
+		}
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -516,6 +521,10 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 		out, err = store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
 	}
 	if err != nil {
+		if err == sql.ErrNoRows {
+			fmt.Fprintf(stderr, "no v2 card output yet; run: varix memory global-v2-card --run --user %s\n", strings.TrimSpace(*userID))
+			return 1
+		}
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
