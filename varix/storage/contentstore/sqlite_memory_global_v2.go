@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
 )
 
@@ -41,7 +42,9 @@ func (s *SQLiteStore) RunGlobalMemoryOrganizationV2(ctx context.Context, userID 
 	for _, thesis := range candidateTheses {
 		result := detectThesisConflict(thesis, nodesByID, now)
 		if result.Blocked && result.Conflict != nil {
-			conflicts = append(conflicts, *result.Conflict)
+			conflict := *result.Conflict
+			enrichConflictSetFromCompiledOutput(ctx, s, &conflict)
+			conflicts = append(conflicts, conflict)
 			continue
 		}
 		causal := buildCausalThesis(thesis, nodesByID)
@@ -114,4 +117,68 @@ func persistGlobalMemoryV2Output(ctx context.Context, db *sql.DB, output memory.
 		return memory.GlobalMemoryV2Output{}, err
 	}
 	return output, nil
+}
+
+func enrichConflictSetFromCompiledOutput(ctx context.Context, store *SQLiteStore, conflict *memory.ConflictSet) {
+	if conflict == nil {
+		return
+	}
+	if why, refs := compiledConflictWhy(ctx, store, conflict.SideANodeIDs); len(why) > 0 {
+		conflict.SideAWhy = why
+		if len(refs) > 0 {
+			conflict.SideASourceRefs = refs
+		}
+	}
+	if why, refs := compiledConflictWhy(ctx, store, conflict.SideBNodeIDs); len(why) > 0 {
+		conflict.SideBWhy = why
+		if len(refs) > 0 {
+			conflict.SideBSourceRefs = refs
+		}
+	}
+}
+
+func compiledConflictWhy(ctx context.Context, store *SQLiteStore, globalNodeIDs []string) ([]string, []string) {
+	if len(globalNodeIDs) == 0 {
+		return nil, nil
+	}
+	platform, externalID, localNodeID, ok := splitGlobalNodeRef(globalNodeIDs[0])
+	if !ok {
+		return nil, nil
+	}
+	record, err := store.GetCompiledOutput(ctx, platform, externalID)
+	if err != nil {
+		return nil, nil
+	}
+	nodeByID := map[string]compile.GraphNode{}
+	for _, node := range record.Output.Graph.Nodes {
+		nodeByID[node.ID] = node
+	}
+	why := make([]string, 0)
+	for _, edge := range record.Output.Graph.Edges {
+		if edge.To != localNodeID {
+			continue
+		}
+		node, ok := nodeByID[edge.From]
+		if !ok {
+			continue
+		}
+		switch node.Kind {
+		case compile.NodeFact, compile.NodeExplicitCondition, compile.NodeImplicitCondition:
+			if text := strings.TrimSpace(node.Text); text != "" {
+				why = append(why, text)
+			}
+		}
+	}
+	if len(why) == 0 {
+		return nil, nil
+	}
+	return uniquePreservingOrder(why), []string{platform + ":" + externalID}
+}
+
+func splitGlobalNodeRef(ref string) (platform, externalID, localNodeID string, ok bool) {
+	parts := strings.SplitN(ref, ":", 3)
+	if len(parts) != 3 {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], true
 }

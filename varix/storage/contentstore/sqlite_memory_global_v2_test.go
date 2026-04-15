@@ -123,6 +123,12 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationV2SurfacesConflictSets(t *testin
 	if len(out.ConflictSets) == 0 {
 		t.Fatalf("ConflictSets = %#v, want at least one blocked conflict", out.ConflictSets)
 	}
+	if got := out.ConflictSets[0].SideAWhy; len(got) == 0 || got[0] != "需求走弱" {
+		t.Fatalf("SideAWhy = %#v, want graph-backed support text for side A", got)
+	}
+	if got := out.ConflictSets[0].SideBWhy; len(got) == 0 || got[0] != "供给趋紧" {
+		t.Fatalf("SideBWhy = %#v, want graph-backed support text for side B", got)
+	}
 }
 
 func TestSQLiteStore_RunGlobalMemoryOrganizationV2BuildsCausalThesesAndCards(t *testing.T) {
