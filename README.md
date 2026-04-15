@@ -52,5 +52,8 @@ Useful memory commands:
   cards in one step
 - `memory global-v2-card --item-type conclusion|conflict` to review only one
   class of first-layer items
+- `memory global-compare` to compare the persisted v1 cluster-first and v2
+  thesis-first views side by side
+- `memory global-compare --run` to recompute both sides before comparing
 
 See `docs/memory-organization.md` for the organizer output contract.
