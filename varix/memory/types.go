@@ -109,16 +109,28 @@ type OrganizationOutput struct {
 }
 
 type GlobalCluster struct {
-	ClusterID            string    `json:"cluster_id"`
-	CanonicalProposition string    `json:"canonical_proposition"`
-	Summary              string    `json:"summary,omitempty"`
-	RepresentativeNodeID string    `json:"representative_node_id,omitempty"`
-	SupportingNodeIDs    []string  `json:"supporting_node_ids,omitempty"`
-	ConflictingNodeIDs   []string  `json:"conflicting_node_ids,omitempty"`
-	ConditionalNodeIDs   []string  `json:"conditional_node_ids,omitempty"`
-	PredictiveNodeIDs    []string  `json:"predictive_node_ids,omitempty"`
-	Active               bool      `json:"active"`
-	UpdatedAt            time.Time `json:"updated_at"`
+	ClusterID              string              `json:"cluster_id"`
+	CanonicalProposition   string              `json:"canonical_proposition"`
+	Summary                string              `json:"summary,omitempty"`
+	RepresentativeNodeID   string              `json:"representative_node_id,omitempty"`
+	SupportingNodeIDs      []string            `json:"supporting_node_ids,omitempty"`
+	ConflictingNodeIDs     []string            `json:"conflicting_node_ids,omitempty"`
+	ConditionalNodeIDs     []string            `json:"conditional_node_ids,omitempty"`
+	PredictiveNodeIDs      []string            `json:"predictive_node_ids,omitempty"`
+	CoreSupportingNodeIDs  []string            `json:"core_supporting_node_ids,omitempty"`
+	CoreConditionalNodeIDs []string            `json:"core_conditional_node_ids,omitempty"`
+	CoreConclusionNodeIDs  []string            `json:"core_conclusion_node_ids,omitempty"`
+	CorePredictiveNodeIDs  []string            `json:"core_predictive_node_ids,omitempty"`
+	ExpandedNodeIDs        []string            `json:"expanded_node_ids,omitempty"`
+	SynthesizedEdges       []GlobalClusterEdge `json:"synthesized_edges,omitempty"`
+	Active                 bool                `json:"active"`
+	UpdatedAt              time.Time           `json:"updated_at"`
+}
+
+type GlobalClusterEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Kind string `json:"kind"`
 }
 
 type GlobalOrganizationOutput struct {

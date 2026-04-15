@@ -315,17 +315,30 @@ func buildGlobalCluster(component []string, byID map[string]memory.AcceptedNode,
 			canonical = conflictCanonical
 		}
 	}
+	coreSupporting := selectCoreNodes(supporting, byID, 2)
+	coreConditional := selectCoreNodes(conditional, byID, 2)
+	coreConclusions := selectCoreNodes(filterNodesByKind(component, byID, string(compile.NodeConclusion)), byID, 1)
+	corePredictive := selectCoreNodes(predictive, byID, 2)
+	expanded := make([]string, 0, len(component))
+	expanded = append(expanded, component...)
+	sort.Strings(expanded)
 	return memory.GlobalCluster{
-		ClusterID:            "cluster:" + strings.Join(component, "|"),
-		CanonicalProposition: canonical,
-		Summary:              buildClusterSummary(canonical, supporting, conflicting, conditional, predictive, byID),
-		RepresentativeNodeID: rep,
-		SupportingNodeIDs:    supporting,
-		ConflictingNodeIDs:   conflicting,
-		ConditionalNodeIDs:   conditional,
-		PredictiveNodeIDs:    predictive,
-		Active:               true,
-		UpdatedAt:            now,
+		ClusterID:              "cluster:" + strings.Join(component, "|"),
+		CanonicalProposition:   canonical,
+		Summary:                buildClusterSummary(canonical, supporting, conflicting, conditional, predictive, byID),
+		RepresentativeNodeID:   rep,
+		SupportingNodeIDs:      supporting,
+		ConflictingNodeIDs:     conflicting,
+		ConditionalNodeIDs:     conditional,
+		PredictiveNodeIDs:      predictive,
+		CoreSupportingNodeIDs:  coreSupporting,
+		CoreConditionalNodeIDs: coreConditional,
+		CoreConclusionNodeIDs:  coreConclusions,
+		CorePredictiveNodeIDs:  corePredictive,
+		ExpandedNodeIDs:        expanded,
+		SynthesizedEdges:       buildSynthesizedEdges(coreSupporting, coreConditional, coreConclusions, corePredictive),
+		Active:                 true,
+		UpdatedAt:              now,
 	}
 }
 
@@ -487,6 +500,55 @@ func buildClusterSummary(canonical string, supporting, conflicting, conditional,
 		return "未命名认知簇"
 	}
 	return truncateText(strings.Join(parts, "；"), 180)
+}
+
+func selectCoreNodes(ids []string, byID map[string]memory.AcceptedNode, max int) []string {
+	if len(ids) <= max {
+		out := append([]string(nil), ids...)
+		sort.Strings(out)
+		return out
+	}
+	sorted := append([]string(nil), ids...)
+	sort.Slice(sorted, func(i, j int) bool {
+		left := strings.TrimSpace(byID[sorted[i]].NodeText)
+		right := strings.TrimSpace(byID[sorted[j]].NodeText)
+		if len([]rune(left)) != len([]rune(right)) {
+			return len([]rune(left)) > len([]rune(right))
+		}
+		return sorted[i] < sorted[j]
+	})
+	out := append([]string(nil), sorted[:max]...)
+	sort.Strings(out)
+	return out
+}
+
+func filterNodesByKind(component []string, byID map[string]memory.AcceptedNode, kind string) []string {
+	out := make([]string, 0)
+	for _, id := range component {
+		if byID[id].NodeKind == kind {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func buildSynthesizedEdges(coreSupporting, coreConditional, coreConclusions, corePredictive []string) []memory.GlobalClusterEdge {
+	edges := make([]memory.GlobalClusterEdge, 0)
+	add := func(froms, tos []string, kind string) {
+		for _, from := range froms {
+			for _, to := range tos {
+				if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" || from == to {
+					continue
+				}
+				edges = append(edges, memory.GlobalClusterEdge{From: from, To: to, Kind: kind})
+			}
+		}
+	}
+	add(coreSupporting, coreConclusions, "supporting->conclusion")
+	add(coreConditional, coreConclusions, "conditional->conclusion")
+	add(coreConclusions, corePredictive, "conclusion->prediction")
+	add(coreConditional, corePredictive, "conditional->prediction")
+	return edges
 }
 
 func summarizeRoleTexts(ids []string, byID map[string]memory.AcceptedNode) string {

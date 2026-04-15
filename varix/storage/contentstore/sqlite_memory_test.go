@@ -1469,6 +1469,12 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationDerivesHigherLevelMacroTheme(t *
 			if !strings.Contains(cluster.Summary, "支持信息包括") || !strings.Contains(cluster.Summary, "相关预测包括") {
 				t.Fatalf("cluster summary = %q, want synthesized role-aware summary", cluster.Summary)
 			}
+			if len(cluster.CoreSupportingNodeIDs) == 0 || len(cluster.CorePredictiveNodeIDs) == 0 {
+				t.Fatalf("cluster = %#v, want core skeleton node sets", cluster)
+			}
+			if len(cluster.SynthesizedEdges) == 0 {
+				t.Fatalf("cluster = %#v, want synthesized edges", cluster)
+			}
 		}
 	}
 	if !foundTheme {
