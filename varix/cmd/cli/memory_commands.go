@@ -499,6 +499,7 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 	userID := fs.String("user", "", "user id")
 	runNow := fs.Bool("run", false, "recompute v2 output before rendering")
 	itemType := fs.String("item-type", "", "optional filter: conclusion or conflict")
+	limit := fs.Int("limit", 0, "optional max number of top items to render")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -536,6 +537,7 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 		return 1
 	}
 	filtered := filterGlobalV2Items(out, strings.TrimSpace(*itemType))
+	filtered = limitGlobalV2Items(filtered, *limit)
 	if strings.TrimSpace(*itemType) != "" && len(filtered.TopMemoryItems) == 0 {
 		fmt.Fprintf(stdout, "No %s items for user %s\n", strings.TrimSpace(*itemType), strings.TrimSpace(*userID))
 		return 0
@@ -704,6 +706,15 @@ func filterGlobalV2Items(out memory.GlobalMemoryV2Output, itemType string) memor
 		}
 	}
 	return filtered
+}
+
+func limitGlobalV2Items(out memory.GlobalMemoryV2Output, limit int) memory.GlobalMemoryV2Output {
+	if limit <= 0 || len(out.TopMemoryItems) <= limit {
+		return out
+	}
+	limited := out
+	limited.TopMemoryItems = append([]memory.TopMemoryItem(nil), out.TopMemoryItems[:limit]...)
+	return limited
 }
 
 func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMemoryV2Output) string {

@@ -1239,6 +1239,71 @@ func TestRunMemoryGlobalV2CardReportsWhenFilterMatchesNothing(t *testing.T) {
 	}
 }
 
+func TestRunMemoryGlobalV2CardRespectsLimit(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		recordA := c.Record{
+			UnitID: "weibo:L1", Source: "weibo", ExternalID: "L1", RootExternalID: "L1", Model: c.Qwen36PlusModel,
+			Output: c.Output{Summary: "s", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{
+				{ID: "n1", Kind: c.NodeFact, Text: "流动性收紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: c.NodeConclusion, Text: "风险资产承压"},
+			}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}},
+			CompiledAt: time.Now().UTC(),
+		}
+		recordB := c.Record{
+			UnitID: "weibo:L2", Source: "weibo", ExternalID: "L2", RootExternalID: "L2", Model: c.Qwen36PlusModel,
+			Output: c.Output{Summary: "s", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{
+				{ID: "n1", Kind: c.NodeFact, Text: "供给趋紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: c.NodeConclusion, Text: "油价会上升"},
+				{ID: "n3", Kind: c.NodePrediction, Text: "油价冲击扩大", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+			}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}, {From: "n2", To: "n3", Kind: c.EdgeDerives}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}},
+			CompiledAt: time.Now().UTC(),
+		}
+		for _, record := range []c.Record{recordA, recordB} {
+			if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+				return nil, err
+			}
+		}
+		for _, req := range []memory.AcceptRequest{
+			{UserID: "u-v2-limit", SourcePlatform: "weibo", SourceExternalID: "L1", NodeIDs: []string{"n1", "n2"}},
+			{UserID: "u-v2-limit", SourcePlatform: "weibo", SourceExternalID: "L2", NodeIDs: []string{"n1", "n2", "n3"}},
+		} {
+			if _, err := store.AcceptMemoryNodes(context.Background(), req); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-limit", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-v2-card", "--user", "u-v2-limit", "--limit", "1"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("limit code = %d, stderr = %s", code, stderr.String())
+	}
+	if strings.Count(stdout.String(), "Conclusion\n") != 1 {
+		t.Fatalf("stdout = %q, want exactly one rendered card", stdout.String())
+	}
+}
+
 func TestRunMemoryGlobalCompareShowsV1AndV2Sections(t *testing.T) {
 	prevBuildApp := buildApp
 	prevOpenSQLiteStore := openSQLiteStore
