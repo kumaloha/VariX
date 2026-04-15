@@ -689,6 +689,7 @@ func formatGlobalV2Cards(out memory.GlobalMemoryV2Output) string {
 					continue
 				}
 				writeLogicSection(&b, card.CausalChain)
+				writeStringSection(&b, "Mechanism", cardMechanismTexts(card))
 				writeStringSection(&b, "Why", card.KeyEvidence)
 				writeStringSection(&b, "Conditions", card.Conditions)
 				writeStringSection(&b, "What next", card.Predictions)
@@ -785,6 +786,29 @@ func writeLogicSection(b *strings.Builder, steps []memory.CardChainStep) {
 		fmt.Fprintf(b, "- %s (%s)\n", step.Label, step.Role)
 	}
 	b.WriteString("\n")
+}
+
+func cardMechanismTexts(card memory.CognitiveCard) []string {
+	items := make([]string, 0)
+	for _, step := range card.CausalChain {
+		if step.Role == "mechanism" && strings.TrimSpace(step.Label) != "" {
+			items = append(items, step.Label)
+		}
+	}
+	return uniqueStringSlice(items)
+}
+
+func uniqueStringSlice(in []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(in))
+	for _, item := range in {
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	return out
 }
 
 func writeNodeSection(b *strings.Builder, title string, ids []string, nodeText map[string]string) {
