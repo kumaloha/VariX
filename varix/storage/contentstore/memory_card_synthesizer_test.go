@@ -163,3 +163,29 @@ func TestBuildCognitiveCards_ConditionInCorePathAlsoAppearsInConditions(t *testi
 		t.Fatalf("KeyEvidence = %#v, want core evidence separated from condition", got[0].KeyEvidence)
 	}
 }
+
+func TestBuildCognitiveCards_DoesNotUseSupportingPredictionsAsWhy(t *testing.T) {
+	thesis := memory.CausalThesis{
+		CausalThesisID:    "ct-1",
+		ThesisID:          "thesis-1",
+		NodeRoles:         map[string]string{"n1": "fact", "n2": "conclusion", "n3": "prediction", "n4": "prediction"},
+		CorePathNodeIDs:   []string{"n1", "n2", "n3"},
+		SupportingNodeIDs: []string{"n4"},
+	}
+	nodesByID := map[string]memory.AcceptedNode{
+		"n1": {NodeID: "n1", NodeText: "流动性收紧"},
+		"n2": {NodeID: "n2", NodeText: "风险资产承压"},
+		"n3": {NodeID: "n3", NodeText: "未来数月波动加大"},
+		"n4": {NodeID: "n4", NodeText: "明年市场将持续恶化"},
+	}
+
+	got := buildCognitiveCards(thesis, nodesByID)
+	if len(got) == 0 {
+		t.Fatalf("len(buildCognitiveCards) = 0, want card")
+	}
+	for _, evidence := range got[0].KeyEvidence {
+		if evidence == "明年市场将持续恶化" {
+			t.Fatalf("KeyEvidence = %#v, want supporting prediction excluded from Why", got[0].KeyEvidence)
+		}
+	}
+}

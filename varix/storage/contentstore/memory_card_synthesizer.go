@@ -108,7 +108,11 @@ func predictionTexts(thesis memory.CausalThesis, nodesByID map[string]memory.Acc
 
 func keyEvidenceTexts(thesis memory.CausalThesis, nodesByID map[string]memory.AcceptedNode) []string {
 	ids := make([]string, 0, len(thesis.SupportingNodeIDs)+len(thesis.CorePathNodeIDs))
-	ids = append(ids, thesis.SupportingNodeIDs...)
+	for _, id := range thesis.SupportingNodeIDs {
+		if thesis.NodeRoles[id] == "fact" || thesis.NodeRoles[id] == "mechanism" {
+			ids = append(ids, id)
+		}
+	}
 	for _, id := range thesis.CorePathNodeIDs {
 		if thesis.NodeRoles[id] == "fact" || thesis.NodeRoles[id] == "mechanism" {
 			ids = append(ids, id)
