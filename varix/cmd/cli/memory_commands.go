@@ -650,6 +650,7 @@ func formatGlobalClusterCards(out memory.GlobalOrganizationOutput) string {
 
 func formatGlobalV2Cards(out memory.GlobalMemoryV2Output) string {
 	var b strings.Builder
+	fmt.Fprintf(&b, "Items\n%d\n\n", len(out.TopMemoryItems))
 	cardByID := map[string]memory.CognitiveCard{}
 	for _, card := range out.CognitiveCards {
 		cardByID[card.CardID] = card
