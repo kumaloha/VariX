@@ -189,3 +189,28 @@ func TestBuildCognitiveCards_DoesNotUseSupportingPredictionsAsWhy(t *testing.T) 
 		}
 	}
 }
+
+func TestBuildCognitiveCards_DoesNotDuplicateMechanismInWhy(t *testing.T) {
+	thesis := memory.CausalThesis{
+		CausalThesisID:  "ct-1",
+		ThesisID:        "thesis-1",
+		NodeRoles:       map[string]string{"n1": "fact", "n2": "mechanism", "n3": "conclusion", "n4": "prediction"},
+		CorePathNodeIDs: []string{"n1", "n2", "n3", "n4"},
+	}
+	nodesByID := map[string]memory.AcceptedNode{
+		"n1": {NodeID: "n1", NodeText: "高资产价格环境延续"},
+		"n2": {NodeID: "n2", NodeText: "宏观负面冲击会放大金融系统脆弱性"},
+		"n3": {NodeID: "n3", NodeText: "风险资产承压"},
+		"n4": {NodeID: "n4", NodeText: "未来数月波动加大"},
+	}
+
+	got := buildCognitiveCards(thesis, nodesByID)
+	if len(got) == 0 {
+		t.Fatalf("len(buildCognitiveCards) = 0, want card")
+	}
+	for _, evidence := range got[0].KeyEvidence {
+		if evidence == "宏观负面冲击会放大金融系统脆弱性" {
+			t.Fatalf("KeyEvidence = %#v, want mechanism separated from Why", got[0].KeyEvidence)
+		}
+	}
+}
