@@ -50,5 +50,7 @@ Useful memory commands:
 - `memory global-v2-card` for a human-readable v2 first-layer card surface
 - `memory global-v2-card --run` to recompute the latest v2 output and render
   cards in one step
+- `memory global-v2-card --item-type conclusion|conflict` to review only one
+  class of first-layer items
 
 See `docs/memory-organization.md` for the organizer output contract.

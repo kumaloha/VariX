@@ -496,6 +496,7 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
 	runNow := fs.Bool("run", false, "recompute v2 output before rendering")
+	itemType := fs.String("item-type", "", "optional filter: conclusion or conflict")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -528,7 +529,7 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprint(stdout, formatGlobalV2Cards(out))
+	fmt.Fprint(stdout, formatGlobalV2Cards(filterGlobalV2Items(out, strings.TrimSpace(*itemType))))
 	return 0
 }
 
@@ -616,6 +617,21 @@ func formatGlobalV2Cards(out memory.GlobalMemoryV2Output) string {
 		}
 	}
 	return b.String()
+}
+
+func filterGlobalV2Items(out memory.GlobalMemoryV2Output, itemType string) memory.GlobalMemoryV2Output {
+	itemType = strings.TrimSpace(itemType)
+	if itemType == "" {
+		return out
+	}
+	filtered := out
+	filtered.TopMemoryItems = nil
+	for _, item := range out.TopMemoryItems {
+		if item.ItemType == itemType {
+			filtered.TopMemoryItems = append(filtered.TopMemoryItems, item)
+		}
+	}
+	return filtered
 }
 
 func writeStringSection(b *strings.Builder, title string, items []string) {

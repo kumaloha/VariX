@@ -1095,6 +1095,90 @@ func TestRunMemoryGlobalV2CardPrintsConflictSides(t *testing.T) {
 	}
 }
 
+func TestRunMemoryGlobalV2CardFiltersByItemType(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		recordA := c.Record{
+			UnitID: "weibo:F1", Source: "weibo", ExternalID: "F1", RootExternalID: "F1", Model: c.Qwen36PlusModel,
+			Output: c.Output{Summary: "s", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{
+				{ID: "n1", Kind: c.NodeFact, Text: "流动性收紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: c.NodeConclusion, Text: "风险资产承压"},
+				{ID: "n3", Kind: c.NodePrediction, Text: "未来数月波动加大", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+			}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}, {From: "n2", To: "n3", Kind: c.EdgeDerives}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}},
+			CompiledAt: time.Now().UTC(),
+		}
+		recordB := c.Record{
+			UnitID: "weibo:F2", Source: "weibo", ExternalID: "F2", RootExternalID: "F2", Model: c.Qwen36PlusModel,
+			Output: c.Output{Summary: "s", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{
+				{ID: "n1", Kind: c.NodeFact, Text: "供给趋紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: c.NodeConclusion, Text: "油价会上升"},
+			}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}},
+			CompiledAt: time.Now().UTC(),
+		}
+		recordC := c.Record{
+			UnitID: "twitter:F3", Source: "twitter", ExternalID: "F3", RootExternalID: "F3", Model: c.Qwen36PlusModel,
+			Output: c.Output{Summary: "s", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{
+				{ID: "n1", Kind: c.NodeFact, Text: "需求走弱", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: c.NodeConclusion, Text: "油价会下降"},
+			}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}},
+			CompiledAt: time.Now().UTC(),
+		}
+		for _, record := range []c.Record{recordA, recordB, recordC} {
+			if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+				return nil, err
+			}
+		}
+		for _, req := range []memory.AcceptRequest{
+			{UserID: "u-v2-filter", SourcePlatform: "weibo", SourceExternalID: "F1", NodeIDs: []string{"n1", "n2", "n3"}},
+			{UserID: "u-v2-filter", SourcePlatform: "weibo", SourceExternalID: "F2", NodeIDs: []string{"n2"}},
+			{UserID: "u-v2-filter", SourcePlatform: "twitter", SourceExternalID: "F3", NodeIDs: []string{"n2"}},
+		} {
+			if _, err := store.AcceptMemoryNodes(context.Background(), req); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-filter", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-v2-card", "--user", "u-v2-filter", "--item-type", "conflict"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("conflict filter code = %d, stderr = %s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "Conclusion") || !strings.Contains(stdout.String(), "Conflict") {
+		t.Fatalf("conflict-only stdout = %q, want only conflict items", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "global-v2-card", "--user", "u-v2-filter", "--item-type", "conclusion"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("conclusion filter code = %d, stderr = %s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "Conflict") || !strings.Contains(stdout.String(), "Conclusion") {
+		t.Fatalf("conclusion-only stdout = %q, want only conclusion items", stdout.String())
+	}
+}
+
 type fakeCompileClient struct {
 	record c.Record
 	err    error

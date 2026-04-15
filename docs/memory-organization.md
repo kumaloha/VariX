@@ -121,6 +121,8 @@ Raw JSON:
 Human-readable cards:
 - `varix memory global-v2-card --user <user_id>`
 - `varix memory global-v2-card --user <user_id> --run`
+- `varix memory global-v2-card --user <user_id> --item-type conclusion`
+- `varix memory global-v2-card --user <user_id> --item-type conflict`
 
 ---
 
