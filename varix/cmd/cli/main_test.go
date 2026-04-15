@@ -1464,6 +1464,63 @@ func TestRunMemoryGlobalCompareRespectsLimit(t *testing.T) {
 	}
 }
 
+func TestRunMemoryGlobalCompareFiltersV2ItemType(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		records := []c.Record{
+			{UnitID: "weibo:CFV1", Source: "weibo", ExternalID: "CFV1", RootExternalID: "CFV1", Model: c.Qwen36PlusModel, Output: c.Output{Summary: "s", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "供给趋紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)}, {ID: "n2", Kind: c.NodeConclusion, Text: "油价会上升"}}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}}, CompiledAt: time.Now().UTC()},
+			{UnitID: "twitter:CFV2", Source: "twitter", ExternalID: "CFV2", RootExternalID: "CFV2", Model: c.Qwen36PlusModel, Output: c.Output{Summary: "s", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "需求走弱", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)}, {ID: "n2", Kind: c.NodeConclusion, Text: "油价会下降"}}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}}, CompiledAt: time.Now().UTC()},
+			{UnitID: "weibo:CFV3", Source: "weibo", ExternalID: "CFV3", RootExternalID: "CFV3", Model: c.Qwen36PlusModel, Output: c.Output{Summary: "s", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "流动性收紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)}, {ID: "n2", Kind: c.NodeConclusion, Text: "风险资产承压"}, {ID: "n3", Kind: c.NodePrediction, Text: "未来数月波动加大", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)}}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}, {From: "n2", To: "n3", Kind: c.EdgeDerives}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}}, CompiledAt: time.Now().UTC()},
+		}
+		for _, record := range records {
+			if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+				return nil, err
+			}
+		}
+		for _, req := range []memory.AcceptRequest{
+			{UserID: "u-compare-filter", SourcePlatform: "weibo", SourceExternalID: "CFV1", NodeIDs: []string{"n2"}},
+			{UserID: "u-compare-filter", SourcePlatform: "twitter", SourceExternalID: "CFV2", NodeIDs: []string{"n2"}},
+			{UserID: "u-compare-filter", SourcePlatform: "weibo", SourceExternalID: "CFV3", NodeIDs: []string{"n1", "n2", "n3"}},
+		} {
+			if _, err := store.AcceptMemoryNodes(context.Background(), req); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := store.RunGlobalMemoryOrganization(context.Background(), "u-compare-filter", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		if _, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-compare-filter", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-compare", "--user", "u-compare-filter", "--item-type", "conflict"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("global-compare conflict filter code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "conflict:") || strings.Contains(stdout.String(), "conclusion:") {
+		t.Fatalf("stdout = %q, want only v2 conflict items while keeping v1 section", stdout.String())
+	}
+}
+
 func TestRunMemoryGlobalCompareSuggestsRunWhenNoStoredOutputs(t *testing.T) {
 	prevBuildApp := buildApp
 	prevOpenSQLiteStore := openSQLiteStore

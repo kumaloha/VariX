@@ -552,11 +552,16 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 	userID := fs.String("user", "", "user id")
 	runNow := fs.Bool("run", false, "recompute both v1 and v2 outputs before comparing")
 	limit := fs.Int("limit", 0, "optional max number of v1 and v2 items to show")
+	itemType := fs.String("item-type", "", "optional filter for v2 side: conclusion or conflict")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if strings.TrimSpace(*userID) == "" {
 		fmt.Fprintln(stderr, "usage: varix memory global-compare --user <user_id>")
+		return 2
+	}
+	if trimmed := strings.TrimSpace(*itemType); trimmed != "" && trimmed != "conclusion" && trimmed != "conflict" {
+		fmt.Fprintln(stderr, "item-type must be one of: conclusion, conflict")
 		return 2
 	}
 	app, err := buildApp(projectRoot)
@@ -604,7 +609,7 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 			return 1
 		}
 	}
-	fmt.Fprint(stdout, formatGlobalCompare(limitGlobalOrganizationOutput(v1, *limit), limitGlobalV2Items(v2, *limit)))
+	fmt.Fprint(stdout, formatGlobalCompare(limitGlobalOrganizationOutput(v1, *limit), limitGlobalV2Items(filterGlobalV2Items(v2, strings.TrimSpace(*itemType)), *limit)))
 	return 0
 }
 
