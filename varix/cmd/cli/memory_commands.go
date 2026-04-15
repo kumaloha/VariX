@@ -15,7 +15,7 @@ import (
 
 func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare> ...")
 		return 2
 	}
 	switch args[0] {
@@ -45,8 +45,10 @@ func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Write
 		return runMemoryGlobalCard(args[1:], projectRoot, stdout, stderr)
 	case "global-v2-card":
 		return runMemoryGlobalV2Card(args[1:], projectRoot, stdout, stderr)
+	case "global-compare":
+		return runMemoryGlobalCompare(args[1:], projectRoot, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare> ...")
 		return 2
 	}
 }
@@ -542,6 +544,43 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 	return 0
 }
 
+func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory global-compare", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" {
+		fmt.Fprintln(stderr, "usage: varix memory global-compare --user <user_id>")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+
+	v1, err := store.GetLatestGlobalMemoryOrganizationOutput(context.Background(), strings.TrimSpace(*userID))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	v2, err := store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprint(stdout, formatGlobalCompare(v1, v2))
+	return 0
+}
+
 func formatGlobalClusterCards(out memory.GlobalOrganizationOutput) string {
 	var b strings.Builder
 	nodeText := map[string]string{}
@@ -641,6 +680,25 @@ func filterGlobalV2Items(out memory.GlobalMemoryV2Output, itemType string) memor
 		}
 	}
 	return filtered
+}
+
+func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMemoryV2Output) string {
+	var b strings.Builder
+	b.WriteString("V1 cluster-first\n")
+	for _, cluster := range v1.Clusters {
+		fmt.Fprintf(&b, "- %s\n", cluster.CanonicalProposition)
+		if strings.TrimSpace(cluster.Summary) != "" {
+			fmt.Fprintf(&b, "  summary: %s\n", cluster.Summary)
+		}
+	}
+	b.WriteString("\nV2 thesis-first\n")
+	for _, item := range v2.TopMemoryItems {
+		fmt.Fprintf(&b, "- %s: %s\n", item.ItemType, item.Headline)
+		if strings.TrimSpace(item.Subheadline) != "" {
+			fmt.Fprintf(&b, "  summary: %s\n", item.Subheadline)
+		}
+	}
+	return b.String()
 }
 
 func writeStringSection(b *strings.Builder, title string, items []string) {
