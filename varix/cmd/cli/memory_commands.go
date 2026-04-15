@@ -584,11 +584,19 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 	} else {
 		v1, err = store.GetLatestGlobalMemoryOrganizationOutput(context.Background(), strings.TrimSpace(*userID))
 		if err != nil {
+			if err == sql.ErrNoRows {
+				fmt.Fprintf(stderr, "no global memory outputs yet; run: varix memory global-compare --run --user %s\n", strings.TrimSpace(*userID))
+				return 1
+			}
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		v2, err = store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
 		if err != nil {
+			if err == sql.ErrNoRows {
+				fmt.Fprintf(stderr, "no global memory outputs yet; run: varix memory global-compare --run --user %s\n", strings.TrimSpace(*userID))
+				return 1
+			}
 			fmt.Fprintln(stderr, err)
 			return 1
 		}

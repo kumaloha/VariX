@@ -1344,6 +1344,34 @@ func TestRunMemoryGlobalCompareRunFlagBuildsFreshOutputs(t *testing.T) {
 	}
 }
 
+func TestRunMemoryGlobalCompareSuggestsRunWhenNoStoredOutputs(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		return contentstore.NewSQLiteStore(path)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-compare", "--user", "u-empty-compare"}, "/tmp/project", &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("global-compare code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "memory global-compare --run --user u-empty-compare") {
+		t.Fatalf("stderr = %q, want --run guidance", stderr.String())
+	}
+}
+
 type fakeCompileClient struct {
 	record c.Record
 	err    error
