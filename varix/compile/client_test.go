@@ -225,7 +225,7 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 		t.Fatalf("prediction check = %#v", record.Output.Verification.PredictionChecks[0])
 	}
 	factPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
-	if !containsAll(factPrompt, `"kind": "事实"`, `"occurred_at": "2026-04-14T00:00:00Z"`) {
+	if !containsAll(factPrompt, `"kind": "事实"`, `"occurred_at": "2026-04-14T00:00:00Z"`, `"as_of": "`) {
 		t.Fatalf("fact verifier prompt missing occurred_at evidence: %q", factPrompt)
 	}
 	if strings.Contains(factPrompt, `"valid_from"`) {
@@ -268,6 +268,9 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
 		}
 	}
+	if !strings.Contains(factPrompt, `"as_of": "`) {
+		t.Fatalf("fact verifier prompt missing as_of context: %q", factPrompt)
+	}
 	for _, unwanted := range []string{`"kind": "显式条件"`, `"kind": "隐含条件"`, `"kind": "结论"`, `"kind": "预测"`} {
 		if strings.Contains(factPrompt, unwanted) {
 			t.Fatalf("fact verifier prompt should exclude %q: %q", unwanted, factPrompt)
@@ -279,8 +282,16 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	if len(record.Output.Verification.ExplicitConditionChecks) != 1 {
 		t.Fatalf("len(ExplicitConditionChecks) = %d, want 1", len(record.Output.Verification.ExplicitConditionChecks))
 	}
+	explicitPrompt := provider.requests[2].UserParts[len(provider.requests[2].UserParts)-1].Text
+	if !strings.Contains(explicitPrompt, `"as_of": "`) {
+		t.Fatalf("explicit condition verifier prompt missing as_of context: %q", explicitPrompt)
+	}
 	if len(record.Output.Verification.ImplicitConditionChecks) != 1 {
 		t.Fatalf("len(ImplicitConditionChecks) = %d, want 1", len(record.Output.Verification.ImplicitConditionChecks))
+	}
+	implicitPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
+	if !strings.Contains(implicitPrompt, `"as_of": "`) {
+		t.Fatalf("implicit condition verifier prompt missing as_of context: %q", implicitPrompt)
 	}
 	if len(record.Output.Verification.PredictionChecks) != 1 {
 		t.Fatalf("len(PredictionChecks) = %d, want 1", len(record.Output.Verification.PredictionChecks))

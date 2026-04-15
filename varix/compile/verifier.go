@@ -176,7 +176,9 @@ func unmarshalVerifierPayload(raw string, target any) error {
 }
 
 func buildFactVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
-	return buildVerificationPrompt(bundle, nodes, nil)
+	return buildVerificationPrompt(bundle, nodes, map[string]any{
+		"as_of": time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 func buildPredictionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
@@ -186,11 +188,15 @@ func buildPredictionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string
 }
 
 func buildExplicitConditionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
-	return buildVerificationPrompt(bundle, nodes, nil)
+	return buildVerificationPrompt(bundle, nodes, map[string]any{
+		"as_of": time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 func buildImplicitConditionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
-	return buildVerificationPrompt(bundle, nodes, nil)
+	return buildVerificationPrompt(bundle, nodes, map[string]any{
+		"as_of": time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 func buildVerificationPrompt(bundle Bundle, nodes []GraphNode, extra map[string]any) (string, error) {
