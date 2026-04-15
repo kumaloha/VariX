@@ -548,6 +548,7 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 	fs := flag.NewFlagSet("memory global-compare", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
+	runNow := fs.Bool("run", false, "recompute both v1 and v2 outputs before comparing")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -567,15 +568,30 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 	}
 	defer store.Close()
 
-	v1, err := store.GetLatestGlobalMemoryOrganizationOutput(context.Background(), strings.TrimSpace(*userID))
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	v2, err := store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
+	var v1 memory.GlobalOrganizationOutput
+	var v2 memory.GlobalMemoryV2Output
+	if *runNow {
+		v1, err = store.RunGlobalMemoryOrganization(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		v2, err = store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	} else {
+		v1, err = store.GetLatestGlobalMemoryOrganizationOutput(context.Background(), strings.TrimSpace(*userID))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		v2, err = store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 	}
 	fmt.Fprint(stdout, formatGlobalCompare(v1, v2))
 	return 0

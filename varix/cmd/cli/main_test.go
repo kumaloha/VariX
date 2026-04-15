@@ -1295,6 +1295,55 @@ func TestRunMemoryGlobalCompareShowsV1AndV2Sections(t *testing.T) {
 	}
 }
 
+func TestRunMemoryGlobalCompareRunFlagBuildsFreshOutputs(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID: "weibo:CMP2", Source: "weibo", ExternalID: "CMP2", RootExternalID: "CMP2", Model: c.Qwen36PlusModel,
+			Output: c.Output{Summary: "s", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{
+				{ID: "n1", Kind: c.NodeFact, Text: "流动性收紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: c.NodeConclusion, Text: "风险资产承压"},
+			}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-compare-run", SourcePlatform: "weibo", SourceExternalID: "CMP2", NodeIDs: []string{"n1", "n2"}}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-compare", "--run", "--user", "u-compare-run"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("global-compare --run code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"V1 cluster-first", "V2 thesis-first", "风险资产承压"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q in %q", want, out)
+		}
+	}
+}
+
 type fakeCompileClient struct {
 	record c.Record
 	err    error
