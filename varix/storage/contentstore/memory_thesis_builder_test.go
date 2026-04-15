@@ -333,6 +333,44 @@ func TestBuildCandidateTheses_DoesNotTreatAnyFinancialAssetMentionAsDebtTheme(t 
 	}
 }
 
+func TestBuildCandidateTheses_DoesNotBridgeMergeTwoDistinctOilQuestions(t *testing.T) {
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	nodes := []memory.AcceptedNode{
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "B1",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeConclusion),
+			NodeText:         "油价上涨会推升通胀压力",
+			AcceptedAt:       now,
+		},
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "twitter",
+			SourceExternalID: "B2",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeFact),
+			NodeText:         "油价上涨",
+			AcceptedAt:       now,
+		},
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "web",
+			SourceExternalID: "B3",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeConclusion),
+			NodeText:         "高油价会提升能源企业利润",
+			AcceptedAt:       now,
+		},
+	}
+
+	got := buildCandidateTheses(nodes, now)
+	if len(got) != 2 {
+		t.Fatalf("len(buildCandidateTheses) = %d, want 2 theses; shared bridge fact should not collapse two distinct oil questions", len(got))
+	}
+}
+
 func TestBuildCandidateTheses_MergesCrossSourceFactAndConclusionOnSameObject(t *testing.T) {
 	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
 	nodes := []memory.AcceptedNode{
