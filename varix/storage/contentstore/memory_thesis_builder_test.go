@@ -414,3 +414,22 @@ func TestBuildCandidateTheses_CompressesLargePetrodollarPrivateCreditTopicLabel(
 		t.Fatalf("TopicLabel = %q, want %q", got[0].TopicLabel, want)
 	}
 }
+
+func TestBuildCandidateTheses_ReattachesSameSourceSingletonConditionAndPrediction(t *testing.T) {
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	nodes := []memory.AcceptedNode{
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "Q1", NodeID: "n1", NodeKind: string(compile.NodeFact), NodeText: "1970年代美沙达成石油美元协议，形成中东石油收入回流购买美国金融资产的闭环", AcceptedAt: now},
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "Q1", NodeID: "n2", NodeKind: string(compile.NodeImplicitCondition), NodeText: "私募信贷基金通过监管套利进行期限错配，积累流动性隐患", AcceptedAt: now},
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "Q1", NodeID: "n3", NodeKind: string(compile.NodeConclusion), NodeText: "石油美元循环面临断裂风险，且私募信贷正积累类似2008年次贷危机的流动性隐患", AcceptedAt: now},
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "Q1", NodeID: "n4", NodeKind: string(compile.NodeExplicitCondition), NodeText: "若AI应用冲击导致SaaS企业现金流断裂", AcceptedAt: now},
+		{UserID: "u-thesis", SourcePlatform: "weibo", SourceExternalID: "Q1", NodeID: "n5", NodeKind: string(compile.NodePrediction), NodeText: "一旦私募信贷触发季度赎回上限，下季度极大概率发生全面挤兑并波及华尔街", AcceptedAt: now},
+	}
+
+	got := buildCandidateTheses(nodes, now)
+	if len(got) != 1 {
+		t.Fatalf("len(buildCandidateTheses) = %d, want 1 thesis with same-source condition/prediction reattached", len(got))
+	}
+	if len(got[0].NodeIDs) != 5 {
+		t.Fatalf("NodeIDs = %#v, want all 5 nodes in one thesis", got[0].NodeIDs)
+	}
+}

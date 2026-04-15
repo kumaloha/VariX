@@ -21,12 +21,17 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 	byID := make(map[string]memory.AcceptedNode, len(nodes))
 	nodeIDs := make([]string, 0, len(nodes))
 	sourceCounts := map[string]int{}
+	sourceConclusionCounts := map[string]int{}
 	for _, node := range nodes {
 		ref := globalMemoryNodeRef(node)
 		node.NodeID = ref
 		byID[ref] = node
 		nodeIDs = append(nodeIDs, ref)
-		sourceCounts[node.SourcePlatform+":"+node.SourceExternalID]++
+		sourceKey := node.SourcePlatform + ":" + node.SourceExternalID
+		sourceCounts[sourceKey]++
+		if node.NodeKind == string(compile.NodeConclusion) {
+			sourceConclusionCounts[sourceKey]++
+		}
 	}
 	sort.Strings(nodeIDs)
 
@@ -50,7 +55,8 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 			left := byID[nodeIDs[i]]
 			right := byID[nodeIDs[j]]
 			if left.SourcePlatform == right.SourcePlatform && left.SourceExternalID == right.SourceExternalID {
-				if sameSourceCausalPairAllowed(left, right, sourceCounts[left.SourcePlatform+":"+left.SourceExternalID]) {
+				sourceKey := left.SourcePlatform + ":" + left.SourceExternalID
+				if sameSourceCausalPairAllowed(left, right, sourceCounts[sourceKey], sourceConclusionCounts[sourceKey]) {
 					addEdge(left.NodeID, right.NodeID)
 					continue
 				}
@@ -106,11 +112,14 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 	return out
 }
 
-func sameSourceCausalPairAllowed(left, right memory.AcceptedNode, sourceCount int) bool {
-	if !(hierarchyTransitionAllowed(left.NodeKind, right.NodeKind) || hierarchyTransitionAllowed(right.NodeKind, left.NodeKind)) {
+func sameSourceCausalPairAllowed(left, right memory.AcceptedNode, sourceCount int, sourceConclusionCount int) bool {
+	if !sameSourceStructuralPairAllowed(left.NodeKind, right.NodeKind) {
 		return false
 	}
 	if sourceCount <= 4 {
+		return true
+	}
+	if sourceCount <= 8 && sourceConclusionCount <= 1 {
 		return true
 	}
 	if _, ok := contradictionReason(left.NodeText, right.NodeText); ok {
@@ -126,6 +135,24 @@ func sameSourceCausalPairAllowed(left, right memory.AcceptedNode, sourceCount in
 		return true
 	}
 	return false
+}
+
+func sameSourceStructuralPairAllowed(leftKind, rightKind string) bool {
+	if hierarchyTransitionAllowed(leftKind, rightKind) || hierarchyTransitionAllowed(rightKind, leftKind) {
+		return true
+	}
+	switch {
+	case leftKind == string(compile.NodeExplicitCondition) && rightKind == string(compile.NodeConclusion):
+		return true
+	case rightKind == string(compile.NodeExplicitCondition) && leftKind == string(compile.NodeConclusion):
+		return true
+	case leftKind == string(compile.NodeImplicitCondition) && rightKind == string(compile.NodeConclusion):
+		return true
+	case rightKind == string(compile.NodeImplicitCondition) && leftKind == string(compile.NodeConclusion):
+		return true
+	default:
+		return false
+	}
 }
 
 func thesisTopicLabel(component []string, byID map[string]memory.AcceptedNode) string {
