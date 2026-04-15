@@ -460,3 +460,66 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationV2AbstractsBankResilienceOutput(
 		t.Fatalf("SignalStrength = %q, want %q", got, want)
 	}
 }
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2ReattachesSameSourceSingletons(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "weibo:SR1",
+		Source:         "weibo",
+		ExternalID:     "SR1",
+		RootExternalID: "SR1",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "1970年代美沙达成石油美元协议，形成中东石油收入回流购买美国金融资产的闭环", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeImplicitCondition, Text: "私募信贷基金通过监管套利进行期限错配，积累流动性隐患", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n3", Kind: compile.NodeConclusion, Text: "石油美元循环面临断裂风险，且私募信贷正积累类似2008年次贷危机的流动性隐患", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n4", Kind: compile.NodeExplicitCondition, Text: "若AI应用冲击导致SaaS企业现金流断裂"},
+					{ID: "n5", Kind: compile.NodePrediction, Text: "一旦私募信贷触发季度赎回上限，下季度极大概率发生全面挤兑并波及华尔街", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n3", Kind: compile.EdgeDerives},
+					{From: "n2", To: "n3", Kind: compile.EdgeDerives},
+					{From: "n3", To: "n5", Kind: compile.EdgeDerives},
+					{From: "n4", To: "n5", Kind: compile.EdgePresets},
+				},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-v2-reattach",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "SR1",
+		NodeIDs:          []string{"n1", "n2", "n3", "n4", "n5"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-reattach", time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.CandidateTheses) != 1 {
+		t.Fatalf("len(CandidateTheses) = %d, want 1 thesis after singleton reattach", len(out.CandidateTheses))
+	}
+	if len(out.CandidateTheses[0].NodeIDs) != 5 {
+		t.Fatalf("NodeIDs = %#v, want all 5 nodes grouped", out.CandidateTheses[0].NodeIDs)
+	}
+	if len(out.CognitiveConclusions) != 1 {
+		t.Fatalf("len(CognitiveConclusions) = %d, want 1", len(out.CognitiveConclusions))
+	}
+}
