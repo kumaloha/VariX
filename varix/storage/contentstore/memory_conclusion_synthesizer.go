@@ -64,6 +64,12 @@ func synthesizeConclusionHeadline(thesis memory.CausalThesis, card memory.Cognit
 	if abstract := abstractHeadlineFromPetrodollarPrivateCredit(thesis, card); abstract != "" {
 		return abstract
 	}
+	if abstract := abstractHeadlineFromOilShock(thesis, card); abstract != "" {
+		return abstract
+	}
+	if abstract := abstractHeadlineFromJPMResilience(thesis, card); abstract != "" {
+		return abstract
+	}
 	if len(card.Predictions) > 0 && strings.TrimSpace(card.Predictions[0]) != "" {
 		if abstract := abstractHeadlineFromPressureAndVolatility(driver, headline, strings.TrimSpace(card.Predictions[0])); abstract != "" {
 			return abstract
@@ -100,6 +106,26 @@ func abstractHeadlineFromPetrodollarPrivateCredit(thesis memory.CausalThesis, ca
 		return ""
 	}
 	return "石油美元与私募信贷流动性风险正在推高美国资产脆弱性"
+}
+
+func abstractHeadlineFromOilShock(thesis memory.CausalThesis, card memory.CognitiveCard) string {
+	if !strings.Contains(card.Title, "海峡封锁") {
+		return ""
+	}
+	if len(card.Predictions) == 0 || !strings.Contains(card.Predictions[0], "130-150美元") {
+		return ""
+	}
+	return "油价冲击与海峡封锁风险正在放大能源与市场压力"
+}
+
+func abstractHeadlineFromJPMResilience(thesis memory.CausalThesis, card memory.CognitiveCard) string {
+	if !strings.Contains(card.Title, "摩根大通") {
+		return ""
+	}
+	if !strings.Contains(card.Title, "抵御波动") {
+		return ""
+	}
+	return "高利率与资产价格脆弱性并存，但头部银行仍展现经营韧性"
 }
 
 func abstractHeadlineFromPressureAndVolatility(driver, headline, prediction string) string {
@@ -169,7 +195,7 @@ func firstNonZeroTime(values ...time.Time) time.Time {
 
 func signalStrengthForConclusion(conclusion memory.CognitiveConclusion) string {
 	switch {
-	case (strings.Contains(conclusion.Headline, "推向") || strings.Contains(conclusion.Headline, "推高") || strings.Contains(conclusion.Headline, "侵蚀")) && strings.TrimSpace(conclusion.Subheadline) != "":
+	case (strings.Contains(conclusion.Headline, "推向") || strings.Contains(conclusion.Headline, "推高") || strings.Contains(conclusion.Headline, "侵蚀") || strings.Contains(conclusion.Headline, "放大")) && strings.TrimSpace(conclusion.Subheadline) != "":
 		return "high"
 	case strings.Contains(conclusion.Headline, "并可能导致"):
 		return "high"

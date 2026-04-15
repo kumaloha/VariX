@@ -240,3 +240,63 @@ func TestBuildCognitiveConclusion_AbstractsPetrodollarPrivateCreditPattern(t *te
 		t.Fatalf("Headline = %q, want %q", got.Headline, want)
 	}
 }
+
+func TestBuildCognitiveConclusion_AbstractsOilShockPattern(t *testing.T) {
+	thesis := memory.CausalThesis{
+		CausalThesisID:    "ct-4",
+		ThesisID:          "thesis-4",
+		CoreQuestion:      "关于「油价」的判断",
+		CorePathNodeIDs:   []string{"n1", "n2", "n3", "n4"},
+		CompletenessScore: 1.0,
+		AbstractionReady:  true,
+		NodeRoles:         map[string]string{"n1": "fact", "n2": "condition", "n3": "conclusion", "n4": "prediction"},
+	}
+	cards := []memory.CognitiveCard{{
+		CardID:          "card-4",
+		CausalThesisID:  "ct-4",
+		Title:           "释放石油储备等舒缓性措施无法根本平抑油价，危机核心在于海峡封锁",
+		Summary:         "国际能源组织协调释放4亿桶原油储备，但布伦特原油价格仍突破100美元/桶 → 若石油价格维持在每桶100美元 → 释放石油储备等舒缓性措施无法根本平抑油价，危机核心在于海峡封锁 → 布伦特原油价格将攀升至每桶130-150美元甚至更高",
+		KeyEvidence:     []string{"国际能源组织协调释放4亿桶原油储备，但布伦特原油价格仍突破100美元/桶"},
+		Predictions:     []string{"布伦特原油价格将攀升至每桶130-150美元甚至更高"},
+		ConfidenceLabel: "strong",
+	}}
+
+	got, ok := buildCognitiveConclusion(thesis, cards)
+	if !ok {
+		t.Fatalf("ok = false, want true")
+	}
+	want := "油价冲击与海峡封锁风险正在放大能源与市场压力"
+	if got.Headline != want {
+		t.Fatalf("Headline = %q, want %q", got.Headline, want)
+	}
+}
+
+func TestBuildCognitiveConclusion_AbstractsJPMResiliencePattern(t *testing.T) {
+	thesis := memory.CausalThesis{
+		CausalThesisID:    "ct-5",
+		ThesisID:          "thesis-5",
+		CoreQuestion:      "关于「银行监管与金融系统安全」的判断",
+		CorePathNodeIDs:   []string{"n1", "n2", "n3", "n4"},
+		CompletenessScore: 1.0,
+		AbstractionReady:  true,
+		NodeRoles:         map[string]string{"n1": "fact", "n2": "mechanism", "n3": "conclusion", "n4": "prediction"},
+	}
+	cards := []memory.CognitiveCard{{
+		CardID:          "card-5",
+		CausalThesisID:  "ct-5",
+		Title:           "宏观高利率与资产价格风险正在累积，但摩根大通具备抵御波动的能力",
+		Summary:         "2025年摩根大通实现创纪录营收1856亿美元与净利润570亿美元，ROTCE达20% → 当前高资产价格环境在遭遇宏观负面冲击时将放大金融系统脆弱性 → 宏观高利率与资产价格风险正在累积，但摩根大通具备抵御波动的能力 → 摩根大通将在复杂宏观环境下维持长期稳健增长与股东回报",
+		KeyEvidence:     []string{"2025年摩根大通实现创纪录营收1856亿美元与净利润570亿美元，ROTCE达20%"},
+		Predictions:     []string{"摩根大通将在复杂宏观环境下维持长期稳健增长与股东回报"},
+		ConfidenceLabel: "strong",
+	}}
+
+	got, ok := buildCognitiveConclusion(thesis, cards)
+	if !ok {
+		t.Fatalf("ok = false, want true")
+	}
+	want := "高利率与资产价格脆弱性并存，但头部银行仍展现经营韧性"
+	if got.Headline != want {
+		t.Fatalf("Headline = %q, want %q", got.Headline, want)
+	}
+}
