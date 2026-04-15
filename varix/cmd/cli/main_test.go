@@ -1190,6 +1190,55 @@ func TestRunMemoryGlobalV2CardRejectsInvalidItemType(t *testing.T) {
 	}
 }
 
+func TestRunMemoryGlobalV2CardReportsWhenFilterMatchesNothing(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID: "weibo:N1", Source: "weibo", ExternalID: "N1", RootExternalID: "N1", Model: c.Qwen36PlusModel,
+			Output: c.Output{Summary: "s", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{
+				{ID: "n1", Kind: c.NodeFact, Text: "流动性收紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: c.NodeConclusion, Text: "风险资产承压"},
+			}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-v2-empty-filter", SourcePlatform: "weibo", SourceExternalID: "N1", NodeIDs: []string{"n1", "n2"}}); err != nil {
+			return nil, err
+		}
+		if _, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-empty-filter", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-v2-card", "--user", "u-v2-empty-filter", "--item-type", "conflict"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("empty filtered code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No conflict items") {
+		t.Fatalf("stdout = %q, want no-match guidance", stdout.String())
+	}
+}
+
 type fakeCompileClient struct {
 	record c.Record
 	err    error

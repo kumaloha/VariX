@@ -533,7 +533,12 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprint(stdout, formatGlobalV2Cards(filterGlobalV2Items(out, strings.TrimSpace(*itemType))))
+	filtered := filterGlobalV2Items(out, strings.TrimSpace(*itemType))
+	if strings.TrimSpace(*itemType) != "" && len(filtered.TopMemoryItems) == 0 {
+		fmt.Fprintf(stdout, "No %s items for user %s\n", strings.TrimSpace(*itemType), strings.TrimSpace(*userID))
+		return 0
+	}
+	fmt.Fprint(stdout, formatGlobalV2Cards(filtered))
 	return 0
 }
 
