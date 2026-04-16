@@ -6,6 +6,20 @@ import (
 	"strings"
 )
 
+const nodeSplittingGuidance = `
+- 节点拆分必须避免“胖节点”：
+  - 如果一句话内部能自然改写成两步或以上因果链（A→B→C），优先拆成多个节点和边
+  - 如果一句话同时混合已发生事实、当前判断和未来预测，优先拆开
+  - 如果一句话包含多个可独立核实的事实子句，也优先拆开
+  - 不要把整条宏观链压成一个“胖事实”节点
+- 例如：伊朗战争封锁霍尔木兹海峡导致油价飙升，推高美国通胀，美联储维持高利率并释放加息预期
+  优先拆成：
+  - 事实：伊朗战争封锁霍尔木兹海峡
+  - 事实：油价飙升
+  - 事实：美国通胀上行
+  - 结论：美联储维持高利率并释放加息预期
+`
+
 type GraphRequirements struct {
 	MinNodes int
 	MinEdges int
@@ -59,6 +73,7 @@ func BuildInstruction(req GraphRequirements) string {
   必须拆成：
   - 显式条件：若中东地缘冲突升级叠加流动性收紧
   - 预测：私募信贷极大概率爆发挤兑，并可能引发华尔街系统性金融危机
+%s
 - 优先遵守这个因果骨架：
   - 事实 + 隐含条件 => 结论
   - 事实 + 显式条件 + 结论 => 预测
@@ -67,7 +82,15 @@ func BuildInstruction(req GraphRequirements) string {
 - details 用于折叠展示，可以保留 quote/reference/attachment 的补充信息
 - 如果不确定，也必须给出你认为最合理的最小图，而不是返回空 graph
 - 长文必须显式拆出多个事实、显式条件、隐含条件和结论，不要只给三两个概括节点
-`, req.MinNodes, req.MinEdges))
+`, req.MinNodes, req.MinEdges, nodeSplittingGuidance))
+}
+
+func BuildRetryPrompt(bundle Bundle, req GraphRequirements) string {
+	return BuildPrompt(bundle) + fmt.Sprintf(
+		"\n\n上一次返回未满足要求。请重试，并确保：1）graph 至少 %d 个节点和 %d 条边；2）details 不为空对象；3）严格使用允许的节点和边类型；4）如果一句话同时含有“若/如果/一旦”条件和未来结果，必须拆成“显式条件 + 预测”两个节点，不能整句都标成显式条件；5）如果一句话内部是两步或以上因果链，必须拆成多个节点和边，不要把整条宏观链压成一个“胖事实”节点；6）如果一句话混合已发生事实、当前判断和未来预测，必须按时间层拆开；7）如果是长文，必须拆出更多中间事实、隐含条件和结论。",
+		req.MinNodes,
+		req.MinEdges,
+	)
 }
 
 func BuildPrompt(bundle Bundle) string {

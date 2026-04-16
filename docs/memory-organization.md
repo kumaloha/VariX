@@ -3,10 +3,11 @@
 VariX currently has **two global memory organization surfaces**:
 
 1. **v1 cluster-first**
-2. **v2 thesis-first**
+2. **v2 relation-first**
 
 They coexist during rollout. Accepted memory truth (`user_memory_nodes`,
-acceptance events, and jobs) remains unchanged.
+acceptance events, and jobs) remains unchanged. v2 re-expresses that truth as
+canonical-entity-anchored relation output.
 
 ---
 
@@ -28,75 +29,148 @@ CLI:
 
 ---
 
-## v2: thesis-first global memory
+## v2: relation-first global memory
 
 Primary output object:
 - `GlobalMemoryV2Output`
 
 Pipeline:
 
-`AcceptedNode -> CandidateThesis -> ConflictSet | CausalThesis -> CognitiveCard -> CognitiveConclusion -> TopMemoryItem`
+`AcceptedNode -> CanonicalEntity -> Relation -> Mechanism -> DriverAggregate | TargetAggregate -> ConflictView | CognitiveCard | CognitiveConclusion -> TopMemoryItem`
 
-### CandidateThesis
-A neutral grouping around a shared cognitive question or mechanism domain.
-
-Important fields:
-- `topic_label`
-- `node_ids`
-- `source_refs`
-- `cluster_reason`
-
-Typical `cluster_reason` values:
-- `same_source_causal_chain`
-- `contradiction_pair`
-- `shared_mechanism_theme`
-- `shared_semantic_phrase`
-
-### ConflictSet
-Blocks abstraction when the thesis contains unresolved contradiction.
+### CanonicalEntity
+The stable anchor for concepts that may act as drivers, targets, or both.
 
 Important fields:
-- `conflict_topic`
-- `side_a_node_ids`
-- `side_b_node_ids`
+- `entity_id`
+- `entity_type`
+- `canonical_name`
+- `aliases`
+- `merge_history`
+- `split_history`
+
+Rules:
+- aggregates always anchor on canonical entities, not raw strings
+- relation endpoints always point at canonical entities
+- alias/merge/split logic lives here, not on relation records
+
+### Relation
+The stable truth boundary: one canonical driver affects one canonical target.
+
+Important fields:
+- `relation_id`
+- `driver_entity_id`
+- `target_entity_id`
+- `status`
+- `retired_at`
+- `superseded_by_relation_id`
+- `merge_history`
+- `split_history`
+
+Rules:
+- one relation has exactly one driver and one target
+- relation stores boundary/identity, not final polarity
+- relation supports lifecycle changes such as merge, split, retire, supersede
+
+### Mechanism
+The dense/high-information body for a relation at a given `as_of` slice.
+
+Logical sub-objects:
+- `Mechanism`
+- `MechanismNode`
+- `MechanismEdge`
+- `PathOutcome`
+
+Rules:
+- mechanism explains *how* a relation transmits
+- path outcomes carry polarity, condition scope, and confidence
+- no `primary_path` / `alternative_path` ground-truth fields exist; path ranking is a rendering concern
+- mechanisms are historical records and may evolve over time for the same relation
+
+### DriverAggregate
+A derived upper-layer view answering: “this driver currently affects what?”
+
+Important fields:
+- `aggregate_id`
+- `driver_entity_id`
+- `relation_ids`
+- `target_entity_ids`
+- `coverage_score`
+- `conflict_count`
+- `as_of`
+
+### TargetAggregate
+A derived upper-layer view answering: “this target is currently affected by what?”
+
+Important fields:
+- `aggregate_id`
+- `target_entity_id`
+- `relation_ids`
+- `driver_entity_ids`
+- `coverage_score`
+- `conflict_count`
+- `as_of`
+
+### ConflictView
+A derived contradiction view built from conflicting path outcomes.
+
+Important fields:
+- `conflict_id`
+- `scope_type`
+- `scope_id`
+- `left_path_outcome_ids`
+- `right_path_outcome_ids`
 - `conflict_reason`
+- `status`
+- `as_of`
 
-### CausalThesis
-The internal causal proposition structure.
-
-Important fields:
-- `core_question`
-- `node_roles`
-- `edges`
-- `core_path_node_ids`
-- `traceability_map`
+Rules:
+- conflict is path-level, not mechanism-blob-level
+- conflicts are derived views, not source truth
+- conflict can suppress unsupported abstraction without replacing underlying relations
 
 ### CognitiveCard
 The readable cognition object.
 
+Granularity:
+- one main card per `(relation_id, as_of)`
+
 Important fields:
+- `card_id`
+- `relation_id`
+- `as_of`
 - `title`
 - `summary`
-- `causal_chain`
+- `mechanism_chain`
 - `key_evidence`
-- `mechanism`
 - `conditions`
 - `predictions`
 
+Rules:
+- cards use the active mechanism state as content
+- competing paths appear inside the card, not as default separate cards
+
 ### CognitiveConclusion
-The top-level abstract judgment produced only when the thesis is strong enough
-and not blocked by contradiction.
+The top-level abstract judgment produced only when hard gates and soft-judge gates pass.
 
 Important fields:
+- `conclusion_id`
+- `source_type`
+- `source_id`
 - `headline`
 - `subheadline`
 - `backing_card_ids`
 - `traceability_status`
+- `blocked_by_conflict`
+- `as_of`
 
 ### TopMemoryItem
 The first-layer display shell.
 
-Two item types:
+Item types:
+- `driver_aggregate`
+- `target_aggregate`
+- `card`
 - `conclusion`
 - `conflict`
 
@@ -104,13 +178,14 @@ Two item types:
 
 ## Current v2 quality rules
 
-- contradiction blocks abstraction
-- a single source may still produce a conclusion if the causal chain is strong
-- card summaries follow the full core path
-- card rendering can expose mechanism nodes separately from evidence/conditions
-- conditions are separated from key evidence
-- key evidence focuses on core supporting drivers
-- conflict wording is humanized for product-facing surfaces
+- canonical entities are the only stable browse anchors
+- relations are atomic single-driver/single-target boundaries
+- mechanism carries explanatory structure and path-level polarity
+- aggregates are derived indexes over relations/mechanisms, not free-form truth
+- conclusions require hard-gate success plus reproducible soft-judge approval
+- conflicts are derived from contradictory path outcomes and block abstraction
+- top items preserve coexistence with v1 and stay useful for debugging/regression comparison
+- deletion or retraction is handled via tombstone + reevaluation, not silent partial mutation
 
 ---
 
@@ -147,10 +222,12 @@ Review-friendly behaviors:
 
 v2 is intended to become the product-facing memory layer because it better
 supports:
-- abstraction
-- causal organization
-- contradiction-first handling
+- canonical entity anchoring
+- atomic relation truth boundaries
+- mechanism-rich explanatory structure
+- driver and target navigation
+- contradiction-aware derived views
 - multi-source cognitive synthesis
 
-v1 remains available until thesis-first output quality is consistently stronger
+v1 remains available until relation-first output quality is consistently stronger
 than cluster-first output on real memory sets.
