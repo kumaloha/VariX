@@ -599,7 +599,7 @@ func (s *SQLiteStore) getMechanism(ctx context.Context, mechanismID string) (mem
 		mechanism.ValidTo = parseSQLiteTime(validTo.String)
 	}
 	mechanism.Status = memory.MechanismStatus(status)
-	mechanism.SourceRefs = unmarshalJSONStringSlice(sourceRefsJSON)
+	mechanism.SourceRefs = unmarshalOptionalJSONStringSlice(sourceRefsJSON)
 	mechanism.TraceabilityStatus = memory.TraceabilityStatus(traceabilityStatus)
 	mechanism.CreatedAt = parseSQLiteTime(createdAt)
 	mechanism.UpdatedAt = parseSQLiteTime(updatedAt)
@@ -620,7 +620,7 @@ func (s *SQLiteStore) listMechanismNodes(ctx context.Context, mechanismID string
 	}
 	defer rows.Close()
 
-	nodes := make([]memory.MechanismNode, 0)
+	var nodes []memory.MechanismNode
 	for rows.Next() {
 		var node memory.MechanismNode
 		var nodeType string
@@ -639,7 +639,7 @@ func (s *SQLiteStore) listMechanismNodes(ctx context.Context, mechanismID string
 			return nil, err
 		}
 		node.NodeType = memory.MechanismNodeType(nodeType)
-		node.BackingAcceptedNodeIDs = unmarshalJSONStringSlice(backingJSON)
+		node.BackingAcceptedNodeIDs = unmarshalOptionalJSONStringSlice(backingJSON)
 		if sortOrder.Valid {
 			node.SortOrder = int(sortOrder.Int64)
 		}
@@ -666,7 +666,7 @@ func (s *SQLiteStore) listMechanismEdges(ctx context.Context, mechanismID string
 	}
 	defer rows.Close()
 
-	edges := make([]memory.MechanismEdge, 0)
+	var edges []memory.MechanismEdge
 	for rows.Next() {
 		var edge memory.MechanismEdge
 		var edgeType string
@@ -705,7 +705,7 @@ func (s *SQLiteStore) listPathOutcomes(ctx context.Context, mechanismID string) 
 	}
 	defer rows.Close()
 
-	outcomes := make([]memory.PathOutcome, 0)
+	var outcomes []memory.PathOutcome
 	for rows.Next() {
 		var outcome memory.PathOutcome
 		var nodePathJSON string
@@ -724,7 +724,7 @@ func (s *SQLiteStore) listPathOutcomes(ctx context.Context, mechanismID string) 
 		); err != nil {
 			return nil, err
 		}
-		outcome.NodePath = unmarshalJSONStringSlice(nodePathJSON)
+		outcome.NodePath = unmarshalOptionalJSONStringSlice(nodePathJSON)
 		outcome.OutcomePolarity = memory.OutcomePolarity(polarity)
 		if conditionScope.Valid {
 			outcome.ConditionScope = conditionScope.String
@@ -938,6 +938,14 @@ func unmarshalJSONStringSlice(raw string) []string {
 	}
 	var out []string
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func unmarshalOptionalJSONStringSlice(raw string) []string {
+	out := unmarshalJSONStringSlice(raw)
+	if len(out) == 0 {
 		return nil
 	}
 	return out

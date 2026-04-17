@@ -225,20 +225,6 @@ func seedRelationStoreTestRelation(t *testing.T, store *SQLiteStore, relationID 
 }
 
 func relationStoreTestMechanismGraph(mechanismID, relationID string, asOf time.Time, nodes []memory.MechanismNode, edges []memory.MechanismEdge, outcomes []memory.PathOutcome) memory.MechanismGraph {
-	if nodes == nil {
-		nodes = []memory.MechanismNode{}
-	}
-	for i := range nodes {
-		if nodes[i].BackingAcceptedNodeIDs == nil {
-			nodes[i].BackingAcceptedNodeIDs = []string{}
-		}
-	}
-	if edges == nil {
-		edges = []memory.MechanismEdge{}
-	}
-	if outcomes == nil {
-		outcomes = []memory.PathOutcome{}
-	}
 	return memory.MechanismGraph{
 		Mechanism: memory.Mechanism{
 			MechanismID:        mechanismID,
