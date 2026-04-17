@@ -531,6 +531,24 @@ func (s *SQLiteStore) init() error {
 				ON memory_path_outcomes(mechanism_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_memory_path_outcomes_polarity
 				ON memory_path_outcomes(outcome_polarity)`,
+		`CREATE TABLE IF NOT EXISTS memory_raw_canonical_mappings (
+				mapping_id INTEGER PRIMARY KEY AUTOINCREMENT,
+				canonical_object_type TEXT NOT NULL,
+				canonical_object_id TEXT NOT NULL,
+				source_platform TEXT NOT NULL,
+				source_external_id TEXT NOT NULL,
+				raw_node_id TEXT NOT NULL DEFAULT '',
+				raw_edge_key TEXT NOT NULL DEFAULT '',
+				mapping_confidence REAL NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_raw_canonical_mappings_unique
+				ON memory_raw_canonical_mappings(canonical_object_type, canonical_object_id, source_platform, source_external_id, raw_node_id, raw_edge_key)`,
+		`CREATE INDEX IF NOT EXISTS idx_memory_raw_canonical_mappings_canonical
+				ON memory_raw_canonical_mappings(canonical_object_type, canonical_object_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_memory_raw_canonical_mappings_source
+				ON memory_raw_canonical_mappings(source_platform, source_external_id)`,
 		`CREATE TABLE IF NOT EXISTS memory_driver_aggregates (
 				aggregate_id TEXT PRIMARY KEY,
 				driver_entity_id TEXT NOT NULL,
