@@ -256,10 +256,13 @@ posterior phase-1 的持久化与 runner 核心。
 - state mutation
 
 也就是说，这层已经不只是文档设计，已经开始进入真正实现。  
-但要注意：**当前 operator surface 还没有完全闭环**——CLI 里还没有独立
-`memory posterior-run` 命令，`memory list` / `memory show-source` 也还没有把
-posterior projection 直接暴露给终端读路径；phase-1 目前最完整的成品面仍然是
-store seam + organizer/stale-output guard。
+而且最近已经补上了一个关键 operator seam：
+- CLI 已经有独立 `memory posterior-run`
+- `memory organized` 会在 posterior refresh 之后对 stale output 给出明确提示
+
+但要注意：**当前 operator surface 还没有完全闭环**——`memory list` /
+`memory show-source` 还没有把 posterior projection 直接暴露给终端读路径；phase-1
+目前最完整的成品面是 store seam + `posterior-run` + organizer/stale-output guard。
 
 ---
 
@@ -296,13 +299,18 @@ store seam + organizer/stale-output guard。
 包括：
 - `memory accept`
 - `memory accept-batch`
+- `memory posterior-run`
 - `memory organize-run`
 - `memory organized`
 - `global-v2-*`
 
-也就是说，posterior 的 store 能力已经存在，但 CLI operator surface 目前仍以
-accept / organize / organized 为主；如果后面把 `posterior-run` 正式暴露出来，
-入口大概率还是扩在这里。
+也就是说，posterior 的 store 能力现在已经开始真正进入 CLI operator surface：
+- `memory posterior-run` 可以显式触发 source-scoped posterior evaluation
+- `memory organized` 会在读到 stale organization output 时提示先刷新
+
+但后面仍然还有空间继续补齐：
+- `memory list` / `memory show-source` 的 posterior 读投影
+- 更完整的 operator-level explainability
 
 ### `main_test.go`
 非常值得重视。
@@ -685,8 +693,11 @@ store/organizer seam 上进入：
 
 > “一组可追踪生命周期、能事后修正的记忆节点”
 
-但当前还差最后一层 operator 收口：
+现在已经补上的 operator 收口包括：
 - 独立 CLI `posterior-run`
+- stale 的 `memory organized` 输出会明确引导重新执行 `memory organize-run`
+
+但当前还差的部分仍然有：
 - `memory list` / `memory show-source` 的 posterior 读投影
 - 更完整的端到端回归覆盖
 
