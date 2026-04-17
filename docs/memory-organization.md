@@ -218,6 +218,26 @@ Review-friendly behaviors:
 
 ---
 
+## Source-scoped posterior verification (phase 1 design)
+
+Source-scoped memory also has a planned posterior-verification extension for
+accepted `结论` / `预测` nodes.
+
+Key design rules:
+
+- posterior lifecycle is **not** a replacement for prior fact verification
+- facts stay in the existing verify flow
+- accepted-node snapshot semantics stay stable
+- posterior state is stored as mutable sidecar data
+- source-scoped `organized` reads must treat post-posterior stale output as an
+  explicit error, not silently current data
+- global v1/v2 organization surfaces stay out of scope for the first pass
+
+See `docs/memory-posterior-phase1.md` for the detailed phase-1 contract and
+review checklist.
+
+---
+
 ## Rollout intent
 
 v2 is intended to become the product-facing memory layer because it better
