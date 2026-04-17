@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -12,6 +13,16 @@ import (
 	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
 )
+
+var ErrMemoryOrganizationOutputStale = errors.New("memory organization output is stale")
+
+type posteriorStateRow struct {
+	State            string
+	Diagnosis        string
+	Reason           string
+	BlockedByNodeIDs []string
+	UpdatedAt        *time.Time
+}
 
 func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID string, now time.Time) (memory.OrganizationOutput, error) {
 	var job memory.OrganizationJob
@@ -48,6 +59,10 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 	if err != nil {
 		return memory.OrganizationOutput{}, err
 	}
+	posteriorByMemoryID, err := loadPosteriorStatesBySourceTx(ctx, tx, job.UserID, job.SourcePlatform, job.SourceExternalID)
+	if err != nil {
+		return memory.OrganizationOutput{}, err
+	}
 	record, err := getCompiledOutputTx(ctx, tx, job.SourcePlatform, job.SourceExternalID)
 	if err != nil {
 		return memory.OrganizationOutput{}, err
@@ -64,6 +79,13 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 	active := make([]memory.AcceptedNode, 0)
 	inactive := make([]memory.AcceptedNode, 0)
 	for _, node := range nodes {
+		if posterior, ok := posteriorByMemoryID[node.MemoryID]; ok {
+			node.PosteriorState = posterior.State
+			node.PosteriorDiagnosis = posterior.Diagnosis
+			node.PosteriorReason = posterior.Reason
+			node.BlockedByNodeIDs = append([]string(nil), posterior.BlockedByNodeIDs...)
+			node.PosteriorUpdatedAt = posterior.UpdatedAt
+		}
 		if derived, ok := graphNodesByID[node.NodeID]; ok {
 			if sameNodeMeaning(node.NodeText, derived.Text) {
 				if strings.TrimSpace(derived.Text) != "" {
@@ -141,22 +163,57 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 
 func (s *SQLiteStore) GetLatestMemoryOrganizationOutput(ctx context.Context, userID, sourcePlatform, sourceExternalID string) (memory.OrganizationOutput, error) {
 	var payload string
+	var latestOutputCreatedAt string
+	var latestOutputJobID int64
 	err := s.db.QueryRowContext(
 		ctx,
-		`SELECT payload_json FROM memory_organization_outputs
+		`SELECT payload_json, created_at, job_id FROM memory_organization_outputs
 		 WHERE user_id = ? AND source_platform = ? AND source_external_id = ?
 		 ORDER BY created_at DESC, output_id DESC
 		 LIMIT 1`,
 		userID, sourcePlatform, sourceExternalID,
-	).Scan(&payload)
+	).Scan(&payload, &latestOutputCreatedAt, &latestOutputJobID)
 	if err != nil {
 		return memory.OrganizationOutput{}, err
+	}
+	stale, staleJobID, staleJobStatus, staleJobCreatedAt, err := s.hasNewerInFlightOrganizationJob(ctx, userID, sourcePlatform, sourceExternalID, parseSQLiteTime(latestOutputCreatedAt), latestOutputJobID)
+	if err != nil {
+		return memory.OrganizationOutput{}, err
+	}
+	if stale {
+		return memory.OrganizationOutput{}, fmt.Errorf("%w: source %s/%s for user %s has newer %s job %d created at %s", ErrMemoryOrganizationOutputStale, sourcePlatform, sourceExternalID, userID, staleJobStatus, staleJobID, staleJobCreatedAt.Format(time.RFC3339Nano))
 	}
 	var out memory.OrganizationOutput
 	if err := json.Unmarshal([]byte(payload), &out); err != nil {
 		return memory.OrganizationOutput{}, err
 	}
 	return out, nil
+}
+
+func (s *SQLiteStore) hasNewerInFlightOrganizationJob(ctx context.Context, userID, sourcePlatform, sourceExternalID string, latestOutputCreatedAt time.Time, latestOutputJobID int64) (bool, int64, string, time.Time, error) {
+	var jobID int64
+	var status string
+	var createdAt string
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT job_id, status, created_at
+		 FROM memory_organization_jobs
+		 WHERE user_id = ? AND source_platform = ? AND source_external_id = ? AND status IN ('queued', 'running')
+		 ORDER BY created_at DESC, job_id DESC
+		 LIMIT 1`,
+		userID, sourcePlatform, sourceExternalID,
+	).Scan(&jobID, &status, &createdAt)
+	if err == sql.ErrNoRows {
+		return false, 0, "", time.Time{}, nil
+	}
+	if err != nil {
+		return false, 0, "", time.Time{}, err
+	}
+	jobCreatedAt := parseSQLiteTime(createdAt)
+	if jobCreatedAt.After(latestOutputCreatedAt) || (jobCreatedAt.Equal(latestOutputCreatedAt) && jobID > latestOutputJobID) {
+		return true, jobID, status, jobCreatedAt, nil
+	}
+	return false, 0, "", time.Time{}, nil
 }
 
 func listUserMemoryBySourceTx(ctx context.Context, tx *sql.Tx, userID, sourcePlatform, sourceExternalID string) ([]memory.AcceptedNode, error) {
@@ -181,6 +238,65 @@ func getCompiledOutputTx(ctx context.Context, tx *sql.Tx, platform, externalID s
 		return compile.Record{}, err
 	}
 	return record, nil
+}
+
+func loadPosteriorStatesBySourceTx(ctx context.Context, tx *sql.Tx, userID, sourcePlatform, sourceExternalID string) (map[int64]posteriorStateRow, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT p.memory_id, p.state, p.diagnosis_code, p.reason, p.blocked_by_node_ids_json, p.updated_at
+		FROM memory_posterior_states p
+		INNER JOIN user_memory_nodes u ON u.memory_id = p.memory_id
+		WHERE u.user_id = ? AND u.source_platform = ? AND u.source_external_id = ?`,
+		userID, sourcePlatform, sourceExternalID,
+	)
+	if err != nil {
+		if isMissingPosteriorStateTableErr(err) {
+			return map[int64]posteriorStateRow{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[int64]posteriorStateRow)
+	for rows.Next() {
+		var memoryID int64
+		var state sql.NullString
+		var diagnosis sql.NullString
+		var reason sql.NullString
+		var blockedByNodeIDsJSON sql.NullString
+		var updatedAt sql.NullString
+		if err := rows.Scan(&memoryID, &state, &diagnosis, &reason, &blockedByNodeIDsJSON, &updatedAt); err != nil {
+			if isMissingPosteriorStateTableErr(err) {
+				return map[int64]posteriorStateRow{}, nil
+			}
+			return nil, err
+		}
+		row := posteriorStateRow{
+			State:     strings.TrimSpace(state.String),
+			Diagnosis: strings.TrimSpace(diagnosis.String),
+			Reason:    strings.TrimSpace(reason.String),
+		}
+		if strings.TrimSpace(blockedByNodeIDsJSON.String) != "" {
+			if err := json.Unmarshal([]byte(blockedByNodeIDsJSON.String), &row.BlockedByNodeIDs); err != nil {
+				return nil, fmt.Errorf("decode posterior blocked_by_node_ids_json for memory_id %d: %w", memoryID, err)
+			}
+			sort.Strings(row.BlockedByNodeIDs)
+		}
+		if updatedAt.Valid && strings.TrimSpace(updatedAt.String) != "" {
+			parsed := parseSQLiteTime(updatedAt.String)
+			row.UpdatedAt = &parsed
+		}
+		out[memoryID] = row
+	}
+	if err := rows.Err(); err != nil {
+		if isMissingPosteriorStateTableErr(err) {
+			return map[int64]posteriorStateRow{}, nil
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
+func isMissingPosteriorStateTableErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such table: memory_posterior_states")
 }
 
 type canonicalNodeGroup struct {
@@ -435,6 +551,22 @@ func buildOpenQuestions(nodes []memory.AcceptedNode, record compile.Record) []st
 		if node.ValidFrom.IsZero() && node.ValidTo.IsZero() && node.NodeKind != string(compile.NodeExplicitCondition) && node.NodeKind != string(compile.NodeConclusion) {
 			questions = append(questions, fmt.Sprintf("node %s has no validity window", node.NodeID))
 		}
+		switch node.PosteriorState {
+		case memory.PosteriorStatePending:
+			questions = append(questions, fmt.Sprintf("posterior check pending for node %s", node.NodeID))
+		case memory.PosteriorStateBlocked:
+			if len(node.BlockedByNodeIDs) > 0 {
+				questions = append(questions, fmt.Sprintf("node %s blocked by conditions: %s", node.NodeID, strings.Join(node.BlockedByNodeIDs, ", ")))
+			} else {
+				questions = append(questions, fmt.Sprintf("node %s remains posterior-blocked", node.NodeID))
+			}
+		case memory.PosteriorStateFalsified:
+			if strings.TrimSpace(node.PosteriorDiagnosis) != "" {
+				questions = append(questions, fmt.Sprintf("node %s was falsified (%s)", node.NodeID, node.PosteriorDiagnosis))
+			} else {
+				questions = append(questions, fmt.Sprintf("node %s was falsified", node.NodeID))
+			}
+		}
 	}
 	for _, check := range record.Output.Verification.FactChecks {
 		if check.Status == compile.FactStatusUnverifiable {
@@ -593,10 +725,20 @@ func buildNodeHints(nodes, active []memory.AcceptedNode, dedupeGroups []memory.D
 		if status, ok := predictionStatusByNode[node.NodeID]; ok {
 			hint.PredictionStatus = string(status)
 		}
+		hint.PosteriorState = node.PosteriorState
+		hint.PosteriorDiagnosis = node.PosteriorDiagnosis
+		hint.PosteriorReason = node.PosteriorReason
+		hint.BlockedByNodeIDs = append([]string(nil), node.BlockedByNodeIDs...)
 		hint.DedupePeerNodeIDs = sortedNodeSet(dedupePeers[node.NodeID])
 		hint.ContradictionNodeIDs = sortedNodeSet(contradictionPeers[node.NodeID])
 		hint.ParentNodeIDs = sortedNodeSet(parentIDs[node.NodeID])
 		hint.ChildNodeIDs = sortedNodeSet(childIDs[node.NodeID])
+		switch node.PosteriorState {
+		case memory.PosteriorStateVerified:
+			hint.PreferredForDisplay = true
+		case memory.PosteriorStateBlocked, memory.PosteriorStateFalsified:
+			hint.PreferredForDisplay = false
+		}
 		if hint.State == "active" {
 			switch {
 			case len(hint.ParentNodeIDs) == 0 && len(hint.ChildNodeIDs) > 0:
