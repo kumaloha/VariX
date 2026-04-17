@@ -196,9 +196,10 @@ func (s *SQLiteStore) hasNewerInFlightOrganizationJob(ctx context.Context, userI
 	var createdAt string
 	err := s.db.QueryRowContext(
 		ctx,
-		`SELECT job_id, status, created_at
-		 FROM memory_organization_jobs
-		 WHERE user_id = ? AND source_platform = ? AND source_external_id = ? AND status IN ('queued', 'running')
+		`SELECT j.job_id, j.status, j.created_at
+		 FROM memory_organization_jobs j
+		 INNER JOIN memory_acceptance_events e ON e.event_id = j.trigger_event_id
+		 WHERE j.user_id = ? AND j.source_platform = ? AND j.source_external_id = ? AND j.status IN ('queued', 'running') AND e.trigger_type = 'posterior_refresh'
 		 ORDER BY created_at DESC, job_id DESC
 		 LIMIT 1`,
 		userID, sourcePlatform, sourceExternalID,
