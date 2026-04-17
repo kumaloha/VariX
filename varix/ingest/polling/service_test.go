@@ -985,37 +985,39 @@ func TestService_PollReusesStoredHighQualityTranscriptOnRateLimit(t *testing.T) 
 	}
 }
 
-type discoveryIdentityEvidenceDispatcher struct {
-	parsed types.ParsedURL
-	item   types.DiscoveryItem
-	raw    types.RawContent
+type provenanceEvidencePollingDispatcher struct {
+	item types.DiscoveryItem
+	raw  types.RawContent
 }
 
-func (d discoveryIdentityEvidenceDispatcher) SupportsFollow(kind types.Kind, platform types.Platform) bool {
+func (d provenanceEvidencePollingDispatcher) SupportsFollow(kind types.Kind, platform types.Platform) bool {
 	return kind == types.KindSearch && platform == types.PlatformTwitter
 }
 
-func (d discoveryIdentityEvidenceDispatcher) DiscoverFollowedTarget(context.Context, types.FollowTarget) ([]types.DiscoveryItem, error) {
+func (d provenanceEvidencePollingDispatcher) DiscoverFollowedTarget(context.Context, types.FollowTarget) ([]types.DiscoveryItem, error) {
 	return []types.DiscoveryItem{d.item}, nil
 }
 
-func (d discoveryIdentityEvidenceDispatcher) ParseURL(_ context.Context, rawURL string) (types.ParsedURL, error) {
-	parsed := d.parsed
-	parsed.CanonicalURL = rawURL
-	return parsed, nil
+func (d provenanceEvidencePollingDispatcher) ParseURL(_ context.Context, rawURL string) (types.ParsedURL, error) {
+	return types.ParsedURL{
+		Platform:     types.PlatformWeb,
+		ContentType:  types.ContentTypePost,
+		PlatformID:   "web-hash",
+		CanonicalURL: rawURL,
+	}, nil
 }
 
-func (d discoveryIdentityEvidenceDispatcher) FetchByParsedURL(context.Context, types.ParsedURL) ([]types.RawContent, error) {
+func (d provenanceEvidencePollingDispatcher) FetchByParsedURL(context.Context, types.ParsedURL) ([]types.RawContent, error) {
 	return nil, nil
 }
 
-func (d discoveryIdentityEvidenceDispatcher) FetchDiscoveryItem(context.Context, types.DiscoveryItem) ([]types.RawContent, error) {
+func (d provenanceEvidencePollingDispatcher) FetchDiscoveryItem(context.Context, types.DiscoveryItem) ([]types.RawContent, error) {
 	raw := d.raw
 	raw.URL = d.item.URL
 	return []types.RawContent{raw}, nil
 }
 
-func TestService_PollRecordsDiscoveryIdentityEvidenceWhenExternalIDFallbackWins(t *testing.T) {
+func TestService_PollPreservesExistingDispatcherDecisionEvidence(t *testing.T) {
 	store := &fakeStore{
 		processed: map[string]bool{},
 		follows: []types.FollowTarget{{
@@ -1025,56 +1027,7 @@ func TestService_PollRecordsDiscoveryIdentityEvidenceWhenExternalIDFallbackWins(
 			Query:    "nvda",
 		}},
 	}
-	svc := New(store, discoveryIdentityEvidenceDispatcher{
-		parsed: types.ParsedURL{
-			Platform:    types.PlatformWeb,
-			ContentType: types.ContentTypePost,
-			PlatformID:  "web-hash",
-		},
-		item: types.DiscoveryItem{
-			Platform:      types.PlatformYouTube,
-			HydrationHint: string(types.PlatformYouTube),
-			ExternalID:    "yt-123",
-			URL:           "https://example.com/out?to=https://www.youtube.com/watch?v=yt-123",
-		},
-		raw: types.RawContent{
-			Source:     "youtube",
-			ExternalID: "yt-123",
-			Content:    "video body",
-		},
-	}, fakeEnricher{})
-
-	_, items, _, pollWarnings, err := svc.Poll(context.Background())
-	if err != nil {
-		t.Fatalf("Poll() error = %v", err)
-	}
-	if len(pollWarnings) != 0 {
-		t.Fatalf("len(pollWarnings) = %d, want 0", len(pollWarnings))
-	}
-	if len(items) != 1 {
-		t.Fatalf("len(items) = %d, want 1", len(items))
-	}
-	if !hasEvidence(items[0].Provenance, "discovery_identity_decision", "mode=used_discovery_external_id") {
-		t.Fatalf("Evidence = %#v, want discovery identity fallback evidence", items[0].Provenance)
-	}
-}
-
-func TestService_PollRecordsDiscoveryIdentityEvidenceWhenParsedIdentityWins(t *testing.T) {
-	store := &fakeStore{
-		processed: map[string]bool{},
-		follows: []types.FollowTarget{{
-			Kind:     types.KindSearch,
-			Platform: "twitter",
-			Locator:  "nvda",
-			Query:    "nvda",
-		}},
-	}
-	svc := New(store, discoveryIdentityEvidenceDispatcher{
-		parsed: types.ParsedURL{
-			Platform:    types.PlatformWeb,
-			ContentType: types.ContentTypePost,
-			PlatformID:  "web-hash",
-		},
+	svc := New(store, provenanceEvidencePollingDispatcher{
 		item: types.DiscoveryItem{
 			Platform:   types.PlatformRSS,
 			ExternalID: "rss-guid",
@@ -1084,8 +1037,15 @@ func TestService_PollRecordsDiscoveryIdentityEvidenceWhenParsedIdentityWins(t *t
 			Source:     "web",
 			ExternalID: "web-hash",
 			Content:    "article body",
+			Provenance: &types.Provenance{
+				Evidence: []types.ProvenanceEvidence{{
+					Kind:   "discovery_identity_decision",
+					Value:  "mode=retained_parsed_identity reason=stable_web_identity",
+					Weight: string(types.ConfidenceHigh),
+				}},
+			},
 		},
-	}, fakeEnricher{})
+	}, nil)
 
 	_, items, _, pollWarnings, err := svc.Poll(context.Background())
 	if err != nil {
@@ -1098,7 +1058,7 @@ func TestService_PollRecordsDiscoveryIdentityEvidenceWhenParsedIdentityWins(t *t
 		t.Fatalf("len(items) = %d, want 1", len(items))
 	}
 	if !hasEvidence(items[0].Provenance, "discovery_identity_decision", "mode=retained_parsed_identity") {
-		t.Fatalf("Evidence = %#v, want retained parsed identity evidence", items[0].Provenance)
+		t.Fatalf("Evidence = %#v, want preserved dispatcher decision evidence", items[0].Provenance)
 	}
 }
 
