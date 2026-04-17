@@ -5,32 +5,25 @@ import "time"
 // Organization and global-v1 memory types remain together because they share acceptance lifecycle state and coexistence regression coverage.
 
 type AcceptedNode struct {
-	MemoryID           int64      `json:"memory_id"`
-	UserID             string     `json:"user_id"`
-	SourcePlatform     string     `json:"source_platform"`
-	SourceExternalID   string     `json:"source_external_id"`
-	RootExternalID     string     `json:"root_external_id,omitempty"`
-	NodeID             string     `json:"node_id"`
-	NodeKind           string     `json:"node_kind"`
-	NodeText           string     `json:"node_text"`
-	SourceModel        string     `json:"source_model"`
-	SourceCompiledAt   time.Time  `json:"source_compiled_at"`
-	ValidFrom          time.Time  `json:"valid_from"`
-	ValidTo            time.Time  `json:"valid_to"`
-	AcceptedAt         time.Time  `json:"accepted_at"`
-	PosteriorState     string     `json:"posterior_state,omitempty"`
-	PosteriorDiagnosis string     `json:"posterior_diagnosis,omitempty"`
-	PosteriorReason    string     `json:"posterior_reason,omitempty"`
-	BlockedByNodeIDs   []string   `json:"blocked_by_node_ids,omitempty"`
-	PosteriorUpdatedAt *time.Time `json:"posterior_updated_at,omitempty"`
+	MemoryID           int64                  `json:"memory_id"`
+	UserID             string                 `json:"user_id"`
+	SourcePlatform     string                 `json:"source_platform"`
+	SourceExternalID   string                 `json:"source_external_id"`
+	RootExternalID     string                 `json:"root_external_id,omitempty"`
+	NodeID             string                 `json:"node_id"`
+	NodeKind           string                 `json:"node_kind"`
+	NodeText           string                 `json:"node_text"`
+	SourceModel        string                 `json:"source_model"`
+	SourceCompiledAt   time.Time              `json:"source_compiled_at"`
+	ValidFrom          time.Time              `json:"valid_from"`
+	ValidTo            time.Time              `json:"valid_to"`
+	AcceptedAt         time.Time              `json:"accepted_at"`
+	PosteriorState     PosteriorState         `json:"posterior_state,omitempty"`
+	PosteriorDiagnosis PosteriorDiagnosisCode `json:"posterior_diagnosis,omitempty"`
+	PosteriorReason    string                 `json:"posterior_reason,omitempty"`
+	BlockedByNodeIDs   []string               `json:"blocked_by_node_ids,omitempty"`
+	PosteriorUpdatedAt *time.Time             `json:"posterior_updated_at,omitempty"`
 }
-
-const (
-	PosteriorStatePending   = "pending"
-	PosteriorStateVerified  = "verified"
-	PosteriorStateFalsified = "falsified"
-	PosteriorStateBlocked   = "blocked"
-)
 
 type AcceptanceNodeSnapshot struct {
 	NodeID    string    `json:"node_id"`
@@ -91,21 +84,21 @@ type HierarchyLink struct {
 }
 
 type NodeHint struct {
-	NodeID               string   `json:"node_id"`
-	State                string   `json:"state,omitempty"`
-	PreferredForDisplay  bool     `json:"preferred_for_display,omitempty"`
-	VerificationStatus   string   `json:"verification_status,omitempty"`
-	ConditionProbability string   `json:"condition_probability,omitempty"`
-	PredictionStatus     string   `json:"prediction_status,omitempty"`
-	PosteriorState       string   `json:"posterior_state,omitempty"`
-	PosteriorDiagnosis   string   `json:"posterior_diagnosis,omitempty"`
-	PosteriorReason      string   `json:"posterior_reason,omitempty"`
-	BlockedByNodeIDs     []string `json:"blocked_by_node_ids,omitempty"`
-	DedupePeerNodeIDs    []string `json:"dedupe_peer_node_ids,omitempty"`
-	ContradictionNodeIDs []string `json:"contradiction_node_ids,omitempty"`
-	ParentNodeIDs        []string `json:"parent_node_ids,omitempty"`
-	ChildNodeIDs         []string `json:"child_node_ids,omitempty"`
-	HierarchyRole        string   `json:"hierarchy_role,omitempty"`
+	NodeID               string                 `json:"node_id"`
+	State                string                 `json:"state,omitempty"`
+	PreferredForDisplay  bool                   `json:"preferred_for_display,omitempty"`
+	VerificationStatus   string                 `json:"verification_status,omitempty"`
+	ConditionProbability string                 `json:"condition_probability,omitempty"`
+	PredictionStatus     string                 `json:"prediction_status,omitempty"`
+	PosteriorState       PosteriorState         `json:"posterior_state,omitempty"`
+	PosteriorDiagnosis   PosteriorDiagnosisCode `json:"posterior_diagnosis,omitempty"`
+	PosteriorReason      string                 `json:"posterior_reason,omitempty"`
+	BlockedByNodeIDs     []string               `json:"blocked_by_node_ids,omitempty"`
+	DedupePeerNodeIDs    []string               `json:"dedupe_peer_node_ids,omitempty"`
+	ContradictionNodeIDs []string               `json:"contradiction_node_ids,omitempty"`
+	ParentNodeIDs        []string               `json:"parent_node_ids,omitempty"`
+	ChildNodeIDs         []string               `json:"child_node_ids,omitempty"`
+	HierarchyRole        string                 `json:"hierarchy_role,omitempty"`
 }
 
 type OrganizationOutput struct {

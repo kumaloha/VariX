@@ -861,6 +861,104 @@ func TestSQLiteStore_OrganizationIncludesImplicitVerificationsAndExplicitConditi
 	}
 }
 
+func TestSQLiteStore_OrganizationPreservesPosteriorStateAndDiagnosis(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	seedCompiledRecordForMemory(t, store)
+	got, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-posterior",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q1",
+		NodeIDs:          []string{"n1", "n2"},
+	})
+	if err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+
+	var conclusion memory.AcceptedNode
+	for _, node := range got.Nodes {
+		if node.NodeID == "n2" {
+			conclusion = node
+			break
+		}
+	}
+	if conclusion.MemoryID == 0 {
+		t.Fatalf("accepted nodes = %#v, want conclusion node with memory id", got.Nodes)
+	}
+
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	if _, err := store.db.Exec(
+		`INSERT INTO memory_posterior_states(memory_id, node_id, node_kind, state, diagnosis_code, reason, blocked_by_node_ids_json, last_evaluated_at, last_evidence_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(memory_id) DO UPDATE SET state = excluded.state, diagnosis_code = excluded.diagnosis_code, reason = excluded.reason, blocked_by_node_ids_json = excluded.blocked_by_node_ids_json, last_evaluated_at = excluded.last_evaluated_at, last_evidence_at = excluded.last_evidence_at, updated_at = excluded.updated_at`,
+		conclusion.MemoryID,
+		conclusion.NodeID,
+		conclusion.NodeKind,
+		string(memory.PosteriorStateFalsified),
+		string(memory.PosteriorDiagnosisLogicError),
+		"conclusion contradicted by stronger evidence",
+		`["n1"]`,
+		now.Format(time.RFC3339Nano),
+		now.Format(time.RFC3339Nano),
+		now.Format(time.RFC3339Nano),
+	); err != nil {
+		t.Fatalf("seed memory_posterior_states error = %v", err)
+	}
+
+	out, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-posterior", now)
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob() error = %v", err)
+	}
+
+	foundActiveNode := false
+	for _, node := range out.ActiveNodes {
+		if node.NodeID != "n2" {
+			continue
+		}
+		foundActiveNode = true
+		if node.PosteriorState != memory.PosteriorStateFalsified {
+			t.Fatalf("PosteriorState = %q, want %q", node.PosteriorState, memory.PosteriorStateFalsified)
+		}
+		if node.PosteriorDiagnosis != memory.PosteriorDiagnosisLogicError {
+			t.Fatalf("PosteriorDiagnosis = %q, want %q", node.PosteriorDiagnosis, memory.PosteriorDiagnosisLogicError)
+		}
+		if node.PosteriorReason != "conclusion contradicted by stronger evidence" {
+			t.Fatalf("PosteriorReason = %q, want seeded reason", node.PosteriorReason)
+		}
+		if !slices.Equal(node.BlockedByNodeIDs, []string{"n1"}) {
+			t.Fatalf("BlockedByNodeIDs = %#v, want [n1]", node.BlockedByNodeIDs)
+		}
+	}
+	if !foundActiveNode {
+		t.Fatalf("ActiveNodes = %#v, want posterior-tagged conclusion node", out.ActiveNodes)
+	}
+
+	foundHint := false
+	for _, hint := range out.NodeHints {
+		if hint.NodeID != "n2" {
+			continue
+		}
+		foundHint = true
+		if hint.PosteriorState != memory.PosteriorStateFalsified {
+			t.Fatalf("NodeHint PosteriorState = %q, want %q", hint.PosteriorState, memory.PosteriorStateFalsified)
+		}
+		if hint.PosteriorDiagnosis != memory.PosteriorDiagnosisLogicError {
+			t.Fatalf("NodeHint PosteriorDiagnosis = %q, want %q", hint.PosteriorDiagnosis, memory.PosteriorDiagnosisLogicError)
+		}
+		if !slices.Equal(hint.BlockedByNodeIDs, []string{"n1"}) {
+			t.Fatalf("NodeHint BlockedByNodeIDs = %#v, want [n1]", hint.BlockedByNodeIDs)
+		}
+	}
+	if !foundHint {
+		t.Fatalf("NodeHints = %#v, want posterior-tagged hint for n2", out.NodeHints)
+	}
+}
+
 func TestSQLiteStore_OrganizationHierarchySkipsUnverifiableFactParents(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))

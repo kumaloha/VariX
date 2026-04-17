@@ -17,8 +17,8 @@ import (
 var ErrMemoryOrganizationOutputStale = errors.New("memory organization output is stale")
 
 type posteriorStateRow struct {
-	State            string
-	Diagnosis        string
+	State            memory.PosteriorState
+	Diagnosis        memory.PosteriorDiagnosisCode
 	Reason           string
 	BlockedByNodeIDs []string
 	UpdatedAt        *time.Time
@@ -271,8 +271,8 @@ func loadPosteriorStatesBySourceTx(ctx context.Context, tx *sql.Tx, userID, sour
 			return nil, err
 		}
 		row := posteriorStateRow{
-			State:     strings.TrimSpace(state.String),
-			Diagnosis: strings.TrimSpace(diagnosis.String),
+			State:     memory.PosteriorState(strings.TrimSpace(state.String)),
+			Diagnosis: memory.PosteriorDiagnosisCode(strings.TrimSpace(diagnosis.String)),
 			Reason:    strings.TrimSpace(reason.String),
 		}
 		if strings.TrimSpace(blockedByNodeIDsJSON.String) != "" {
@@ -562,7 +562,7 @@ func buildOpenQuestions(nodes []memory.AcceptedNode, record compile.Record) []st
 				questions = append(questions, fmt.Sprintf("node %s remains posterior-blocked", node.NodeID))
 			}
 		case memory.PosteriorStateFalsified:
-			if strings.TrimSpace(node.PosteriorDiagnosis) != "" {
+			if strings.TrimSpace(string(node.PosteriorDiagnosis)) != "" {
 				questions = append(questions, fmt.Sprintf("node %s was falsified (%s)", node.NodeID, node.PosteriorDiagnosis))
 			} else {
 				questions = append(questions, fmt.Sprintf("node %s was falsified", node.NodeID))
