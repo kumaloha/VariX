@@ -443,6 +443,17 @@ func (s *Service) preserveStoredCaptureQuality(ctx context.Context, items []type
 		existing, err := s.store.GetRawCapture(ctx, item.Source, item.ExternalID)
 		if err == nil && shouldReuseStoredCapture(existing, item) {
 			item = mergeStoredCaptureQuality(existing, item)
+			item.Provenance = appendProvenanceEvidence(item.Provenance, types.ProvenanceEvidence{
+				Kind: "stored_capture_reused",
+				Value: fmt.Sprintf(
+					"source=%s external_id=%s kept=%s replaced=%s",
+					item.Source,
+					item.ExternalID,
+					captureMethod(existing),
+					captureMethod(item),
+				),
+				Weight: string(types.ConfidenceHigh),
+			})
 		}
 		out = append(out, item)
 	}
@@ -484,6 +495,20 @@ func captureQualityScore(raw types.RawContent) int {
 	default:
 		return 0
 	}
+}
+
+func captureMethod(raw types.RawContent) string {
+	switch raw.Source {
+	case "youtube":
+		if raw.Metadata.YouTube != nil {
+			return raw.Metadata.YouTube.TranscriptMethod
+		}
+	case "bilibili":
+		if raw.Metadata.Bilibili != nil {
+			return raw.Metadata.Bilibili.TranscriptMethod
+		}
+	}
+	return ""
 }
 
 func mergeStoredCaptureQuality(existing, current types.RawContent) types.RawContent {
@@ -705,6 +730,19 @@ func cloneProvenance(prov *types.Provenance) *types.Provenance {
 		copyProv.Evidence = append([]types.ProvenanceEvidence(nil), prov.Evidence...)
 	}
 	return &copyProv
+}
+
+func appendProvenanceEvidence(prov *types.Provenance, evidence types.ProvenanceEvidence) *types.Provenance {
+	if prov == nil {
+		prov = &types.Provenance{}
+	}
+	for _, existing := range prov.Evidence {
+		if existing.Kind == evidence.Kind && existing.Value == evidence.Value && existing.Weight == evidence.Weight {
+			return prov
+		}
+	}
+	prov.Evidence = append(prov.Evidence, evidence)
+	return prov
 }
 
 func (s *Service) removeFollow(ctx context.Context, target types.FollowTarget) error {

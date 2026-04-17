@@ -86,10 +86,31 @@ func (s *Service) FetchDiscoveryItem(ctx context.Context, item types.DiscoveryIt
 		parsed.Platform = targetPlatform
 	}
 	parsed.ContentType = types.ContentTypePost
+	decisionMode := ""
+	decisionReason := ""
 	if item.ExternalID != "" && !hasTrustedNativeItemID(originalParsed, parsed.Platform) && !hasStableWebIdentity(originalParsed, parsed.Platform) {
 		parsed.PlatformID = item.ExternalID
+		decisionMode = "used_discovery_external_id"
+		decisionReason = "fallback_allowed"
+	} else if item.ExternalID != "" {
+		decisionMode = "retained_parsed_identity"
+		switch {
+		case hasTrustedNativeItemID(originalParsed, parsed.Platform):
+			decisionReason = "trusted_native_id"
+		case hasStableWebIdentity(originalParsed, parsed.Platform):
+			decisionReason = "stable_web_identity"
+		default:
+			decisionReason = "parsed_identity_preferred"
+		}
 	}
-	return s.FetchByParsedURL(ctx, parsed)
+	items, err := s.FetchByParsedURL(ctx, parsed)
+	if err != nil {
+		return nil, err
+	}
+	if decisionMode == "" {
+		return items, nil
+	}
+	return appendDiscoveryDecisionEvidence(items, originalParsed, parsed, item, decisionMode, decisionReason), nil
 }
 
 func overridePlatformForDiscoveryItem(parsed types.ParsedURL, item types.DiscoveryItem) (types.Platform, bool) {
@@ -178,4 +199,44 @@ func hasTrustedNativeItemID(parsed types.ParsedURL, targetPlatform types.Platfor
 // parser-derived identity.
 func hasStableWebIdentity(parsed types.ParsedURL, resolvedPlatform types.Platform) bool {
 	return parsed.Platform == types.PlatformWeb && parsed.PlatformID != "" && resolvedPlatform == types.PlatformWeb
+}
+
+func appendDiscoveryDecisionEvidence(items []types.RawContent, originalParsed, resolvedParsed types.ParsedURL, item types.DiscoveryItem, mode, reason string) []types.RawContent {
+	if len(items) == 0 {
+		return items
+	}
+	out := make([]types.RawContent, 0, len(items))
+	value := fmt.Sprintf(
+		"mode=%s reason=%s parsed_platform=%s parsed_id=%s resolved_platform=%s resolved_id=%s external_id=%s url=%s",
+		mode,
+		reason,
+		originalParsed.Platform,
+		originalParsed.PlatformID,
+		resolvedParsed.Platform,
+		resolvedParsed.PlatformID,
+		item.ExternalID,
+		item.URL,
+	)
+	for _, raw := range items {
+		raw.Provenance = appendEvidence(raw.Provenance, types.ProvenanceEvidence{
+			Kind:   "discovery_identity_decision",
+			Value:  value,
+			Weight: string(types.ConfidenceHigh),
+		})
+		out = append(out, raw)
+	}
+	return out
+}
+
+func appendEvidence(prov *types.Provenance, evidence types.ProvenanceEvidence) *types.Provenance {
+	if prov == nil {
+		prov = &types.Provenance{}
+	}
+	for _, existing := range prov.Evidence {
+		if existing.Kind == evidence.Kind && existing.Value == evidence.Value && existing.Weight == evidence.Weight {
+			return prov
+		}
+	}
+	prov.Evidence = append(prov.Evidence, evidence)
+	return prov
 }
