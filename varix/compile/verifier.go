@@ -43,7 +43,6 @@ type factChallenge struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-func runVerifier(ctx context.Context, rt verifierCall, model string, bundle Bundle, output Output) (Verification, error) {
 func runVerifier(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, output Output) (Verification, error) {
 	var passResults []verifierPassResult
 
@@ -136,8 +135,12 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, prompts *pr
 	return verification, nil
 }
 
-func verifyFacts(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
+func verifyFacts(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
 	retrievalContext, retrievalSummary, err := buildFactRetrievalPayload(ctx, bundle, nodes)
+	if err != nil {
+		return verifierPassResult{}, err
+	}
+	claimInstruction, err := prompts.verifierInstruction(promptFactVerifierClaim)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
@@ -146,7 +149,7 @@ func verifyFacts(ctx context.Context, rt verifierCall, model string, bundle Bund
 	if err != nil {
 		return verifierPassResult{}, err
 	}
-	claimReq, err := BuildQwen36ProviderRequest(model, bundle, factVerifierClaimInstruction, claimPrompt)
+	claimReq, err := BuildQwen36ProviderRequest(model, bundle, claimInstruction, claimPrompt)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
@@ -162,13 +165,17 @@ func verifyFacts(ctx context.Context, rt verifierCall, model string, bundle Bund
 	}
 	claimSummary := newStageSummary(firstNonEmpty(claimResp.Model, model), claimCompletedAt, true, factCheckNodeIDs(claimPayload.FactChecks))
 
+	challengeInstruction, err := prompts.verifierInstruction(promptFactVerifierChallenge)
+	if err != nil {
+		return verifierPassResult{}, err
+	}
 	challengePrompt, err := buildFactVerificationPrompt(bundle, nodes, retrievalContext, retrievalSummary, map[string]any{
 		"claim_checks": claimPayload.FactChecks,
 	})
 	if err != nil {
 		return verifierPassResult{}, err
 	}
-	challengeReq, err := BuildQwen36ProviderRequest(model, bundle, factVerifierChallengeInstruction, challengePrompt)
+	challengeReq, err := BuildQwen36ProviderRequest(model, bundle, challengeInstruction, challengePrompt)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
@@ -184,6 +191,10 @@ func verifyFacts(ctx context.Context, rt verifierCall, model string, bundle Bund
 	}
 	challengeSummary := newStageSummary(firstNonEmpty(challengeResp.Model, model), challengeCompletedAt, true, factChallengeNodeIDs(challengePayload.Challenges))
 
+	adjudicationInstruction, err := prompts.verifierInstruction(promptFactVerifierAdjudication)
+	if err != nil {
+		return verifierPassResult{}, err
+	}
 	adjudicationPrompt, err := buildFactVerificationPrompt(bundle, nodes, retrievalContext, retrievalSummary, map[string]any{
 		"claim_checks": claimPayload.FactChecks,
 		"challenges":   challengePayload.Challenges,
@@ -191,7 +202,7 @@ func verifyFacts(ctx context.Context, rt verifierCall, model string, bundle Bund
 	if err != nil {
 		return verifierPassResult{}, err
 	}
-	adjudicationReq, err := BuildQwen36ProviderRequest(model, bundle, factVerifierAdjudicationInstruction, adjudicationPrompt)
+	adjudicationReq, err := BuildQwen36ProviderRequest(model, bundle, adjudicationInstruction, adjudicationPrompt)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
@@ -220,12 +231,16 @@ func verifyFacts(ctx context.Context, rt verifierCall, model string, bundle Bund
 	}, nil
 }
 
-func verifyPredictions(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
+func verifyPredictions(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
+	instruction, err := prompts.verifierInstruction(promptPredictionVerifier)
+	if err != nil {
+		return verifierPassResult{}, err
+	}
 	prompt, err := buildPredictionVerificationPrompt(bundle, nodes)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
-	req, err := BuildQwen36ProviderRequest(model, bundle, predictionVerifierInstruction, prompt)
+	req, err := BuildQwen36ProviderRequest(model, bundle, instruction, prompt)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
@@ -250,12 +265,16 @@ func verifyPredictions(ctx context.Context, rt verifierCall, model string, bundl
 	}, nil
 }
 
-func verifyExplicitConditions(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
+func verifyExplicitConditions(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
+	instruction, err := prompts.verifierInstruction(promptExplicitConditionVerifier)
+	if err != nil {
+		return verifierPassResult{}, err
+	}
 	prompt, err := buildExplicitConditionVerificationPrompt(bundle, nodes)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
-	req, err := BuildQwen36ProviderRequest(model, bundle, explicitConditionVerifierInstruction, prompt)
+	req, err := BuildQwen36ProviderRequest(model, bundle, instruction, prompt)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
@@ -281,12 +300,16 @@ func verifyExplicitConditions(ctx context.Context, rt verifierCall, model string
 	}, nil
 }
 
-func verifyImplicitConditions(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
+func verifyImplicitConditions(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
+	instruction, err := prompts.verifierInstruction(promptImplicitConditionVerifier)
+	if err != nil {
+		return verifierPassResult{}, err
+	}
 	prompt, err := buildImplicitConditionVerificationPrompt(bundle, nodes)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
-	req, err := BuildQwen36ProviderRequest(model, bundle, implicitConditionVerifierInstruction, prompt)
+	req, err := BuildQwen36ProviderRequest(model, bundle, instruction, prompt)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
@@ -671,56 +694,11 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-const factVerifierClaimInstruction = `
-你是一个事实节点验证器的主张阶段。只看输入中的事实节点，输出每个节点当前最可信的判定。返回 JSON：
-{
-  "fact_checks": [
-    {"node_id":"n1","status":"clearly_true|clearly_false|unverifiable","reason":"..."}
-  ]
-}
-必须为每个输入节点恰好返回一条记录，不要返回多余文本。`
-
-const factVerifierChallengeInstruction = `
-你是一个事实节点验证器的质疑阶段。你会收到事实节点、检索摘要与主张结果。请针对每个输入节点指出主张最薄弱的地方，尤其要区分“有检索支持”和“仅依赖原始材料”的情况。返回 JSON：
-{
-  "challenges": [
-    {"node_id":"n1","assessment":"supported|contested|insufficient_evidence","reason":"..."}
-  ]
-}
-必须为每个输入节点恰好返回一条记录，不要返回多余文本。`
-
-const factVerifierAdjudicationInstruction = `
-你是一个事实节点验证器的裁决阶段。你会收到事实节点、检索摘要、主张结果和质疑结果。请输出最终裁决，并确保每个输入节点恰好一条最终记录。返回 JSON：
-{
-  "fact_checks": [
-    {"node_id":"n1","status":"clearly_true|clearly_false|unverifiable","reason":"..."}
-  ]
-}
-不要返回多余文本。`
-
-const predictionVerifierInstruction = `
-你是一个预测节点验证器。只看输入中的预测节点，返回 JSON：
-{
-  "prediction_checks": [
-    {"node_id":"n1","status":"unresolved|resolved_true|resolved_false|stale_unresolved","reason":"...","as_of":"2026-04-14T00:00:00Z"}
-  ]
-}
-必须为每个输入节点恰好返回一条记录，不要返回多余文本。`
-
-const explicitConditionVerifierInstruction = `
-你是一个显式条件评估器。只看输入中的显式条件节点，返回 JSON：
-{
-  "explicit_condition_checks": [
-    {"node_id":"n1","status":"high|medium|low|unknown","reason":"..."}
-  ]
-}
-必须为每个输入节点恰好返回一条记录，不要返回多余文本。`
-
-const implicitConditionVerifierInstruction = `
-你是一个隐含条件验证器。只看输入中的隐含条件节点，返回 JSON：
-{
-  "implicit_condition_checks": [
-    {"node_id":"n1","status":"clearly_true|clearly_false|unverifiable","reason":"..."}
-  ]
-}
-必须为每个输入节点恰好返回一条记录，不要返回多余文本。`
+const (
+	promptFactVerifierClaim             = "fact_claim"
+	promptFactVerifierChallenge         = "fact_challenge"
+	promptFactVerifierAdjudication      = "fact_adjudicate"
+	promptPredictionVerifier            = "prediction"
+	promptExplicitConditionVerifier     = "explicit_condition"
+	promptImplicitConditionVerifier     = "implicit_condition"
+)
