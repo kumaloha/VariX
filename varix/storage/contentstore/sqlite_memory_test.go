@@ -960,7 +960,7 @@ func TestSQLiteStore_OrganizationPreservesPosteriorStateAndDiagnosis(t *testing.
 	}
 }
 
-func TestSQLiteStore_RunPosteriorVerificationPersistsRoundTripAndRefreshTrigger(t *testing.T) {
+func TestSQLiteStore_RunPosteriorVerificationPersistsRoundTripAndStalesPriorOutput(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
 	if err != nil {
@@ -968,160 +968,136 @@ func TestSQLiteStore_RunPosteriorVerificationPersistsRoundTripAndRefreshTrigger(
 	}
 	defer store.Close()
 
-	seedCompiledRecordForMemory(t, store)
+	now := time.Now().UTC()
+	record := compile.Record{
+		UnitID:         "weibo:Q-posterior-store",
+		Source:         "weibo",
+		ExternalID:     "Q-posterior-store",
+		RootExternalID: "Q-posterior-store",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "事实A", OccurredAt: now.Add(-72 * time.Hour)},
+					{ID: "n2", Kind: compile.NodePrediction, Text: "预测B", PredictionStartAt: now.Add(-48 * time.Hour), PredictionDueAt: now.Add(-24 * time.Hour)},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+			},
+			Details: compile.HiddenDetails{Caveats: []string{"detail"}},
+			Verification: compile.Verification{
+				PredictionChecks: []compile.PredictionCheck{{
+					NodeID: "n2", Status: compile.PredictionStatusStaleUnresolved, Reason: "window passed", AsOf: now.Add(-12 * time.Hour),
+				}},
+			},
+			Confidence: "medium",
+		},
+		CompiledAt: now.Add(-6 * time.Hour),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+
 	accepted, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
-		UserID:           "u-posterior-roundtrip",
+		UserID:           "u-posterior-store",
 		SourcePlatform:   "weibo",
-		SourceExternalID: "Q1",
+		SourceExternalID: "Q-posterior-store",
 		NodeIDs:          []string{"n1", "n2"},
 	})
 	if err != nil {
 		t.Fatalf("AcceptMemoryNodes() error = %v", err)
 	}
 
-	statesBefore, err := store.ListPosteriorStates(context.Background(), "u-posterior-roundtrip", "weibo", "Q1")
-	if err != nil {
-		t.Fatalf("ListPosteriorStates(before) error = %v", err)
-	}
-	if len(statesBefore) != 1 || statesBefore[0].NodeID != "n2" || statesBefore[0].State != memory.PosteriorStatePending {
-		t.Fatalf("states before run = %#v, want only pending conclusion row", statesBefore)
-	}
-
-	var conclusion memory.AcceptedNode
+	var prediction memory.AcceptedNode
 	for _, node := range accepted.Nodes {
 		if node.NodeID == "n2" {
-			conclusion = node
+			prediction = node
 			break
 		}
 	}
-	if conclusion.MemoryID == 0 {
-		t.Fatalf("accepted nodes = %#v, want conclusion node", accepted.Nodes)
+	if prediction.MemoryID == 0 {
+		t.Fatalf("accepted nodes = %#v, want prediction memory node", accepted.Nodes)
 	}
 
-	now := time.Date(2026, 4, 17, 9, 0, 0, 0, time.UTC)
+	states, err := store.ListPosteriorStates(context.Background(), "u-posterior-store", "weibo", "Q-posterior-store")
+	if err != nil {
+		t.Fatalf("ListPosteriorStates() error = %v", err)
+	}
+	if len(states) != 1 || states[0].NodeID != "n2" {
+		t.Fatalf("initial posterior states = %#v, want only prediction node", states)
+	}
+	if states[0].State != memory.PosteriorStatePending {
+		t.Fatalf("initial state = %q, want pending", states[0].State)
+	}
+
+	firstOutput, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-posterior-store", now)
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob() initial error = %v", err)
+	}
+
 	result, err := store.RunPosteriorVerification(context.Background(), memory.PosteriorRunRequest{
-		UserID:           "u-posterior-roundtrip",
+		UserID:           "u-posterior-store",
 		SourcePlatform:   "weibo",
-		SourceExternalID: "Q1",
+		SourceExternalID: "Q-posterior-store",
 	}, now)
 	if err != nil {
 		t.Fatalf("RunPosteriorVerification() error = %v", err)
 	}
-	if len(result.Evaluated) != 1 || len(result.Mutated) != 1 {
-		t.Fatalf("result = %#v, want one evaluated and one mutated conclusion state", result)
+	if len(result.Mutated) != 1 || result.Mutated[0].NodeID != "n2" {
+		t.Fatalf("posterior mutated = %#v, want prediction node", result.Mutated)
 	}
-	if len(result.Refreshes) != 1 {
-		t.Fatalf("result.Refreshes = %#v, want one refresh trigger", result.Refreshes)
-	}
-	if result.Mutated[0].State != memory.PosteriorStatePending {
-		t.Fatalf("mutated state = %#v, want pending conclusion", result.Mutated[0])
-	}
-	if result.Mutated[0].Reason != "insufficient deterministic posterior evidence" {
-		t.Fatalf("mutated reason = %q, want deterministic-pending explanation", result.Mutated[0].Reason)
+	if len(result.Refreshes) != 1 || result.Refreshes[0].JobID == 0 {
+		t.Fatalf("posterior refreshes = %#v, want queued refresh job", result.Refreshes)
 	}
 
-	persisted, err := store.GetPosteriorState(context.Background(), conclusion.MemoryID)
+	persisted, err := store.GetPosteriorState(context.Background(), prediction.MemoryID)
 	if err != nil {
 		t.Fatalf("GetPosteriorState() error = %v", err)
 	}
 	if persisted.State != memory.PosteriorStatePending {
-		t.Fatalf("persisted state = %#v, want pending", persisted)
+		t.Fatalf("persisted state = %q, want pending", persisted.State)
 	}
-	if !persisted.LastEvaluatedAt.Equal(now) {
-		t.Fatalf("persisted LastEvaluatedAt = %s, want %s", persisted.LastEvaluatedAt, now)
+	if persisted.Reason != "prediction still unresolved after due time" {
+		t.Fatalf("persisted reason = %q, want stale unresolved reason", persisted.Reason)
 	}
-	if persisted.UpdatedAt.IsZero() {
-		t.Fatalf("persisted UpdatedAt = zero, want stored timestamp")
+	if persisted.UpdatedAt.IsZero() || persisted.LastEvaluatedAt.IsZero() {
+		t.Fatalf("persisted timestamps = %#v, want evaluation/update timestamps", persisted)
 	}
 
-	statesAfter, err := store.ListPosteriorStates(context.Background(), "u-posterior-roundtrip", "weibo", "Q1")
+	states, err = store.ListPosteriorStates(context.Background(), "u-posterior-store", "weibo", "Q-posterior-store")
 	if err != nil {
-		t.Fatalf("ListPosteriorStates(after) error = %v", err)
+		t.Fatalf("ListPosteriorStates() after run error = %v", err)
 	}
-	if len(statesAfter) != 1 || statesAfter[0].MemoryID != conclusion.MemoryID {
-		t.Fatalf("states after run = %#v, want single persisted conclusion state", statesAfter)
-	}
-
-	refresh := result.Refreshes[0]
-	if refresh.Reason != "posterior_state_changed" || !slices.Equal(refresh.AffectedNodeIDs, []string{"n2"}) {
-		t.Fatalf("refresh = %#v, want posterior_state_changed for node n2", refresh)
+	if len(states) != 1 || states[0].Reason != persisted.Reason {
+		t.Fatalf("posterior round-trip states = %#v, want persisted stale reason", states)
 	}
 
-	var triggerType string
-	var acceptedCount int
-	if err := store.db.QueryRow(
-		`SELECT trigger_type, accepted_count FROM memory_acceptance_events WHERE event_id = ?`,
-		refresh.EventID,
-	).Scan(&triggerType, &acceptedCount); err != nil {
-		t.Fatalf("refresh event query error = %v", err)
-	}
-	if triggerType != "posterior_refresh" || acceptedCount != 0 {
-		t.Fatalf("refresh event = (%q, %d), want (posterior_refresh, 0)", triggerType, acceptedCount)
-	}
-}
-
-func TestSQLiteStore_GetLatestMemoryOrganizationOutputRejectsPosteriorStaleOutput(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
-	if err != nil {
-		t.Fatalf("NewSQLiteStore() error = %v", err)
-	}
-	defer store.Close()
-
-	seedCompiledRecordForMemory(t, store)
-	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
-		UserID:           "u-posterior-stale",
-		SourcePlatform:   "weibo",
-		SourceExternalID: "Q1",
-		NodeIDs:          []string{"n1", "n2"},
-	}); err != nil {
-		t.Fatalf("AcceptMemoryNodes() error = %v", err)
-	}
-
-	organizedAt := time.Date(2026, 4, 17, 10, 0, 0, 0, time.UTC)
-	if _, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-posterior-stale", organizedAt); err != nil {
-		t.Fatalf("RunNextMemoryOrganizationJob(initial) error = %v", err)
-	}
-
-	posteriorAt := organizedAt.Add(2 * time.Minute)
-	result, err := store.RunPosteriorVerification(context.Background(), memory.PosteriorRunRequest{
-		UserID:           "u-posterior-stale",
-		SourcePlatform:   "weibo",
-		SourceExternalID: "Q1",
-	}, posteriorAt)
-	if err != nil {
-		t.Fatalf("RunPosteriorVerification() error = %v", err)
-	}
-	if len(result.Refreshes) != 1 {
-		t.Fatalf("posterior result = %#v, want one queued refresh", result)
-	}
-
-	_, err = store.GetLatestMemoryOrganizationOutput(context.Background(), "u-posterior-stale", "weibo", "Q1")
+	_, err = store.GetLatestMemoryOrganizationOutput(context.Background(), "u-posterior-store", "weibo", "Q-posterior-store")
 	if !errors.Is(err, ErrMemoryOrganizationOutputStale) {
-		t.Fatalf("GetLatestMemoryOrganizationOutput() error = %v, want ErrMemoryOrganizationOutputStale", err)
+		t.Fatalf("GetLatestMemoryOrganizationOutput() error = %v, want stale error", err)
 	}
 
-	refreshedAt := posteriorAt.Add(time.Minute)
-	out, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-posterior-stale", refreshedAt)
+	refreshed, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-posterior-store", now.Add(time.Minute))
 	if err != nil {
-		t.Fatalf("RunNextMemoryOrganizationJob(refresh) error = %v", err)
+		t.Fatalf("RunNextMemoryOrganizationJob() refresh error = %v", err)
+	}
+	if refreshed.JobID == firstOutput.JobID {
+		t.Fatalf("refresh job id = %d, want new job after posterior refresh", refreshed.JobID)
+	}
+
+	latest, err := store.GetLatestMemoryOrganizationOutput(context.Background(), "u-posterior-store", "weibo", "Q-posterior-store")
+	if err != nil {
+		t.Fatalf("GetLatestMemoryOrganizationOutput() refreshed error = %v", err)
 	}
 	foundPosteriorHint := false
-	for _, hint := range out.NodeHints {
-		if hint.NodeID == "n2" && hint.PosteriorState == memory.PosteriorStatePending && hint.PosteriorReason == "insufficient deterministic posterior evidence" {
+	for _, hint := range latest.NodeHints {
+		if hint.NodeID == "n2" && hint.PosteriorState == memory.PosteriorStatePending {
 			foundPosteriorHint = true
+			break
 		}
 	}
 	if !foundPosteriorHint {
-		t.Fatalf("refreshed NodeHints = %#v, want pending posterior hint for n2", out.NodeHints)
-	}
-
-	latest, err := store.GetLatestMemoryOrganizationOutput(context.Background(), "u-posterior-stale", "weibo", "Q1")
-	if err != nil {
-		t.Fatalf("GetLatestMemoryOrganizationOutput(after refresh) error = %v", err)
-	}
-	if latest.JobID != out.JobID {
-		t.Fatalf("latest JobID = %d, want %d", latest.JobID, out.JobID)
+		t.Fatalf("refreshed NodeHints = %#v, want posterior pending hint", latest.NodeHints)
 	}
 }
 

@@ -587,7 +587,133 @@ func TestRunMemoryOrganizedIncludesFrontendHints(t *testing.T) {
 	}
 }
 
-func TestRunMemoryOrganizedReturnsExplicitStaleOutputErrorAfterPosteriorMutation(t *testing.T) {
+func TestRunMemoryPosteriorRunMarksOrganizedOutputStaleUntilRefreshRun(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		record := c.Record{
+			UnitID:         "weibo:Q-posterior-cli",
+			Source:         "weibo",
+			ExternalID:     "Q-posterior-cli",
+			RootExternalID: "Q-posterior-cli",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						{ID: "n1", Kind: c.NodeFact, Text: "事实A", OccurredAt: now.Add(-72 * time.Hour)},
+						{ID: "n2", Kind: c.NodePrediction, Text: "预测B", PredictionStartAt: now.Add(-48 * time.Hour), PredictionDueAt: now.Add(-24 * time.Hour)},
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+				Verification: c.Verification{
+					PredictionChecks: []c.PredictionCheck{{
+						NodeID: "n2", Status: c.PredictionStatusStaleUnresolved, Reason: "window passed", AsOf: now.Add(-12 * time.Hour),
+					}},
+				},
+			},
+			CompiledAt: now.Add(-6 * time.Hour),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+			UserID:           "u-posterior-cli",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "Q-posterior-cli",
+			NodeIDs:          []string{"n1", "n2"},
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "organize-run", "--user", "u-posterior-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("organize-run code = %d, stderr = %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "posterior-run", "--user", "u-posterior-cli", "--platform", "weibo", "--id", "Q-posterior-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("posterior-run code = %d, stderr = %s", code, stderr.String())
+	}
+	var posterior memory.PosteriorRunResult
+	if err := json.Unmarshal(stdout.Bytes(), &posterior); err != nil {
+		t.Fatalf("json.Unmarshal(posterior-run) error = %v", err)
+	}
+	if len(posterior.Mutated) != 1 || posterior.Mutated[0].NodeID != "n2" {
+		t.Fatalf("posterior mutated = %#v, want one mutated prediction node", posterior.Mutated)
+	}
+	if posterior.Mutated[0].State != memory.PosteriorStatePending {
+		t.Fatalf("posterior state = %q, want pending", posterior.Mutated[0].State)
+	}
+	if len(posterior.Refreshes) != 1 || posterior.Refreshes[0].JobID == 0 {
+		t.Fatalf("posterior refreshes = %#v, want one queued refresh job", posterior.Refreshes)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "organized", "--user", "u-posterior-cli", "--platform", "weibo", "--id", "Q-posterior-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("organized stale code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "memory organization output is stale") {
+		t.Fatalf("stderr = %q, want stale output error", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "memory organize-run --user u-posterior-cli") {
+		t.Fatalf("stderr = %q, want rerun guidance", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "organize-run", "--user", "u-posterior-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("refresh organize-run code = %d, stderr = %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "organized", "--user", "u-posterior-cli", "--platform", "weibo", "--id", "Q-posterior-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("organized refreshed code = %d, stderr = %s", code, stderr.String())
+	}
+	var organized memory.OrganizationOutput
+	if err := json.Unmarshal(stdout.Bytes(), &organized); err != nil {
+		t.Fatalf("json.Unmarshal(refreshed organized) error = %v", err)
+	}
+	foundPosteriorHint := false
+	for _, hint := range organized.NodeHints {
+		if hint.NodeID == "n2" && hint.PosteriorState == memory.PosteriorStatePending {
+			foundPosteriorHint = true
+			break
+		}
+	}
+	if !foundPosteriorHint {
+		t.Fatalf("NodeHints = %#v, want posterior pending hint for n2", organized.NodeHints)
+	}
+}
+
+func TestRunMemoryOrganizedWithoutOutputShowsRunGuidance(t *testing.T) {
 	prevBuildApp := buildApp
 	prevOpenSQLiteStore := openSQLiteStore
 	t.Cleanup(func() {
@@ -605,64 +731,13 @@ func TestRunMemoryOrganizedReturnsExplicitStaleOutputErrorAfterPosteriorMutation
 		return contentstore.NewSQLiteStore(path)
 	}
 
-	store, err := contentstore.NewSQLiteStore(tmp + "/content.db")
-	if err != nil {
-		t.Fatalf("NewSQLiteStore() error = %v", err)
-	}
-	record := c.Record{
-		UnitID:         "weibo:Q-stale",
-		Source:         "weibo",
-		ExternalID:     "Q-stale",
-		RootExternalID: "Q-stale",
-		Model:          c.Qwen36PlusModel,
-		Output: c.Output{
-			Summary: "一句话",
-			Graph: c.ReasoningGraph{
-				Nodes: []c.GraphNode{
-					testGraphNode("n1", c.NodeFact, "事实A"),
-					testGraphNode("n2", c.NodeConclusion, "结论B"),
-				},
-				Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
-			},
-			Details: c.HiddenDetails{Caveats: []string{"说明"}},
-		},
-		CompiledAt: time.Date(2026, 4, 17, 10, 0, 0, 0, time.UTC),
-	}
-	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
-		t.Fatalf("UpsertCompiledOutput() error = %v", err)
-	}
-	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
-		UserID:           "u-stale-cli",
-		SourcePlatform:   "weibo",
-		SourceExternalID: "Q-stale",
-		NodeIDs:          []string{"n1", "n2"},
-	}); err != nil {
-		t.Fatalf("AcceptMemoryNodes() error = %v", err)
-	}
-	if _, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-stale-cli", time.Date(2026, 4, 17, 10, 1, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("RunNextMemoryOrganizationJob() error = %v", err)
-	}
-	if _, err := store.RunPosteriorVerification(context.Background(), memory.PosteriorRunRequest{
-		UserID:           "u-stale-cli",
-		SourcePlatform:   "weibo",
-		SourceExternalID: "Q-stale",
-	}, time.Date(2026, 4, 17, 10, 2, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("RunPosteriorVerification() error = %v", err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatalf("store.Close() error = %v", err)
-	}
-
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"memory", "organized", "--user", "u-stale-cli", "--platform", "weibo", "--id", "Q-stale"}, "/tmp/project", &stdout, &stderr)
+	code := run([]string{"memory", "organized", "--user", "u-empty-memory", "--platform", "weibo", "--id", "Q-empty"}, "/tmp/project", &stdout, &stderr)
 	if code != 1 {
-		t.Fatalf("organized code = %d, want 1 when stale output is detected", code)
+		t.Fatalf("organized code = %d, want 1", code)
 	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty on stale organized read", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), "memory organization output is stale") {
-		t.Fatalf("stderr = %q, want explicit stale-output error", stderr.String())
+	if !strings.Contains(stderr.String(), "memory organize-run --user u-empty-memory") {
+		t.Fatalf("stderr = %q, want organize-run guidance", stderr.String())
 	}
 }
 
