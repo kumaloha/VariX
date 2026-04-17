@@ -741,6 +741,112 @@ func TestRunMemoryOrganizedWithoutOutputShowsRunGuidance(t *testing.T) {
 	}
 }
 
+func TestRunMemoryListAndShowSourceIncludePosteriorState(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		record := c.Record{
+			UnitID:         "weibo:Q-list-posterior",
+			Source:         "weibo",
+			ExternalID:     "Q-list-posterior",
+			RootExternalID: "Q-list-posterior",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						{ID: "n1", Kind: c.NodeFact, Text: "事实A", OccurredAt: now.Add(-72 * time.Hour)},
+						{ID: "n2", Kind: c.NodePrediction, Text: "预测B", PredictionStartAt: now.Add(-48 * time.Hour), PredictionDueAt: now.Add(-24 * time.Hour)},
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+				Verification: c.Verification{
+					PredictionChecks: []c.PredictionCheck{{
+						NodeID: "n2", Status: c.PredictionStatusStaleUnresolved, Reason: "window passed", AsOf: now.Add(-12 * time.Hour),
+					}},
+				},
+			},
+			CompiledAt: now.Add(-6 * time.Hour),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "accept-batch", "--user", "u-list-posterior", "--platform", "weibo", "--id", "Q-list-posterior", "--nodes", "n1,n2"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("accept-batch code = %d, stderr = %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "posterior-run", "--user", "u-list-posterior", "--platform", "weibo", "--id", "Q-list-posterior"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("posterior-run code = %d, stderr = %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "list", "--user", "u-list-posterior"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("list code = %d, stderr = %s", code, stderr.String())
+	}
+	var listed []memory.AcceptedNode
+	if err := json.Unmarshal(stdout.Bytes(), &listed); err != nil {
+		t.Fatalf("json.Unmarshal(list) error = %v", err)
+	}
+	foundListedPosterior := false
+	for _, node := range listed {
+		if node.NodeID == "n2" && node.PosteriorState == memory.PosteriorStatePending && node.PosteriorReason == "prediction still unresolved after due time" {
+			foundListedPosterior = true
+			break
+		}
+	}
+	if !foundListedPosterior {
+		t.Fatalf("listed nodes = %#v, want posterior projection on n2", listed)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "show-source", "--user", "u-list-posterior", "--platform", "weibo", "--id", "Q-list-posterior"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("show-source code = %d, stderr = %s", code, stderr.String())
+	}
+	var scoped []memory.AcceptedNode
+	if err := json.Unmarshal(stdout.Bytes(), &scoped); err != nil {
+		t.Fatalf("json.Unmarshal(show-source) error = %v", err)
+	}
+	foundScopedPosterior := false
+	for _, node := range scoped {
+		if node.NodeID == "n2" && node.PosteriorState == memory.PosteriorStatePending && node.PosteriorReason == "prediction still unresolved after due time" {
+			foundScopedPosterior = true
+			break
+		}
+	}
+	if !foundScopedPosterior {
+		t.Fatalf("show-source nodes = %#v, want posterior projection on n2", scoped)
+	}
+}
+
 func TestRunMemoryGlobalOrganizeRunAndShow(t *testing.T) {
 	prevBuildApp := buildApp
 	prevOpenSQLiteStore := openSQLiteStore
