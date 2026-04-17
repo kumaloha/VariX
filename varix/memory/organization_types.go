@@ -18,7 +18,19 @@ type AcceptedNode struct {
 	ValidFrom        time.Time `json:"valid_from"`
 	ValidTo          time.Time `json:"valid_to"`
 	AcceptedAt       time.Time `json:"accepted_at"`
+	PosteriorState   string    `json:"posterior_state,omitempty"`
+	PosteriorDiagnosis string  `json:"posterior_diagnosis,omitempty"`
+	PosteriorReason  string    `json:"posterior_reason,omitempty"`
+	BlockedByNodeIDs []string  `json:"blocked_by_node_ids,omitempty"`
+	PosteriorUpdatedAt *time.Time `json:"posterior_updated_at,omitempty"`
 }
+
+const (
+	PosteriorStatePending    = "pending"
+	PosteriorStateVerified   = "verified"
+	PosteriorStateFalsified  = "falsified"
+	PosteriorStateBlocked    = "blocked"
+)
 
 type AcceptanceNodeSnapshot struct {
 	NodeID    string    `json:"node_id"`
@@ -85,6 +97,10 @@ type NodeHint struct {
 	VerificationStatus   string   `json:"verification_status,omitempty"`
 	ConditionProbability string   `json:"condition_probability,omitempty"`
 	PredictionStatus     string   `json:"prediction_status,omitempty"`
+	PosteriorState       string   `json:"posterior_state,omitempty"`
+	PosteriorDiagnosis   string   `json:"posterior_diagnosis,omitempty"`
+	PosteriorReason      string   `json:"posterior_reason,omitempty"`
+	BlockedByNodeIDs     []string `json:"blocked_by_node_ids,omitempty"`
 	DedupePeerNodeIDs    []string `json:"dedupe_peer_node_ids,omitempty"`
 	ContradictionNodeIDs []string `json:"contradiction_node_ids,omitempty"`
 	ParentNodeIDs        []string `json:"parent_node_ids,omitempty"`
