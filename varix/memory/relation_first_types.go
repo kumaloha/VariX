@@ -8,6 +8,8 @@ type CanonicalEntityType string
 
 type CanonicalEntityStatus string
 
+type CanonicalObjectType string
+
 type RelationStatus string
 
 type MechanismStatus string
@@ -34,6 +36,15 @@ const (
 	CanonicalEntityDriver CanonicalEntityType = "driver"
 	CanonicalEntityTarget CanonicalEntityType = "target"
 	CanonicalEntityBoth   CanonicalEntityType = "both"
+)
+
+const (
+	CanonicalObjectDriver           CanonicalObjectType = "driver"
+	CanonicalObjectTarget           CanonicalObjectType = "target"
+	CanonicalObjectTransmission     CanonicalObjectType = "transmission"
+	CanonicalObjectTransmissionPath CanonicalObjectType = "transmission_path"
+	CanonicalObjectPathNode         CanonicalObjectType = "path_node"
+	CanonicalObjectPathEdge         CanonicalObjectType = "path_edge"
 )
 
 const (
@@ -174,6 +185,13 @@ func (m Mechanism) IsHistorical() bool {
 	return m.Status == MechanismHistorical
 }
 
+type MechanismGraph struct {
+	Mechanism    Mechanism       `json:"mechanism"`
+	Nodes        []MechanismNode `json:"nodes,omitempty"`
+	Edges        []MechanismEdge `json:"edges,omitempty"`
+	PathOutcomes []PathOutcome   `json:"path_outcomes,omitempty"`
+}
+
 type MechanismNode struct {
 	MechanismNodeID        string            `json:"mechanism_node_id"`
 	MechanismID            string            `json:"mechanism_id"`
@@ -202,6 +220,18 @@ type PathOutcome struct {
 	ConditionScope  string          `json:"condition_scope,omitempty"`
 	Confidence      float64         `json:"confidence"`
 	CreatedAt       time.Time       `json:"created_at"`
+}
+
+type RawCanonicalMapping struct {
+	CanonicalObjectType CanonicalObjectType `json:"canonical_object_type"`
+	CanonicalObjectID   string              `json:"canonical_object_id"`
+	SourcePlatform      string              `json:"source_platform"`
+	SourceExternalID    string              `json:"source_external_id"`
+	RawNodeID           string              `json:"raw_node_id,omitempty"`
+	RawEdgeKey          string              `json:"raw_edge_key,omitempty"`
+	MappingConfidence   float64             `json:"mapping_confidence"`
+	CreatedAt           time.Time           `json:"created_at"`
+	UpdatedAt           time.Time           `json:"updated_at"`
 }
 
 type DriverAggregate struct {
