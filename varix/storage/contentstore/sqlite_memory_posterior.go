@@ -495,6 +495,8 @@ func evaluatePosteriorState(
 ) memory.PosteriorStateRecord {
 	next := current
 	next.MemoryID = node.MemoryID
+	next.SourcePlatform = node.SourcePlatform
+	next.SourceExternalID = node.SourceExternalID
 	next.NodeID = node.NodeID
 	next.NodeKind = node.NodeKind
 	next.LastEvaluatedAt = now
