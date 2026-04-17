@@ -21,6 +21,7 @@ type runtimeChat interface {
 type Client struct {
 	runtime runtimeChat
 	model   string
+	prompts *promptRegistry
 }
 
 func NewClient(httpClient *http.Client, baseURL, apiKey, model string) *Client {
@@ -40,7 +41,7 @@ func NewClient(httpClient *http.Client, baseURL, apiKey, model string) *Client {
 	if err != nil {
 		return nil
 	}
-	return NewClientWithRuntime(llm.NewRuntime(llm.RuntimeConfig{
+	return NewClientWithRuntimeAndPrompts(llm.NewRuntime(llm.RuntimeConfig{
 		Provider: provider,
 		LLMConfig: llm.LLMConfig{
 			Default: llm.DefaultConfig{
@@ -51,20 +52,29 @@ func NewClient(httpClient *http.Client, baseURL, apiKey, model string) *Client {
 			},
 		},
 		MaxAttempts: 3,
-	}), strings.TrimSpace(model))
+	}), strings.TrimSpace(model), newPromptRegistry(""))
 }
 
 func NewClientWithRuntime(rt runtimeChat, model string) *Client {
+	return NewClientWithRuntimeAndPrompts(rt, model, newPromptRegistry(""))
+}
+
+func NewClientWithRuntimeAndPrompts(rt runtimeChat, model string, prompts *promptRegistry) *Client {
 	if rt == nil {
 		return nil
+	}
+	if prompts == nil {
+		prompts = newPromptRegistry("")
 	}
 	return &Client{
 		runtime: rt,
 		model:   strings.TrimSpace(model),
+		prompts: prompts,
 	}
 }
 
 func NewClientFromConfig(projectRoot string, httpClient *http.Client) *Client {
+	settings := config.DefaultSettings(projectRoot)
 	apiKey := firstConfiguredValue(projectRoot, "DASHSCOPE_API_KEY", "OPENAI_API_KEY")
 	if strings.TrimSpace(apiKey) == "" {
 		return nil
@@ -86,28 +96,48 @@ func NewClientFromConfig(projectRoot string, httpClient *http.Client) *Client {
 		}
 		httpClient = &http.Client{Timeout: timeout}
 	}
-	return NewClient(httpClient, baseURL, apiKey, model)
+	client := NewClient(httpClient, baseURL, apiKey, model)
+	if client == nil {
+		return nil
+	}
+	client.prompts = newPromptRegistry(settings.PromptsDir)
+	return client
 }
 
 func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	if c == nil || c.runtime == nil {
 		return Record{}, fmt.Errorf("compile client is nil")
 	}
+	if c.prompts == nil {
+		c.prompts = newPromptRegistry("")
+	}
 	reqs := InferGraphRequirements(bundle)
-	output, err := c.compileAttempt(ctx, bundle, BuildInstruction(reqs), BuildPrompt(bundle), reqs)
+	systemPrompt, err := c.prompts.buildInstruction(reqs)
 	if err != nil {
+		return Record{}, err
+	}
+	userPrompt, err := c.prompts.buildPrompt(bundle)
+	if err != nil {
+		return Record{}, err
+	}
+	output, err := c.compileAttempt(ctx, bundle, systemPrompt, userPrompt, reqs)
+	if err != nil {
+		retryPrompt, retryErr := c.prompts.buildRetryPrompt(bundle, reqs)
+		if retryErr != nil {
+			return Record{}, retryErr
+		}
 		output, err = c.compileAttempt(
 			ctx,
 			bundle,
-			BuildInstruction(reqs),
-			BuildRetryPrompt(bundle, reqs),
+			systemPrompt,
+			retryPrompt,
 			reqs,
 		)
 		if err != nil {
 			return Record{}, err
 		}
 	}
-	verification, err := runVerifier(ctx, c.runtime, c.model, bundle, output)
+	verification, err := runVerifier(ctx, c.runtime, c.model, c.prompts, bundle, output)
 	if err != nil {
 		return Record{}, err
 	}

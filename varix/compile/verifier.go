@@ -44,6 +44,7 @@ type factChallenge struct {
 }
 
 func runVerifier(ctx context.Context, rt verifierCall, model string, bundle Bundle, output Output) (Verification, error) {
+func runVerifier(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, output Output) (Verification, error) {
 	var passResults []verifierPassResult
 
 	factNodes := make([]GraphNode, 0)
@@ -64,28 +65,28 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, bundle Bund
 	}
 
 	if len(factNodes) > 0 {
-		result, err := verifyFacts(ctx, rt, model, bundle, factNodes)
+		result, err := verifyFacts(ctx, rt, model, prompts, bundle, factNodes)
 		if err != nil {
 			return Verification{}, err
 		}
 		passResults = append(passResults, result)
 	}
 	if len(explicitConditionNodes) > 0 {
-		result, err := verifyExplicitConditions(ctx, rt, model, bundle, explicitConditionNodes)
+		result, err := verifyExplicitConditions(ctx, rt, model, prompts, bundle, explicitConditionNodes)
 		if err != nil {
 			return Verification{}, err
 		}
 		passResults = append(passResults, result)
 	}
 	if len(implicitConditionNodes) > 0 {
-		result, err := verifyImplicitConditions(ctx, rt, model, bundle, implicitConditionNodes)
+		result, err := verifyImplicitConditions(ctx, rt, model, prompts, bundle, implicitConditionNodes)
 		if err != nil {
 			return Verification{}, err
 		}
 		passResults = append(passResults, result)
 	}
 	if len(predictionNodes) > 0 {
-		result, err := verifyPredictions(ctx, rt, model, bundle, predictionNodes)
+		result, err := verifyPredictions(ctx, rt, model, prompts, bundle, predictionNodes)
 		if err != nil {
 			return Verification{}, err
 		}
