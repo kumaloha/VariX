@@ -380,7 +380,8 @@ func (s *SQLiteStore) init() error {
 			UNIQUE(user_id, source_platform, source_external_id, node_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS memory_posterior_states (
-			memory_id INTEGER PRIMARY KEY,
+			source_platform TEXT NOT NULL,
+			source_external_id TEXT NOT NULL,
 			node_id TEXT NOT NULL,
 			node_kind TEXT NOT NULL,
 			state TEXT NOT NULL,
@@ -390,7 +391,7 @@ func (s *SQLiteStore) init() error {
 			last_evaluated_at TEXT,
 			last_evidence_at TEXT,
 			updated_at TEXT NOT NULL,
-			FOREIGN KEY(memory_id) REFERENCES user_memory_nodes(memory_id)
+			PRIMARY KEY(source_platform, source_external_id, node_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_memory_posterior_states_state
 			ON memory_posterior_states(state)`,
@@ -630,6 +631,9 @@ func (s *SQLiteStore) init() error {
 			return err
 		}
 	}
+	if err := s.ensurePosteriorStateStorage(); err != nil {
+		return err
+	}
 	migrations := []struct {
 		table      string
 		column     string
@@ -671,6 +675,127 @@ func (s *SQLiteStore) ensureColumn(table, column, definition string) error {
 	}
 	_, err = s.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
 	return err
+}
+
+func (s *SQLiteStore) ensurePosteriorStateStorage() error {
+	columns, err := s.tableColumns("memory_posterior_states")
+	if err != nil {
+		return err
+	}
+	if len(columns) == 0 {
+		return nil
+	}
+	if _, ok := columns["source_platform"]; ok {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`CREATE TABLE memory_posterior_states_v2 (
+		source_platform TEXT NOT NULL,
+		source_external_id TEXT NOT NULL,
+		node_id TEXT NOT NULL,
+		node_kind TEXT NOT NULL,
+		state TEXT NOT NULL,
+		diagnosis_code TEXT,
+		reason TEXT,
+		blocked_by_node_ids_json TEXT NOT NULL DEFAULT '[]',
+		last_evaluated_at TEXT,
+		last_evidence_at TEXT,
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY(source_platform, source_external_id, node_id)
+	)`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`WITH ranked AS (
+		SELECT
+			u.source_platform,
+			u.source_external_id,
+			p.node_id,
+			p.node_kind,
+			p.state,
+			p.diagnosis_code,
+			p.reason,
+			p.blocked_by_node_ids_json,
+			p.last_evaluated_at,
+			p.last_evidence_at,
+			p.updated_at,
+			ROW_NUMBER() OVER (
+				PARTITION BY u.source_platform, u.source_external_id, p.node_id
+				ORDER BY p.updated_at DESC, p.memory_id DESC
+			) AS rn
+		FROM memory_posterior_states p
+		INNER JOIN user_memory_nodes u ON u.memory_id = p.memory_id
+	)
+	INSERT INTO memory_posterior_states_v2(
+		source_platform,
+		source_external_id,
+		node_id,
+		node_kind,
+		state,
+		diagnosis_code,
+		reason,
+		blocked_by_node_ids_json,
+		last_evaluated_at,
+		last_evidence_at,
+		updated_at
+	)
+	SELECT
+		source_platform,
+		source_external_id,
+		node_id,
+		node_kind,
+		state,
+		diagnosis_code,
+		reason,
+		blocked_by_node_ids_json,
+		last_evaluated_at,
+		last_evidence_at,
+		updated_at
+	FROM ranked
+	WHERE rn = 1`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE memory_posterior_states`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE memory_posterior_states_v2 RENAME TO memory_posterior_states`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_posterior_states_state
+		ON memory_posterior_states(state)`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *SQLiteStore) tableColumns(table string) (map[string]struct{}, error) {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columns := make(map[string]struct{})
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return nil, err
+		}
+		columns[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return columns, nil
 }
 
 func parseSQLiteTime(raw string) time.Time {

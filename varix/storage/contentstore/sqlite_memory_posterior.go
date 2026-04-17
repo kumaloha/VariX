@@ -15,6 +15,11 @@ import (
 )
 
 type sourceScopeKey struct {
+	sourcePlatform   string
+	sourceExternalID string
+}
+
+type acceptedScopeKey struct {
 	userID           string
 	sourcePlatform   string
 	sourceExternalID string
@@ -38,9 +43,12 @@ func (s *SQLiteStore) GetPosteriorState(ctx context.Context, memoryID int64) (me
 }
 
 func (s *SQLiteStore) ListPosteriorStates(ctx context.Context, userID, sourcePlatform, sourceExternalID string) ([]memory.PosteriorStateRecord, error) {
-	query := `SELECT ps.memory_id, ps.node_id, ps.node_kind, ps.state, ps.diagnosis_code, ps.reason, ps.blocked_by_node_ids_json, ps.last_evaluated_at, ps.last_evidence_at, ps.updated_at
-		FROM memory_posterior_states ps
-		JOIN user_memory_nodes umn ON umn.memory_id = ps.memory_id
+	query := `SELECT umn.memory_id, ps.source_platform, ps.source_external_id, ps.node_id, ps.node_kind, ps.state, ps.diagnosis_code, ps.reason, ps.blocked_by_node_ids_json, ps.last_evaluated_at, ps.last_evidence_at, ps.updated_at
+		FROM user_memory_nodes umn
+		JOIN memory_posterior_states ps
+		  ON ps.source_platform = umn.source_platform
+		 AND ps.source_external_id = umn.source_external_id
+		 AND ps.node_id = umn.node_id
 		WHERE umn.user_id = ?`
 	args := []any{strings.TrimSpace(userID)}
 	if strings.TrimSpace(sourcePlatform) != "" {
@@ -57,7 +65,7 @@ func (s *SQLiteStore) ListPosteriorStates(ctx context.Context, userID, sourcePla
 		return nil, err
 	}
 	defer rows.Close()
-	return scanPosteriorStates(rows)
+	return scanProjectedPosteriorStates(rows)
 }
 
 func (s *SQLiteStore) RunPosteriorVerification(ctx context.Context, req memory.PosteriorRunRequest, now time.Time) (memory.PosteriorRunResult, error) {
@@ -105,9 +113,11 @@ func (s *SQLiteStore) RunPosteriorVerification(ctx context.Context, req memory.P
 			current.UpdatedAt = now
 		}
 		scope := sourceScopeKey{
-			userID:           node.UserID,
 			sourcePlatform:   node.SourcePlatform,
 			sourceExternalID: node.SourceExternalID,
+		}
+		if containsPosteriorNodeState(statesByScope[scope], node.NodeID) {
+			continue
 		}
 		statesByScope[scope] = append(statesByScope[scope], posteriorNodeState{
 			node:    node,
@@ -152,11 +162,11 @@ func (s *SQLiteStore) RunPosteriorVerification(ctx context.Context, req memory.P
 		if len(mutatedForScope) == 0 {
 			continue
 		}
-		refresh, err := enqueuePosteriorRefreshTx(ctx, tx, scopedStates[0].node, record, mutatedForScope, now)
+		refreshes, err := enqueuePosteriorRefreshesTx(ctx, tx, scope, record, mutatedForScope, now)
 		if err != nil {
 			return memory.PosteriorRunResult{}, err
 		}
-		result.Refreshes = append(result.Refreshes, refresh)
+		result.Refreshes = append(result.Refreshes, refreshes...)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -212,10 +222,11 @@ func seedPosteriorStateTx(ctx context.Context, tx *sql.Tx, node memory.AcceptedN
 	}
 	res, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO memory_posterior_states(memory_id, node_id, node_kind, state, diagnosis_code, reason, blocked_by_node_ids_json, last_evaluated_at, last_evidence_at, updated_at)
-		 VALUES (?, ?, ?, ?, NULL, NULL, '[]', NULL, NULL, ?)
-		 ON CONFLICT(memory_id) DO NOTHING`,
-		node.MemoryID,
+		`INSERT INTO memory_posterior_states(source_platform, source_external_id, node_id, node_kind, state, diagnosis_code, reason, blocked_by_node_ids_json, last_evaluated_at, last_evidence_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, NULL, NULL, '[]', NULL, NULL, ?)
+		 ON CONFLICT(source_platform, source_external_id, node_id) DO NOTHING`,
+		node.SourcePlatform,
+		node.SourceExternalID,
 		node.NodeID,
 		node.NodeKind,
 		string(memory.PosteriorStatePending),
@@ -238,13 +249,17 @@ func getPosteriorStateTx(ctx context.Context, tx *sql.Tx, memoryID int64) (memor
 func getPosteriorState(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, memoryID int64) (memory.PosteriorStateRecord, error) {
-	row := q.QueryRowContext(ctx, `SELECT memory_id, node_id, node_kind, state, diagnosis_code, reason, blocked_by_node_ids_json, last_evaluated_at, last_evidence_at, updated_at
-		FROM memory_posterior_states
-		WHERE memory_id = ?`, memoryID)
-	return scanPosteriorState(row)
+	row := q.QueryRowContext(ctx, `SELECT u.memory_id, p.source_platform, p.source_external_id, p.node_id, p.node_kind, p.state, p.diagnosis_code, p.reason, p.blocked_by_node_ids_json, p.last_evaluated_at, p.last_evidence_at, p.updated_at
+		FROM user_memory_nodes u
+		INNER JOIN memory_posterior_states p
+		  ON p.source_platform = u.source_platform
+		 AND p.source_external_id = u.source_external_id
+		 AND p.node_id = u.node_id
+		WHERE u.memory_id = ?`, memoryID)
+	return scanProjectedPosteriorState(row)
 }
 
-func scanPosteriorState(scanner rowScanner) (memory.PosteriorStateRecord, error) {
+func scanProjectedPosteriorState(scanner rowScanner) (memory.PosteriorStateRecord, error) {
 	var state memory.PosteriorStateRecord
 	var diagnosis sql.NullString
 	var reason sql.NullString
@@ -252,30 +267,16 @@ func scanPosteriorState(scanner rowScanner) (memory.PosteriorStateRecord, error)
 	var lastEvaluated sql.NullString
 	var lastEvidence sql.NullString
 	var updatedAt string
-	if err := scanner.Scan(&state.MemoryID, &state.NodeID, &state.NodeKind, &state.State, &diagnosis, &reason, &blockedJSON, &lastEvaluated, &lastEvidence, &updatedAt); err != nil {
+	if err := scanner.Scan(&state.MemoryID, &state.SourcePlatform, &state.SourceExternalID, &state.NodeID, &state.NodeKind, &state.State, &diagnosis, &reason, &blockedJSON, &lastEvaluated, &lastEvidence, &updatedAt); err != nil {
 		return memory.PosteriorStateRecord{}, err
 	}
-	if diagnosis.Valid {
-		state.DiagnosisCode = memory.PosteriorDiagnosisCode(diagnosis.String)
-	}
-	if reason.Valid {
-		state.Reason = reason.String
-	}
-	state.BlockedByNodeIDs = unmarshalJSONStringSlice(blockedJSON)
-	if lastEvaluated.Valid {
-		state.LastEvaluatedAt = parseSQLiteTime(lastEvaluated.String)
-	}
-	if lastEvidence.Valid {
-		state.LastEvidenceAt = parseSQLiteTime(lastEvidence.String)
-	}
-	state.UpdatedAt = parseSQLiteTime(updatedAt)
-	return state, nil
+	return hydratePosteriorStateRecord(state, diagnosis, reason, blockedJSON, lastEvaluated, lastEvidence, updatedAt)
 }
 
-func scanPosteriorStates(rows *sql.Rows) ([]memory.PosteriorStateRecord, error) {
+func scanProjectedPosteriorStates(rows *sql.Rows) ([]memory.PosteriorStateRecord, error) {
 	out := make([]memory.PosteriorStateRecord, 0)
 	for rows.Next() {
-		state, err := scanPosteriorState(rows)
+		state, err := scanProjectedPosteriorState(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -367,9 +368,13 @@ func loadPosteriorStatesByMemoryID(ctx context.Context, q rowsQuerier, memoryIDs
 	}
 	rows, err := q.QueryContext(
 		ctx,
-		fmt.Sprintf(`SELECT memory_id, state, diagnosis_code, reason, blocked_by_node_ids_json, updated_at
-			FROM memory_posterior_states
-			WHERE memory_id IN (%s)`, strings.Join(placeholders, ",")),
+		fmt.Sprintf(`SELECT u.memory_id, p.state, p.diagnosis_code, p.reason, p.blocked_by_node_ids_json, p.updated_at
+			FROM user_memory_nodes u
+			INNER JOIN memory_posterior_states p
+			  ON p.source_platform = u.source_platform
+			 AND p.source_external_id = u.source_external_id
+			 AND p.node_id = u.node_id
+			WHERE u.memory_id IN (%s)`, strings.Join(placeholders, ",")),
 		args...,
 	)
 	if err != nil {
@@ -427,10 +432,9 @@ func upsertPosteriorStateTx(ctx context.Context, tx *sql.Tx, state memory.Poster
 	}
 	_, err = tx.ExecContext(
 		ctx,
-		`INSERT INTO memory_posterior_states(memory_id, node_id, node_kind, state, diagnosis_code, reason, blocked_by_node_ids_json, last_evaluated_at, last_evidence_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(memory_id) DO UPDATE SET
-		   node_id = excluded.node_id,
+		`INSERT INTO memory_posterior_states(source_platform, source_external_id, node_id, node_kind, state, diagnosis_code, reason, blocked_by_node_ids_json, last_evaluated_at, last_evidence_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(source_platform, source_external_id, node_id) DO UPDATE SET
 		   node_kind = excluded.node_kind,
 		   state = excluded.state,
 		   diagnosis_code = excluded.diagnosis_code,
@@ -439,7 +443,8 @@ func upsertPosteriorStateTx(ctx context.Context, tx *sql.Tx, state memory.Poster
 		   last_evaluated_at = excluded.last_evaluated_at,
 		   last_evidence_at = excluded.last_evidence_at,
 		   updated_at = excluded.updated_at`,
-		state.MemoryID,
+		state.SourcePlatform,
+		state.SourceExternalID,
 		state.NodeID,
 		state.NodeKind,
 		string(state.State),
@@ -451,6 +456,32 @@ func upsertPosteriorStateTx(ctx context.Context, tx *sql.Tx, state memory.Poster
 		state.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	)
 	return err
+}
+
+func hydratePosteriorStateRecord(
+	state memory.PosteriorStateRecord,
+	diagnosis sql.NullString,
+	reason sql.NullString,
+	blockedJSON string,
+	lastEvaluated sql.NullString,
+	lastEvidence sql.NullString,
+	updatedAt string,
+) (memory.PosteriorStateRecord, error) {
+	if diagnosis.Valid {
+		state.DiagnosisCode = memory.PosteriorDiagnosisCode(diagnosis.String)
+	}
+	if reason.Valid {
+		state.Reason = reason.String
+	}
+	state.BlockedByNodeIDs = unmarshalJSONStringSlice(blockedJSON)
+	if lastEvaluated.Valid {
+		state.LastEvaluatedAt = parseSQLiteTime(lastEvaluated.String)
+	}
+	if lastEvidence.Valid {
+		state.LastEvidenceAt = parseSQLiteTime(lastEvidence.String)
+	}
+	state.UpdatedAt = parseSQLiteTime(updatedAt)
+	return state, nil
 }
 
 func evaluatePosteriorState(
