@@ -239,18 +239,6 @@ type RawCanonicalMapping struct {
 	UpdatedAt           time.Time           `json:"updated_at"`
 }
 
-type RawCanonicalMapping struct {
-	CanonicalObjectType CanonicalObjectType `json:"canonical_object_type"`
-	CanonicalObjectID   string              `json:"canonical_object_id"`
-	SourcePlatform      string              `json:"source_platform"`
-	SourceExternalID    string              `json:"source_external_id"`
-	RawNodeID           string              `json:"raw_node_id,omitempty"`
-	RawEdgeKey          string              `json:"raw_edge_key,omitempty"`
-	MappingConfidence   float64             `json:"mapping_confidence"`
-	CreatedAt           time.Time           `json:"created_at"`
-	UpdatedAt           time.Time           `json:"updated_at"`
-}
-
 type DriverAggregate struct {
 	AggregateID         string             `json:"aggregate_id"`
 	DriverEntityID      string             `json:"driver_entity_id"`
