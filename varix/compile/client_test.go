@@ -20,6 +20,24 @@ type compileMockProvider struct {
 	responses []llm.ProviderResponse
 }
 
+type stubVerificationService struct {
+	calls        int
+	gotBundle    Bundle
+	gotOutput    Output
+	verification Verification
+	err          error
+}
+
+func (s *stubVerificationService) Verify(_ context.Context, bundle Bundle, output Output) (Verification, error) {
+	s.calls++
+	s.gotBundle = bundle
+	s.gotOutput = output
+	if s.err != nil {
+		return Verification{}, s.err
+	}
+	return s.verification, nil
+}
+
 func (p *compileMockProvider) Name() string { return "compile-mock" }
 
 func (p *compileMockProvider) Call(_ context.Context, req llm.ProviderRequest) (llm.ProviderResponse, error) {
@@ -87,6 +105,59 @@ func TestClientCompileUsesForgeRuntime(t *testing.T) {
 	}
 	if record.Output.Verification.Model == "" || len(record.Output.Verification.FactChecks) != 1 {
 		t.Fatalf("verification = %#v", record.Output.Verification)
+	}
+}
+
+func TestClientCompileProjectsInjectedVerificationServiceIntoCompatibilityOutput(t *testing.T) {
+	provider := &compileMockProvider{responses: []llm.ProviderResponse{{
+		Text:  `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`,
+		Model: "compile-model",
+	}}}
+	verifier := &stubVerificationService{
+		verification: Verification{
+			Model:        "downstream-verify",
+			Version:      "verify_v2",
+			RolloutStage: "facts_only",
+			FactChecks: []FactCheck{{
+				NodeID: "n1",
+				Status: FactStatusClearlyTrue,
+				Reason: "projected by downstream verifier",
+			}},
+		},
+	}
+	client := NewClientWithRuntimePromptsAndVerifier(
+		newTestRuntime(provider, "compile-model"),
+		"compile-model",
+		newPromptRegistry(""),
+		verifier,
+	)
+
+	record, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "weibo:projection",
+		Source:     "weibo",
+		ExternalID: "projection",
+		Content:    "root body",
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider calls = %d, want compile-only call when verifier is injected", len(provider.requests))
+	}
+	if verifier.calls != 1 {
+		t.Fatalf("verifier calls = %d, want 1", verifier.calls)
+	}
+	if verifier.gotBundle.ExternalID != "projection" {
+		t.Fatalf("verifier bundle = %#v", verifier.gotBundle)
+	}
+	if len(verifier.gotOutput.Graph.Nodes) != 2 {
+		t.Fatalf("verifier output graph = %#v", verifier.gotOutput.Graph)
+	}
+	if record.Output.Verification.Model != "downstream-verify" {
+		t.Fatalf("record verification model = %q, want downstream-verify", record.Output.Verification.Model)
+	}
+	if len(record.Output.Verification.FactChecks) != 1 || record.Output.Verification.FactChecks[0].NodeID != "n1" {
+		t.Fatalf("record verification = %#v", record.Output.Verification)
 	}
 }
 
