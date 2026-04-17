@@ -499,7 +499,7 @@ func TestService_PollSkipsProcessedMarksNewAndUpdatesFollowState(t *testing.T) {
 			{Platform: types.PlatformTwitter, ExternalID: "done", URL: "https://x.com/a/status/done"},
 			{Platform: types.PlatformTwitter, ExternalID: "new", URL: "https://x.com/a/status/new"},
 		},
-	}, fakeEnricher{})
+	}, nil)
 
 	report, items, warnings, pollWarnings, err := svc.Poll(context.Background())
 	if err != nil {
@@ -555,7 +555,7 @@ func TestService_PollContinuesAfterTargetDiscoverError(t *testing.T) {
 		discoverErrFor: map[string]error{
 			"search:twitter:bad": errors.New("discover failed"),
 		},
-	}, fakeEnricher{})
+	}, nil)
 
 	report, items, storeWarnings, pollWarnings, err := svc.Poll(context.Background())
 	if err != nil {

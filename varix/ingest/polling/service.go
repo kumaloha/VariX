@@ -442,6 +442,7 @@ func (s *Service) preserveStoredCaptureQuality(ctx context.Context, items []type
 	for _, item := range items {
 		existing, err := s.store.GetRawCapture(ctx, item.Source, item.ExternalID)
 		if err == nil && shouldReuseStoredCapture(existing, item) {
+			replacedMethod := captureMethod(item)
 			item = mergeStoredCaptureQuality(existing, item)
 			item.Provenance = appendProvenanceEvidence(item.Provenance, types.ProvenanceEvidence{
 				Kind: "stored_capture_reused",
@@ -450,7 +451,7 @@ func (s *Service) preserveStoredCaptureQuality(ctx context.Context, items []type
 					item.Source,
 					item.ExternalID,
 					captureMethod(existing),
-					captureMethod(item),
+					replacedMethod,
 				),
 				Weight: string(types.ConfidenceHigh),
 			})
