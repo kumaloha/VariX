@@ -137,11 +137,11 @@ func mergeCandidates(existing []types.SourceCandidate, incoming []types.SourceCa
 		return existing
 	}
 	out := append([]types.SourceCandidate(nil), existing...)
-	seen := make(map[string]struct{}, len(existing))
-	for _, candidate := range existing {
+	seen := make(map[string]int, len(existing))
+	for idx, candidate := range existing {
 		key := candidateKey(candidate)
 		if key != "" {
-			seen[key] = struct{}{}
+			seen[key] = idx
 		}
 	}
 	for _, candidate := range incoming {
@@ -149,13 +149,31 @@ func mergeCandidates(existing []types.SourceCandidate, incoming []types.SourceCa
 		if key == "" {
 			continue
 		}
-		if _, ok := seen[key]; ok {
+		if idx, ok := seen[key]; ok {
+			out[idx] = mergeSourceCandidate(out[idx], candidate)
 			continue
 		}
-		seen[key] = struct{}{}
+		seen[key] = len(out)
 		out = append(out, candidate)
 	}
 	return out
+}
+
+func mergeSourceCandidate(existing types.SourceCandidate, incoming types.SourceCandidate) types.SourceCandidate {
+	merged := existing
+	if candidateConfidenceRank(incoming.Confidence) > candidateConfidenceRank(merged.Confidence) {
+		merged.Confidence = incoming.Confidence
+	}
+	if strings.TrimSpace(merged.URL) == "" {
+		merged.URL = incoming.URL
+	}
+	if strings.TrimSpace(merged.Host) == "" {
+		merged.Host = incoming.Host
+	}
+	if strings.TrimSpace(merged.Kind) == "" {
+		merged.Kind = incoming.Kind
+	}
+	return merged
 }
 
 func candidateKey(candidate types.SourceCandidate) string {
@@ -166,4 +184,17 @@ func candidateKey(candidate types.SourceCandidate) string {
 		return trimmed + "|" + candidate.Kind
 	}
 	return ""
+}
+
+func candidateConfidenceRank(confidence string) int {
+	switch strings.ToLower(strings.TrimSpace(confidence)) {
+	case string(types.ConfidenceHigh):
+		return 3
+	case string(types.ConfidenceMedium):
+		return 2
+	case string(types.ConfidenceLow):
+		return 1
+	default:
+		return 0
+	}
 }

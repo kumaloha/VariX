@@ -3,6 +3,7 @@ package provenance
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/kumaloha/VariX/varix/ingest/types"
@@ -306,6 +307,78 @@ func TestServiceRunOncePreservesMergedCandidateOrderForJudge(t *testing.T) {
 	}
 	if judge.seen[1].URL != "https://finder.example/second" {
 		t.Fatalf("second candidate = %q, want finder candidate second", judge.seen[1].URL)
+	}
+}
+
+func TestMergeCandidates_PrefersStrongerConfidenceForDuplicateURL(t *testing.T) {
+	got := mergeCandidates(
+		[]types.SourceCandidate{{
+			URL:        "https://example.com/source",
+			Host:       "example.com",
+			Kind:       "reference_link",
+			Confidence: string(types.ConfidenceLow),
+		}},
+		[]types.SourceCandidate{{
+			URL:        "https://example.com/source",
+			Host:       "example.com",
+			Kind:       "reference_link",
+			Confidence: string(types.ConfidenceHigh),
+		}},
+	)
+
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+	if got[0].Confidence != string(types.ConfidenceHigh) {
+		t.Fatalf("Confidence = %q, want high", got[0].Confidence)
+	}
+}
+
+func TestMergeCandidates_PrefersStrongerConfidenceForDuplicateHostKind(t *testing.T) {
+	got := mergeCandidates(
+		[]types.SourceCandidate{{
+			Host:       "example.com",
+			Kind:       "reference_link",
+			Confidence: string(types.ConfidenceLow),
+		}},
+		[]types.SourceCandidate{{
+			Host:       "example.com",
+			Kind:       "reference_link",
+			Confidence: string(types.ConfidenceMedium),
+		}},
+	)
+
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+	if got[0].Confidence != string(types.ConfidenceMedium) {
+		t.Fatalf("Confidence = %q, want medium", got[0].Confidence)
+	}
+}
+
+func TestMergeCandidates_IsDeterministicAcrossRepeatedMerges(t *testing.T) {
+	existing := []types.SourceCandidate{{
+		URL:        "https://example.com/source",
+		Host:       "example.com",
+		Kind:       "reference_link",
+		Confidence: string(types.ConfidenceLow),
+	}}
+	incoming := []types.SourceCandidate{{
+		URL:        "https://example.com/source",
+		Host:       "example.com",
+		Kind:       "reference_link",
+		Confidence: string(types.ConfidenceHigh),
+	}, {
+		URL:        "https://example.com/other",
+		Host:       "example.com",
+		Kind:       "source_link",
+		Confidence: string(types.ConfidenceMedium),
+	}}
+
+	first := mergeCandidates(existing, incoming)
+	second := mergeCandidates(first, incoming)
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("repeated merge mismatch:\nfirst  = %#v\nsecond = %#v", first, second)
 	}
 }
 
