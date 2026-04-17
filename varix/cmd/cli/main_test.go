@@ -587,6 +587,136 @@ func TestRunMemoryOrganizedIncludesFrontendHints(t *testing.T) {
 	}
 }
 
+func TestRunMemoryOrganizedIncludesDominantDriverFeedbackAndVerdicts(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:Q-driver-cli",
+			Source:         "weibo",
+			ExternalID:     "Q-driver-cli",
+			RootExternalID: "Q-driver-cli",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						testGraphNode("n1", c.NodeFact, "美元走弱"),
+						testGraphNode("n2", c.NodeFact, "风险偏好回升"),
+						testGraphNode("n3", c.NodeConclusion, "黄金获得支撑"),
+						testGraphNode("n4", c.NodePrediction, "金价继续走高"),
+					},
+					Edges: []c.GraphEdge{
+						{From: "n1", To: "n3", Kind: c.EdgePositive},
+						{From: "n2", To: "n3", Kind: c.EdgePositive},
+						{From: "n3", To: "n4", Kind: c.EdgeDerives},
+					},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+				Verification: c.Verification{
+					VerifiedAt: time.Now().UTC(),
+					Model:      c.Qwen36PlusModel,
+					FactChecks: []c.FactCheck{
+						{NodeID: "n1", Status: c.FactStatusClearlyTrue, Reason: "confirmed by price action"},
+						{NodeID: "n2", Status: c.FactStatusUnverifiable, Reason: "support remains thin"},
+					},
+					PredictionChecks: []c.PredictionCheck{
+						{NodeID: "n4", Status: c.PredictionStatusResolvedFalse, Reason: "price broke lower", AsOf: time.Now().UTC()},
+					},
+				},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+			UserID:           "u-driver-cli",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "Q-driver-cli",
+			NodeIDs:          []string{"n1", "n2", "n3", "n4"},
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "organize-run", "--user", "u-driver-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("organize-run code = %d, stderr = %s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "organized", "--user", "u-driver-cli", "--platform", "weibo", "--id", "Q-driver-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("organized code = %d, stderr = %s", code, stderr.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal(organized payload) error = %v", err)
+	}
+
+	dominantDriver, ok := payload["dominant_driver"].(map[string]any)
+	if !ok {
+		t.Fatalf("dominant_driver = %#v, want object", payload["dominant_driver"])
+	}
+	if stringValue(dominantDriver["node_id"]) != "n1" {
+		t.Fatalf("dominant_driver.node_id = %#v, want n1", dominantDriver["node_id"])
+	}
+	if !strings.Contains(stringValue(dominantDriver["explanation"]), "primary") || !strings.Contains(stringValue(dominantDriver["explanation"]), "supporting") {
+		t.Fatalf("dominant_driver.explanation = %#v, want primary vs supporting explanation", dominantDriver["explanation"])
+	}
+
+	feedback, ok := payload["feedback"].([]any)
+	if !ok || len(feedback) == 0 {
+		t.Fatalf("feedback = %#v, want strongest-error-first list", payload["feedback"])
+	}
+	firstFeedback, ok := feedback[0].(map[string]any)
+	if !ok {
+		t.Fatalf("feedback[0] = %#v, want object", feedback[0])
+	}
+	if stringValue(firstFeedback["node_id"]) != "n4" || stringValue(firstFeedback["severity"]) != "error" {
+		t.Fatalf("feedback[0] = %#v, want error-ranked prediction failure", firstFeedback)
+	}
+
+	nodeHints, ok := payload["node_hints"].([]any)
+	if !ok {
+		t.Fatalf("node_hints = %#v, want array", payload["node_hints"])
+	}
+	hintsByID := map[string]map[string]any{}
+	for _, raw := range nodeHints {
+		hint, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("node_hints entry = %#v, want object", raw)
+		}
+		hintsByID[stringValue(hint["node_id"])] = hint
+	}
+	if got := hintsByID["n1"]; stringValue(got["node_verdict"]) != "supported" || stringValue(got["driver_role"]) != "primary" {
+		t.Fatalf("hint[n1] = %#v, want supported primary driver", got)
+	}
+	if got := hintsByID["n2"]; stringValue(got["node_verdict"]) != "needs_review" || stringValue(got["driver_role"]) != "supporting" {
+		t.Fatalf("hint[n2] = %#v, want needs_review supporting driver", got)
+	}
+}
+
 func TestRunMemoryPosteriorRunMarksOrganizedOutputStaleUntilRefreshRun(t *testing.T) {
 	prevBuildApp := buildApp
 	prevOpenSQLiteStore := openSQLiteStore

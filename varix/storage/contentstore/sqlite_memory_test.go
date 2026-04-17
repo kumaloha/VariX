@@ -443,6 +443,102 @@ func TestSQLiteStore_RunNextMemoryOrganizationJobProducesOutput(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_RunNextMemoryOrganizationJobAddsDominantDriverVerdictsAndFeedback(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "weibo:Q-driver",
+		Source:         "weibo",
+		ExternalID:     "Q-driver",
+		RootExternalID: "Q-driver",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "美元走弱", ValidFrom: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeFact, Text: "风险偏好回升", ValidFrom: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)},
+					{ID: "n3", Kind: compile.NodeConclusion, Text: "黄金获得支撑", ValidFrom: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)},
+					{ID: "n4", Kind: compile.NodePrediction, Text: "金价继续走高", ValidFrom: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), ValidTo: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n3", Kind: compile.EdgePositive},
+					{From: "n2", To: "n3", Kind: compile.EdgePositive},
+					{From: "n3", To: "n4", Kind: compile.EdgeDerives},
+				},
+			},
+			Details: compile.HiddenDetails{Caveats: []string{"detail"}},
+			Verification: compile.Verification{
+				VerifiedAt: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC),
+				Model:      "qwen3.6-plus",
+				FactChecks: []compile.FactCheck{
+					{NodeID: "n1", Status: compile.FactStatusClearlyTrue, Reason: "confirmed by price action"},
+					{NodeID: "n2", Status: compile.FactStatusUnverifiable, Reason: "support remains thin"},
+				},
+				PredictionChecks: []compile.PredictionCheck{
+					{NodeID: "n4", Status: compile.PredictionStatusResolvedFalse, Reason: "price broke lower", AsOf: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC)},
+				},
+			},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-driver",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q-driver",
+		NodeIDs:          []string{"n1", "n2", "n3", "n4"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+
+	out, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-driver", time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob() error = %v", err)
+	}
+	if out.DominantDriver == nil {
+		t.Fatalf("DominantDriver = nil, want primary driver summary")
+	}
+	if out.DominantDriver.NodeID != "n1" {
+		t.Fatalf("DominantDriver.NodeID = %q, want n1", out.DominantDriver.NodeID)
+	}
+	if !slices.Equal(out.DominantDriver.SupportingNodeIDs, []string{"n2"}) {
+		t.Fatalf("DominantDriver.SupportingNodeIDs = %#v, want [n2]", out.DominantDriver.SupportingNodeIDs)
+	}
+	if !strings.Contains(out.DominantDriver.Explanation, "primary") || !strings.Contains(out.DominantDriver.Explanation, "supporting") {
+		t.Fatalf("DominantDriver.Explanation = %q, want primary vs supporting explanation", out.DominantDriver.Explanation)
+	}
+	if len(out.Feedback) < 2 {
+		t.Fatalf("Feedback = %#v, want strongest-error-first items", out.Feedback)
+	}
+	if out.Feedback[0].NodeID != "n4" || out.Feedback[0].Severity != "error" {
+		t.Fatalf("Feedback[0] = %#v, want prediction failure ranked first", out.Feedback[0])
+	}
+
+	hintsByID := map[string]memory.NodeHint{}
+	for _, hint := range out.NodeHints {
+		hintsByID[hint.NodeID] = hint
+	}
+	if got := hintsByID["n1"]; got.NodeVerdict != "supported" || got.DriverRole != "primary" {
+		t.Fatalf("hint[n1] = %#v, want supported primary driver", got)
+	}
+	if got := hintsByID["n2"]; got.NodeVerdict != "needs_review" || got.DriverRole != "supporting" {
+		t.Fatalf("hint[n2] = %#v, want needs_review supporting driver", got)
+	}
+	if got := hintsByID["n4"]; got.NodeVerdict != "contradicted" {
+		t.Fatalf("hint[n4] = %#v, want contradicted verdict", got)
+	}
+}
+
 func TestSQLiteStore_OrganizationDetectsNearDuplicateAndAntonymContradiction(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
