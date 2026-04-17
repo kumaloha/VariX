@@ -894,10 +894,11 @@ func TestSQLiteStore_OrganizationPreservesPosteriorStateAndDiagnosis(t *testing.
 
 	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
 	if _, err := store.db.Exec(
-		`INSERT INTO memory_posterior_states(memory_id, node_id, node_kind, state, diagnosis_code, reason, blocked_by_node_ids_json, last_evaluated_at, last_evidence_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(memory_id) DO UPDATE SET state = excluded.state, diagnosis_code = excluded.diagnosis_code, reason = excluded.reason, blocked_by_node_ids_json = excluded.blocked_by_node_ids_json, last_evaluated_at = excluded.last_evaluated_at, last_evidence_at = excluded.last_evidence_at, updated_at = excluded.updated_at`,
-		conclusion.MemoryID,
+		`INSERT INTO memory_posterior_states(source_platform, source_external_id, node_id, node_kind, state, diagnosis_code, reason, blocked_by_node_ids_json, last_evaluated_at, last_evidence_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(source_platform, source_external_id, node_id) DO UPDATE SET state = excluded.state, diagnosis_code = excluded.diagnosis_code, reason = excluded.reason, blocked_by_node_ids_json = excluded.blocked_by_node_ids_json, last_evaluated_at = excluded.last_evaluated_at, last_evidence_at = excluded.last_evidence_at, updated_at = excluded.updated_at`,
+		conclusion.SourcePlatform,
+		conclusion.SourceExternalID,
 		conclusion.NodeID,
 		conclusion.NodeKind,
 		string(memory.PosteriorStateFalsified),

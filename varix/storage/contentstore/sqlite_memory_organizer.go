@@ -242,9 +242,12 @@ func getCompiledOutputTx(ctx context.Context, tx *sql.Tx, platform, externalID s
 }
 
 func loadPosteriorStatesBySourceTx(ctx context.Context, tx *sql.Tx, userID, sourcePlatform, sourceExternalID string) (map[int64]posteriorStateRow, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT p.memory_id, p.state, p.diagnosis_code, p.reason, p.blocked_by_node_ids_json, p.updated_at
-		FROM memory_posterior_states p
-		INNER JOIN user_memory_nodes u ON u.memory_id = p.memory_id
+	rows, err := tx.QueryContext(ctx, `SELECT u.memory_id, p.state, p.diagnosis_code, p.reason, p.blocked_by_node_ids_json, p.updated_at
+		FROM user_memory_nodes u
+		INNER JOIN memory_posterior_states p
+		  ON p.source_platform = u.source_platform
+		 AND p.source_external_id = u.source_external_id
+		 AND p.node_id = u.node_id
 		WHERE u.user_id = ? AND u.source_platform = ? AND u.source_external_id = ?`,
 		userID, sourcePlatform, sourceExternalID,
 	)

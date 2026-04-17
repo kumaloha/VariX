@@ -736,8 +736,17 @@ func posteriorMateriallyChanged(current, next memory.PosteriorStateRecord) bool 
 	if !current.LastEvidenceAt.Equal(next.LastEvidenceAt) {
 		return true
 	}
-	if current.MemoryID == 0 || current.UpdatedAt.IsZero() {
+	if current.UpdatedAt.IsZero() {
 		return true
+	}
+	return false
+}
+
+func containsPosteriorNodeState(states []posteriorNodeState, nodeID string) bool {
+	for _, state := range states {
+		if state.node.NodeID == nodeID {
+			return true
+		}
 	}
 	return false
 }
@@ -754,91 +763,149 @@ func sameStringSlice(left, right []string) bool {
 	return true
 }
 
-func enqueuePosteriorRefreshTx(
+func enqueuePosteriorRefreshesTx(
 	ctx context.Context,
 	tx *sql.Tx,
-	node memory.AcceptedNode,
+	scope sourceScopeKey,
 	record compile.Record,
 	mutated []memory.PosteriorStateRecord,
 	now time.Time,
-) (memory.PosteriorRefreshTrigger, error) {
+) ([]memory.PosteriorRefreshTrigger, error) {
 	if len(mutated) == 0 {
-		return memory.PosteriorRefreshTrigger{}, errors.New("posterior refresh requires mutated states")
+		return nil, errors.New("posterior refresh requires mutated states")
 	}
-	memoryIDs := make([]int64, 0, len(mutated))
 	nodeIDs := make([]string, 0, len(mutated))
+	seenNodeIDs := make(map[string]struct{}, len(mutated))
 	for _, state := range mutated {
-		memoryIDs = append(memoryIDs, state.MemoryID)
+		if _, ok := seenNodeIDs[state.NodeID]; ok {
+			continue
+		}
+		seenNodeIDs[state.NodeID] = struct{}{}
 		nodeIDs = append(nodeIDs, state.NodeID)
 	}
-	sort.Slice(memoryIDs, func(i, j int) bool { return memoryIDs[i] < memoryIDs[j] })
 	sort.Strings(nodeIDs)
 
-	payload, err := json.Marshal(map[string]any{
-		"reason":               "posterior_state_changed",
-		"posterior_memory_ids": memoryIDs,
-		"posterior_node_ids":   nodeIDs,
-	})
-	if err != nil {
-		return memory.PosteriorRefreshTrigger{}, err
+	placeholders := make([]string, len(nodeIDs))
+	args := make([]any, 0, len(nodeIDs)+2)
+	args = append(args, scope.sourcePlatform, scope.sourceExternalID)
+	for i, nodeID := range nodeIDs {
+		placeholders[i] = "?"
+		args = append(args, nodeID)
 	}
 
-	eventResult, err := tx.ExecContext(
+	rows, err := tx.QueryContext(
 		ctx,
-		`INSERT INTO memory_acceptance_events(user_id, trigger_type, source_platform, source_external_id, root_external_id, source_model, source_compiled_at, payload_json, accepted_count, accepted_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		node.UserID,
-		"posterior_refresh",
-		node.SourcePlatform,
-		node.SourceExternalID,
-		record.RootExternalID,
-		record.Model,
-		record.CompiledAt.UTC().Format(time.RFC3339Nano),
-		string(payload),
-		0,
-		now.Format(time.RFC3339Nano),
+		fmt.Sprintf(`SELECT user_id, memory_id, node_id
+			FROM user_memory_nodes
+			WHERE source_platform = ? AND source_external_id = ? AND node_id IN (%s)
+			ORDER BY user_id ASC, memory_id ASC`, strings.Join(placeholders, ",")),
+		args...,
 	)
 	if err != nil {
-		return memory.PosteriorRefreshTrigger{}, err
+		return nil, err
 	}
-	eventID, err := eventResult.LastInsertId()
-	if err != nil {
-		return memory.PosteriorRefreshTrigger{}, err
+	defer rows.Close()
+
+	memoryIDsByScope := make(map[acceptedScopeKey][]int64)
+	nodeIDsByScope := make(map[acceptedScopeKey][]string)
+	scopeOrder := make([]acceptedScopeKey, 0)
+	for rows.Next() {
+		var userID string
+		var memoryID int64
+		var nodeID string
+		if err := rows.Scan(&userID, &memoryID, &nodeID); err != nil {
+			return nil, err
+		}
+		targetScope := acceptedScopeKey{
+			userID:           userID,
+			sourcePlatform:   scope.sourcePlatform,
+			sourceExternalID: scope.sourceExternalID,
+		}
+		if _, ok := memoryIDsByScope[targetScope]; !ok {
+			scopeOrder = append(scopeOrder, targetScope)
+		}
+		memoryIDsByScope[targetScope] = append(memoryIDsByScope[targetScope], memoryID)
+		nodeIDsByScope[targetScope] = append(nodeIDsByScope[targetScope], nodeID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
-	jobResult, err := tx.ExecContext(
-		ctx,
-		`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, started_at, finished_at)
-		 VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`,
-		eventID,
-		node.UserID,
-		node.SourcePlatform,
-		node.SourceExternalID,
-		"queued",
-		now.Format(time.RFC3339Nano),
-	)
-	if err != nil {
-		return memory.PosteriorRefreshTrigger{}, err
-	}
-	jobID, err := jobResult.LastInsertId()
-	if err != nil {
-		return memory.PosteriorRefreshTrigger{}, err
+	refreshes := make([]memory.PosteriorRefreshTrigger, 0, len(scopeOrder))
+	for _, targetScope := range scopeOrder {
+		memoryIDs := append([]int64(nil), memoryIDsByScope[targetScope]...)
+		nodeIDsForScope := uniquePreservingOrder(nodeIDsByScope[targetScope])
+		sort.Slice(memoryIDs, func(i, j int) bool { return memoryIDs[i] < memoryIDs[j] })
+		sort.Strings(nodeIDsForScope)
+
+		payload, err := json.Marshal(map[string]any{
+			"reason":               "posterior_state_changed",
+			"posterior_memory_ids": memoryIDs,
+			"posterior_node_ids":   nodeIDsForScope,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		eventResult, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO memory_acceptance_events(user_id, trigger_type, source_platform, source_external_id, root_external_id, source_model, source_compiled_at, payload_json, accepted_count, accepted_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			targetScope.userID,
+			"posterior_refresh",
+			targetScope.sourcePlatform,
+			targetScope.sourceExternalID,
+			record.RootExternalID,
+			record.Model,
+			record.CompiledAt.UTC().Format(time.RFC3339Nano),
+			string(payload),
+			0,
+			now.Format(time.RFC3339Nano),
+		)
+		if err != nil {
+			return nil, err
+		}
+		eventID, err := eventResult.LastInsertId()
+		if err != nil {
+			return nil, err
+		}
+
+		jobResult, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, started_at, finished_at)
+			 VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`,
+			eventID,
+			targetScope.userID,
+			targetScope.sourcePlatform,
+			targetScope.sourceExternalID,
+			"queued",
+			now.Format(time.RFC3339Nano),
+		)
+		if err != nil {
+			return nil, err
+		}
+		jobID, err := jobResult.LastInsertId()
+		if err != nil {
+			return nil, err
+		}
+
+		refreshes = append(refreshes, memory.PosteriorRefreshTrigger{
+			EventID:           eventID,
+			JobID:             jobID,
+			UserID:            targetScope.userID,
+			SourcePlatform:    targetScope.sourcePlatform,
+			SourceExternalID:  targetScope.sourceExternalID,
+			RootExternalID:    record.RootExternalID,
+			SourceModel:       record.Model,
+			SourceCompiledAt:  record.CompiledAt.UTC(),
+			AffectedMemoryIDs: memoryIDs,
+			AffectedNodeIDs:   nodeIDsForScope,
+			Reason:            "posterior_state_changed",
+			CreatedAt:         now,
+		})
 	}
 
-	return memory.PosteriorRefreshTrigger{
-		EventID:           eventID,
-		JobID:             jobID,
-		UserID:            node.UserID,
-		SourcePlatform:    node.SourcePlatform,
-		SourceExternalID:  node.SourceExternalID,
-		RootExternalID:    record.RootExternalID,
-		SourceModel:       record.Model,
-		SourceCompiledAt:  record.CompiledAt.UTC(),
-		AffectedMemoryIDs: memoryIDs,
-		AffectedNodeIDs:   nodeIDs,
-		Reason:            "posterior_state_changed",
-		CreatedAt:         now,
-	}, nil
+	return refreshes, nil
 }
 
 func firstNonBlank(values ...string) string {
