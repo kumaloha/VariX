@@ -2,12 +2,15 @@ package compile
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kumaloha/VariX/varix/config"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 	"github.com/kumaloha/forge/llm"
 )
@@ -84,6 +87,57 @@ func TestClientCompileUsesForgeRuntime(t *testing.T) {
 	}
 	if record.Output.Verification.Model == "" || len(record.Output.Verification.FactChecks) != 1 {
 		t.Fatalf("verification = %#v", record.Output.Verification)
+	}
+}
+
+func TestClientCompileUsesConfiguredPromptsDir(t *testing.T) {
+	root := t.TempDir()
+	settings := config.DefaultSettings(root)
+	for rel, body := range map[string]string{
+		"compile/system.tmpl":                   "compile system min={{.MinNodes}} edges={{.MinEdges}}",
+		"compile/user.tmpl":                     "compile user {{.PayloadJSON}}",
+		"compile/retry_suffix.tmpl":             "retry requires min={{.MinNodes}} edges={{.MinEdges}}",
+		"compile/verifier/fact_claim.tmpl":      "fact claim prompt",
+		"compile/verifier/fact_challenge.tmpl":  "fact challenge prompt",
+		"compile/verifier/fact_adjudicate.tmpl": "fact adjudication prompt",
+		"compile/verifier/prediction.tmpl":      "prediction verifier prompt",
+		"compile/verifier/explicit_condition.tmpl": "explicit verifier prompt",
+		"compile/verifier/implicit_condition.tmpl": "implicit verifier prompt",
+	} {
+		path := filepath.Join(settings.PromptsDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q): %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q): %v", path, err)
+		}
+	}
+
+	provider := &compileMockProvider{responses: []llm.ProviderResponse{
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","occurred_at":"2026-04-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
+	}}
+	client := NewClientWithRuntimeAndPrompts(newTestRuntime(provider, "compile-model"), "compile-model", newPromptRegistry(settings.PromptsDir))
+
+	_, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "twitter:123",
+		Source:     "twitter",
+		ExternalID: "123",
+		Content:    "root body",
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if got := provider.requests[0].System; got != "compile system min=2 edges=1" {
+		t.Fatalf("compile system prompt = %q", got)
+	}
+	if got := provider.requests[0].UserParts[len(provider.requests[0].UserParts)-1].Text; !strings.Contains(got, "compile user") {
+		t.Fatalf("compile user prompt = %q", got)
+	}
+	if got := provider.requests[1].System; got != "fact claim prompt" {
+		t.Fatalf("fact verifier system prompt = %q", got)
 	}
 }
 
