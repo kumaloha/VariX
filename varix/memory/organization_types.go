@@ -86,6 +86,7 @@ type HierarchyLink struct {
 type NodeHint struct {
 	NodeID               string                 `json:"node_id"`
 	State                string                 `json:"state,omitempty"`
+	NodeVerdict          string                 `json:"node_verdict,omitempty"`
 	PreferredForDisplay  bool                   `json:"preferred_for_display,omitempty"`
 	VerificationStatus   string                 `json:"verification_status,omitempty"`
 	ConditionProbability string                 `json:"condition_probability,omitempty"`
@@ -99,24 +100,45 @@ type NodeHint struct {
 	ParentNodeIDs        []string               `json:"parent_node_ids,omitempty"`
 	ChildNodeIDs         []string               `json:"child_node_ids,omitempty"`
 	HierarchyRole        string                 `json:"hierarchy_role,omitempty"`
+	DriverRole           string                 `json:"driver_role,omitempty"`
+}
+
+type OrganizationFeedback struct {
+	NodeID   string `json:"node_id,omitempty"`
+	Severity string `json:"severity"`
+	Code     string `json:"code,omitempty"`
+	Message  string `json:"message"`
+	Reason   string `json:"reason,omitempty"`
+	NodeText string `json:"node_text,omitempty"`
+	NodeKind string `json:"node_kind,omitempty"`
+}
+
+type DominantDriverSummary struct {
+	NodeID            string   `json:"node_id"`
+	NodeKind          string   `json:"node_kind,omitempty"`
+	NodeText          string   `json:"node_text,omitempty"`
+	SupportingNodeIDs []string `json:"supporting_node_ids,omitempty"`
+	Explanation       string   `json:"explanation,omitempty"`
 }
 
 type OrganizationOutput struct {
-	OutputID            int64                `json:"output_id"`
-	JobID               int64                `json:"job_id"`
-	UserID              string               `json:"user_id"`
-	SourcePlatform      string               `json:"source_platform"`
-	SourceExternalID    string               `json:"source_external_id"`
-	GeneratedAt         time.Time            `json:"generated_at"`
-	ActiveNodes         []AcceptedNode       `json:"active_nodes"`
-	InactiveNodes       []AcceptedNode       `json:"inactive_nodes"`
-	DedupeGroups        []DedupeGroup        `json:"dedupe_groups,omitempty"`
-	ContradictionGroups []ContradictionGroup `json:"contradiction_groups,omitempty"`
-	Hierarchy           []HierarchyLink      `json:"hierarchy,omitempty"`
-	PredictionStatuses  []PredictionStatus   `json:"prediction_statuses,omitempty"`
-	FactVerifications   []FactVerification   `json:"fact_verifications,omitempty"`
-	OpenQuestions       []string             `json:"open_questions,omitempty"`
-	NodeHints           []NodeHint           `json:"node_hints,omitempty"`
+	OutputID            int64                  `json:"output_id"`
+	JobID               int64                  `json:"job_id"`
+	UserID              string                 `json:"user_id"`
+	SourcePlatform      string                 `json:"source_platform"`
+	SourceExternalID    string                 `json:"source_external_id"`
+	GeneratedAt         time.Time              `json:"generated_at"`
+	ActiveNodes         []AcceptedNode         `json:"active_nodes"`
+	InactiveNodes       []AcceptedNode         `json:"inactive_nodes"`
+	DedupeGroups        []DedupeGroup          `json:"dedupe_groups,omitempty"`
+	ContradictionGroups []ContradictionGroup   `json:"contradiction_groups,omitempty"`
+	Hierarchy           []HierarchyLink        `json:"hierarchy,omitempty"`
+	PredictionStatuses  []PredictionStatus     `json:"prediction_statuses,omitempty"`
+	FactVerifications   []FactVerification     `json:"fact_verifications,omitempty"`
+	OpenQuestions       []string               `json:"open_questions,omitempty"`
+	NodeHints           []NodeHint             `json:"node_hints,omitempty"`
+	DominantDriver      *DominantDriverSummary `json:"dominant_driver,omitempty"`
+	Feedback            []OrganizationFeedback `json:"feedback,omitempty"`
 }
 
 type GlobalCluster struct {

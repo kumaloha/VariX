@@ -218,6 +218,42 @@ Review-friendly behaviors:
 
 ---
 
+## Source-scoped organization output
+
+Source-scoped memory keeps its own JSON surface:
+
+- `varix memory organize-run --user <user_id>`
+- `varix memory organized --user <user_id> --platform <platform> --id <external_id>`
+
+Primary output object:
+- `OrganizationOutput`
+
+Important review-facing fields:
+- `node_hints[].node_verdict` — compact per-node verdict such as `supported`,
+  `needs_review`, `contradicted`, `blocked`, or `falsified`
+- `node_hints[].driver_role` — whether a node is currently treated as the
+  `primary` or `supporting` driver in the source-scoped path
+- `dominant_driver` — summary of the current primary driver, supporting driver
+  ids, and the explanation for the primary-vs-supporting split
+- `feedback` — strongest-error-first feedback items for failed predictions,
+  blocked/falsified posterior state, weak evidence, conflicts, and near
+  duplicates
+
+Intent:
+- keep raw accepted nodes visible, but attach UI-ready verdicts
+- highlight the strongest current upstream driver without hiding secondary
+  drivers
+- let read surfaces show the most actionable problems first instead of forcing
+  clients to sort many low-level hints themselves
+
+Rules:
+- source-scoped driver ranking is a display aid, not a new truth object
+- primary/supporting labels must stay traceable to accepted nodes + hierarchy
+- feedback ordering should keep hard failures ahead of weak-evidence warnings
+- stale source-scoped output still fails fast after posterior mutation
+
+---
+
 ## Source-scoped posterior verification (phase 1 design)
 
 Source-scoped memory also has a planned posterior-verification extension for
