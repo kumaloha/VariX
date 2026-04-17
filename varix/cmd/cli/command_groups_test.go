@@ -17,7 +17,7 @@ func TestUsageTextShowsDistinctCommandGroups(t *testing.T) {
 		"usage: varix <ingest|compile|memory>",
 		"ingest: fetch|follow|list-follows|poll|provenance-run",
 		"compile: run|show|summary|compare|card",
-		"memory: accept|accept-batch|list|show-source|jobs|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare",
+		"memory: accept|accept-batch|list|show-source|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("usageText() = %q, want substring %q", got, want)

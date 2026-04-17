@@ -24,6 +24,7 @@ var memoryCommands = []string{
 	"list",
 	"show-source",
 	"jobs",
+	"posterior-run",
 	"organize-run",
 	"organized",
 	"global-organize-run",
