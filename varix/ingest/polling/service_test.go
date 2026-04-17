@@ -693,6 +693,48 @@ func TestService_FetchURLPreservesStoredResolvedProvenance(t *testing.T) {
 	}
 }
 
+func TestService_FetchURLPreservesStoredResolvedProvenanceAndNewReuseEvidence(t *testing.T) {
+	store := &fakeStore{
+		processed: map[string]bool{},
+		raws: []types.RawContent{{
+			Source:     "youtube",
+			ExternalID: "yt-1",
+			URL:        "https://www.youtube.com/watch?v=yt-1",
+			Content:    "stored high quality transcript",
+			Metadata: types.RawMetadata{YouTube: &types.YouTubeMetadata{
+				Title:            "title",
+				TranscriptMethod: "subtitle_vtt",
+			}},
+			Provenance: &types.Provenance{
+				BaseRelation:      types.BaseRelationTranslation,
+				NeedsSourceLookup: true,
+				SourceLookup: types.SourceLookupState{
+					Status:             types.SourceLookupStatusFound,
+					CanonicalSourceURL: "https://example.com/source",
+				},
+			},
+		}},
+	}
+	svc := New(store, transcriptPreservingDispatcher{}, candidateEnricher{})
+
+	got, err := svc.FetchURL(context.Background(), "https://www.youtube.com/watch?v=yt-1")
+	if err != nil {
+		t.Fatalf("FetchURL() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(FetchURL()) = %d, want 1", len(got))
+	}
+	if got[0].Provenance == nil {
+		t.Fatal("returned raw provenance is nil")
+	}
+	if got[0].Provenance.SourceLookup.CanonicalSourceURL != "https://example.com/source" {
+		t.Fatalf("CanonicalSourceURL = %q, want preserved source url", got[0].Provenance.SourceLookup.CanonicalSourceURL)
+	}
+	if !hasEvidence(got[0].Provenance, "stored_capture_reused", "kept=subtitle_vtt") {
+		t.Fatalf("Evidence = %#v, want stored_capture_reused entry to survive preserved provenance", got[0].Provenance)
+	}
+}
+
 // tombstoneDispatcher returns (nil, nil) from FetchDiscoveryItem for items
 // in the emptyFetchIDs set, simulating Twitter 404/tombstone responses.
 type tombstoneDispatcher struct {

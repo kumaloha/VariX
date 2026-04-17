@@ -534,7 +534,7 @@ func (s *Service) preserveStoredProvenance(ctx context.Context, items []types.Ra
 	for _, item := range items {
 		existing, err := s.store.GetRawCapture(ctx, item.Source, item.ExternalID)
 		if err == nil && hasResolvedSourceLookup(existing.Provenance) && shouldPreserveStoredProvenance(item.Provenance) {
-			item.Provenance = cloneProvenance(existing.Provenance)
+			item.Provenance = mergePreservedProvenance(existing.Provenance, item.Provenance)
 		}
 		out = append(out, item)
 	}
@@ -731,6 +731,17 @@ func cloneProvenance(prov *types.Provenance) *types.Provenance {
 		copyProv.Evidence = append([]types.ProvenanceEvidence(nil), prov.Evidence...)
 	}
 	return &copyProv
+}
+
+func mergePreservedProvenance(existing, current *types.Provenance) *types.Provenance {
+	merged := cloneProvenance(existing)
+	if current == nil {
+		return merged
+	}
+	for _, evidence := range current.Evidence {
+		merged = appendProvenanceEvidence(merged, evidence)
+	}
+	return merged
 }
 
 func appendProvenanceEvidence(prov *types.Provenance, evidence types.ProvenanceEvidence) *types.Provenance {
