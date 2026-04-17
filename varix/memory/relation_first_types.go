@@ -208,18 +208,23 @@ type MechanismEdge struct {
 	FromNodeID      string            `json:"from_node_id"`
 	ToNodeID        string            `json:"to_node_id"`
 	EdgeType        MechanismEdgeType `json:"edge_type"`
+	PathOrder       int               `json:"path_order,omitempty"`
 	CreatedAt       time.Time         `json:"created_at"`
 }
 
 type PathOutcome struct {
-	PathOutcomeID   string          `json:"path_outcome_id"`
-	MechanismID     string          `json:"mechanism_id"`
-	NodePath        []string        `json:"node_path,omitempty"`
-	OutcomePolarity OutcomePolarity `json:"outcome_polarity"`
-	OutcomeLabel    string          `json:"outcome_label"`
-	ConditionScope  string          `json:"condition_scope,omitempty"`
-	Confidence      float64         `json:"confidence"`
-	CreatedAt       time.Time       `json:"created_at"`
+	PathOutcomeID     string          `json:"path_outcome_id"`
+	MechanismID       string          `json:"mechanism_id"`
+	NodePath          []string        `json:"node_path,omitempty"`
+	EdgePath          []string        `json:"edge_path,omitempty"`
+	OutcomePolarity   OutcomePolarity `json:"outcome_polarity"`
+	OutcomeLabel      string          `json:"outcome_label"`
+	ConditionScope    string          `json:"condition_scope,omitempty"`
+	PredictionNodeIDs []string        `json:"prediction_node_ids,omitempty"`
+	PredictionStartAt time.Time       `json:"prediction_start_at,omitempty"`
+	PredictionDueAt   time.Time       `json:"prediction_due_at,omitempty"`
+	Confidence        float64         `json:"confidence"`
+	CreatedAt         time.Time       `json:"created_at"`
 }
 
 type RawCanonicalMapping struct {

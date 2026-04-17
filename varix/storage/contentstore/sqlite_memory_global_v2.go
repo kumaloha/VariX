@@ -57,10 +57,23 @@ func (s *SQLiteStore) RunGlobalMemoryOrganizationV2(ctx context.Context, userID 
 		}
 	}
 	topMemoryItems := buildTopMemoryItems(conflicts, cognitiveConclusions, cognitiveCards, now)
+	relationProjection, err := s.buildRelationFirstProjection(ctx, now, causalTheses, cognitiveConclusions)
+	if err != nil {
+		return memory.GlobalMemoryV2Output{}, err
+	}
 
 	output := memory.GlobalMemoryV2Output{
 		UserID:               strings.TrimSpace(userID),
 		GeneratedAt:          now,
+		CanonicalEntities:    relationProjection.canonicalEntities,
+		Relations:            relationProjection.relations,
+		Mechanisms:           relationProjection.mechanisms,
+		MechanismNodes:       relationProjection.mechanismNodes,
+		MechanismEdges:       relationProjection.mechanismEdges,
+		PathOutcomes:         relationProjection.pathOutcomes,
+		DriverAggregates:     relationProjection.driverAggregates,
+		TargetAggregates:     relationProjection.targetAggregates,
+		ConflictViews:        relationProjection.conflictViews,
 		CandidateTheses:      candidateTheses,
 		ConflictSets:         conflicts,
 		CausalTheses:         causalTheses,

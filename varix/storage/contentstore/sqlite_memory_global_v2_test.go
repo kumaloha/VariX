@@ -399,6 +399,122 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationV2BuildsCausalThesesAndCards(t *
 	}
 }
 
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2BuildsRelationFirstTransmissionProjection(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	predictionStart := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
+	predictionDue := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	record := compile.Record{
+		UnitID:         "weibo:R1",
+		Source:         "weibo",
+		ExternalID:     "R1",
+		RootExternalID: "R1",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "美元流动性收紧", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodeExplicitCondition, Text: "若再融资窗口继续关闭"},
+					{ID: "n3", Kind: compile.NodeImplicitCondition, Text: "信用利差扩大并向高收益市场传导", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n4", Kind: compile.NodeConclusion, Text: "企业融资压力上升", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+					{ID: "n5", Kind: compile.NodePrediction, Text: "未来三个月违约波动加大", PredictionStartAt: predictionStart, PredictionDueAt: predictionDue},
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n2", Kind: compile.EdgeDerives},
+					{From: "n2", To: "n3", Kind: compile.EdgePresets},
+					{From: "n3", To: "n4", Kind: compile.EdgeDerives},
+					{From: "n4", To: "n5", Kind: compile.EdgeDerives},
+				},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-v2-relation-first",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "R1",
+		NodeIDs:          []string{"n1", "n2", "n3", "n4", "n5"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-relation-first", time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.CanonicalEntities) != 2 {
+		t.Fatalf("len(CanonicalEntities) = %d, want 2 synthetic endpoints", len(out.CanonicalEntities))
+	}
+	if len(out.Relations) != 1 {
+		t.Fatalf("len(Relations) = %d, want 1", len(out.Relations))
+	}
+	if len(out.Mechanisms) != 1 {
+		t.Fatalf("len(Mechanisms) = %d, want 1", len(out.Mechanisms))
+	}
+	if len(out.MechanismNodes) != 5 {
+		t.Fatalf("len(MechanismNodes) = %d, want 5 ordered transmission nodes", len(out.MechanismNodes))
+	}
+	if got := out.MechanismNodes[0].NodeType; got != memory.MechanismNodeDriver {
+		t.Fatalf("MechanismNodes[0].NodeType = %q, want driver", got)
+	}
+	if got := out.MechanismNodes[1].NodeType; got != memory.MechanismNodeCondition {
+		t.Fatalf("MechanismNodes[1].NodeType = %q, want condition", got)
+	}
+	if got := out.MechanismNodes[2].NodeType; got != memory.MechanismNodeMarketBehavior {
+		t.Fatalf("MechanismNodes[2].NodeType = %q, want market_behavior", got)
+	}
+	if got := out.MechanismNodes[3].NodeType; got != memory.MechanismNodeTargetEffect {
+		t.Fatalf("MechanismNodes[3].NodeType = %q, want target_effect", got)
+	}
+	if got := out.MechanismNodes[4].NodeType; got != memory.MechanismNodeTargetEffect {
+		t.Fatalf("MechanismNodes[4].NodeType = %q, want terminal target_effect", got)
+	}
+	if len(out.MechanismEdges) != 4 {
+		t.Fatalf("len(MechanismEdges) = %d, want 4 aligned path edges", len(out.MechanismEdges))
+	}
+	for i, edge := range out.MechanismEdges {
+		if got, want := edge.PathOrder, i+1; got != want {
+			t.Fatalf("MechanismEdges[%d].PathOrder = %d, want %d", i, got, want)
+		}
+	}
+	if len(out.PathOutcomes) != 1 {
+		t.Fatalf("len(PathOutcomes) = %d, want 1", len(out.PathOutcomes))
+	}
+	path := out.PathOutcomes[0]
+	if len(path.NodePath) != 5 {
+		t.Fatalf("len(NodePath) = %d, want 5", len(path.NodePath))
+	}
+	if len(path.EdgePath) != 4 {
+		t.Fatalf("len(EdgePath) = %d, want 4", len(path.EdgePath))
+	}
+	if got, want := path.ConditionScope, "若再融资窗口继续关闭"; got != want {
+		t.Fatalf("ConditionScope = %q, want %q", got, want)
+	}
+	if len(path.PredictionNodeIDs) != 1 || path.PredictionNodeIDs[0] != out.MechanismNodes[4].MechanismNodeID {
+		t.Fatalf("PredictionNodeIDs = %#v, want terminal prediction node id", path.PredictionNodeIDs)
+	}
+	if !path.PredictionStartAt.Equal(predictionStart) {
+		t.Fatalf("PredictionStartAt = %v, want %v", path.PredictionStartAt, predictionStart)
+	}
+	if !path.PredictionDueAt.Equal(predictionDue) {
+		t.Fatalf("PredictionDueAt = %v, want %v", path.PredictionDueAt, predictionDue)
+	}
+	if len(out.DriverAggregates) != 1 || len(out.TargetAggregates) != 1 {
+		t.Fatalf("aggregates = (%d,%d), want one driver and one target aggregate", len(out.DriverAggregates), len(out.TargetAggregates))
+	}
+}
+
 func TestSQLiteStore_RunGlobalMemoryOrganizationV2CompressesPetrodollarPrivateCreditOutput(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
