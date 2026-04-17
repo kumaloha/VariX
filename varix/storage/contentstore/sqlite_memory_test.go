@@ -1102,6 +1102,165 @@ func TestSQLiteStore_RunPosteriorVerificationPersistsRoundTripAndStalesPriorOutp
 	}
 }
 
+func TestSQLiteStore_RunPosteriorVerificationSharesCanonicalStateAcrossAcceptedScopes(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Now().UTC()
+	record := compile.Record{
+		UnitID:         "weibo:Q-shared-posterior",
+		Source:         "weibo",
+		ExternalID:     "Q-shared-posterior",
+		RootExternalID: "Q-shared-posterior",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "事实A", OccurredAt: now.Add(-72 * time.Hour)},
+					{ID: "n2", Kind: compile.NodePrediction, Text: "预测B", PredictionStartAt: now.Add(-48 * time.Hour), PredictionDueAt: now.Add(-24 * time.Hour)},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgeDerives}},
+			},
+			Details: compile.HiddenDetails{Caveats: []string{"detail"}},
+			Verification: compile.Verification{
+				PredictionChecks: []compile.PredictionCheck{{
+					NodeID: "n2", Status: compile.PredictionStatusStaleUnresolved, Reason: "window passed", AsOf: now.Add(-12 * time.Hour),
+				}},
+			},
+			Confidence: "medium",
+		},
+		CompiledAt: now.Add(-6 * time.Hour),
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+
+	userA, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-shared-a",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q-shared-posterior",
+		NodeIDs:          []string{"n1", "n2"},
+	})
+	if err != nil {
+		t.Fatalf("AcceptMemoryNodes(userA) error = %v", err)
+	}
+	userB, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-shared-b",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q-shared-posterior",
+		NodeIDs:          []string{"n1", "n2"},
+	})
+	if err != nil {
+		t.Fatalf("AcceptMemoryNodes(userB) error = %v", err)
+	}
+
+	firstA, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-shared-a", now)
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob(userA) initial error = %v", err)
+	}
+	firstB, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-shared-b", now)
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob(userB) initial error = %v", err)
+	}
+
+	result, err := store.RunPosteriorVerification(context.Background(), memory.PosteriorRunRequest{
+		UserID:           "u-shared-a",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q-shared-posterior",
+	}, now)
+	if err != nil {
+		t.Fatalf("RunPosteriorVerification() error = %v", err)
+	}
+	if len(result.Mutated) != 1 || result.Mutated[0].NodeID != "n2" {
+		t.Fatalf("Mutated = %#v, want one canonical prediction state", result.Mutated)
+	}
+	if len(result.Refreshes) != 2 {
+		t.Fatalf("Refreshes = %#v, want one refresh per accepted user scope", result.Refreshes)
+	}
+
+	refreshByUser := make(map[string]memory.PosteriorRefreshTrigger, len(result.Refreshes))
+	for _, refresh := range result.Refreshes {
+		refreshByUser[refresh.UserID] = refresh
+	}
+	for _, userID := range []string{"u-shared-a", "u-shared-b"} {
+		refresh, ok := refreshByUser[userID]
+		if !ok {
+			t.Fatalf("Refreshes = %#v, missing refresh for %s", result.Refreshes, userID)
+		}
+		if !slices.Equal(refresh.AffectedNodeIDs, []string{"n2"}) {
+			t.Fatalf("refresh[%s].AffectedNodeIDs = %#v, want [n2]", userID, refresh.AffectedNodeIDs)
+		}
+		if len(refresh.AffectedMemoryIDs) != 1 || refresh.AffectedMemoryIDs[0] == 0 {
+			t.Fatalf("refresh[%s].AffectedMemoryIDs = %#v, want projected memory id", userID, refresh.AffectedMemoryIDs)
+		}
+	}
+
+	var predictionA, predictionB memory.AcceptedNode
+	for _, node := range userA.Nodes {
+		if node.NodeID == "n2" {
+			predictionA = node
+		}
+	}
+	for _, node := range userB.Nodes {
+		if node.NodeID == "n2" {
+			predictionB = node
+		}
+	}
+	if predictionA.MemoryID == 0 || predictionB.MemoryID == 0 {
+		t.Fatalf("accepted prediction nodes = %#v / %#v, want memory ids", userA.Nodes, userB.Nodes)
+	}
+
+	stateA, err := store.GetPosteriorState(context.Background(), predictionA.MemoryID)
+	if err != nil {
+		t.Fatalf("GetPosteriorState(userA) error = %v", err)
+	}
+	stateB, err := store.GetPosteriorState(context.Background(), predictionB.MemoryID)
+	if err != nil {
+		t.Fatalf("GetPosteriorState(userB) error = %v", err)
+	}
+	if stateA.State != memory.PosteriorStatePending || stateB.State != memory.PosteriorStatePending {
+		t.Fatalf("shared states = %#v / %#v, want pending", stateA, stateB)
+	}
+	if stateA.Reason != "prediction still unresolved after due time" || stateB.Reason != stateA.Reason {
+		t.Fatalf("shared reasons = %q / %q, want shared canonical stale reason", stateA.Reason, stateB.Reason)
+	}
+	if !stateA.UpdatedAt.Equal(stateB.UpdatedAt) {
+		t.Fatalf("shared UpdatedAt = %s / %s, want canonical timestamp", stateA.UpdatedAt, stateB.UpdatedAt)
+	}
+
+	statesB, err := store.ListPosteriorStates(context.Background(), "u-shared-b", "weibo", "Q-shared-posterior")
+	if err != nil {
+		t.Fatalf("ListPosteriorStates(userB) error = %v", err)
+	}
+	if len(statesB) != 1 || statesB[0].NodeID != "n2" || statesB[0].Reason != stateA.Reason {
+		t.Fatalf("ListPosteriorStates(userB) = %#v, want projected shared posterior state", statesB)
+	}
+
+	if _, err := store.GetLatestMemoryOrganizationOutput(context.Background(), "u-shared-a", "weibo", "Q-shared-posterior"); !errors.Is(err, ErrMemoryOrganizationOutputStale) {
+		t.Fatalf("GetLatestMemoryOrganizationOutput(userA) error = %v, want stale", err)
+	}
+	if _, err := store.GetLatestMemoryOrganizationOutput(context.Background(), "u-shared-b", "weibo", "Q-shared-posterior"); !errors.Is(err, ErrMemoryOrganizationOutputStale) {
+		t.Fatalf("GetLatestMemoryOrganizationOutput(userB) error = %v, want stale", err)
+	}
+
+	refreshedA, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-shared-a", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob(userA) refresh error = %v", err)
+	}
+	refreshedB, err := store.RunNextMemoryOrganizationJob(context.Background(), "u-shared-b", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("RunNextMemoryOrganizationJob(userB) refresh error = %v", err)
+	}
+	if refreshedA.JobID == firstA.JobID || refreshedB.JobID == firstB.JobID {
+		t.Fatalf("refresh job ids = %d / %d, want new jobs after shared posterior refresh", refreshedA.JobID, refreshedB.JobID)
+	}
+}
+
 func TestSQLiteStore_OrganizationHierarchySkipsUnverifiableFactParents(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
