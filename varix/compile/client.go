@@ -22,6 +22,7 @@ type Client struct {
 	runtime runtimeChat
 	model   string
 	prompts *promptRegistry
+	verifier VerificationService
 }
 
 func NewClient(httpClient *http.Client, baseURL, apiKey, model string) *Client {
@@ -60,16 +61,24 @@ func NewClientWithRuntime(rt runtimeChat, model string) *Client {
 }
 
 func NewClientWithRuntimeAndPrompts(rt runtimeChat, model string, prompts *promptRegistry) *Client {
+	return NewClientWithRuntimePromptsAndVerifier(rt, model, prompts, nil)
+}
+
+func NewClientWithRuntimePromptsAndVerifier(rt runtimeChat, model string, prompts *promptRegistry, verifier VerificationService) *Client {
 	if rt == nil {
 		return nil
 	}
 	if prompts == nil {
 		prompts = newPromptRegistry("")
 	}
+	if verifier == nil {
+		verifier = NewVerificationService(rt, model, prompts)
+	}
 	return &Client{
-		runtime: rt,
-		model:   strings.TrimSpace(model),
-		prompts: prompts,
+		runtime:  rt,
+		model:    strings.TrimSpace(model),
+		prompts:  prompts,
+		verifier: verifier,
 	}
 }
 
@@ -137,11 +146,11 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 			return Record{}, err
 		}
 	}
-	verification, err := runVerifier(ctx, c.runtime, c.model, c.prompts, bundle, output)
+	verification, err := c.verifier.Verify(ctx, bundle, output)
 	if err != nil {
 		return Record{}, err
 	}
-	output.Verification = verification
+	output = projectVerification(output, verification)
 	return Record{
 		UnitID:         bundle.UnitID,
 		Source:         bundle.Source,
