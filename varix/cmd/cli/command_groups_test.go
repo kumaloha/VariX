@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -95,5 +94,3 @@ func TestRunDirectFetchAliasStillRoutesToIngest(t *testing.T) {
 		t.Fatalf("got = %#v", got)
 	}
 }
-
-var _ = context.Background
