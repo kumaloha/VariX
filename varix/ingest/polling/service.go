@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kumaloha/VariX/varix/ingest/provenance"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
@@ -442,16 +443,14 @@ func (s *Service) preserveStoredCaptureQuality(ctx context.Context, items []type
 	for _, item := range items {
 		existing, err := s.store.GetRawCapture(ctx, item.Source, item.ExternalID)
 		if err == nil && shouldReuseStoredCapture(existing, item) {
-			replacedMethod := captureMethod(item)
 			item = mergeStoredCaptureQuality(existing, item)
-			item.Provenance = appendProvenanceEvidence(item.Provenance, types.ProvenanceEvidence{
+			item.Provenance = provenance.AppendEvidence(item.Provenance, types.ProvenanceEvidence{
 				Kind: "stored_capture_reused",
 				Value: fmt.Sprintf(
-					"source=%s external_id=%s kept=%s replaced=%s",
+					"source=%s external_id=%s kept=%s",
 					item.Source,
 					item.ExternalID,
 					captureMethod(existing),
-					replacedMethod,
 				),
 				Weight: string(types.ConfidenceHigh),
 			})
@@ -739,22 +738,9 @@ func mergePreservedProvenance(existing, current *types.Provenance) *types.Proven
 		return merged
 	}
 	for _, evidence := range current.Evidence {
-		merged = appendProvenanceEvidence(merged, evidence)
+		merged = provenance.AppendEvidence(merged, evidence)
 	}
 	return merged
-}
-
-func appendProvenanceEvidence(prov *types.Provenance, evidence types.ProvenanceEvidence) *types.Provenance {
-	if prov == nil {
-		prov = &types.Provenance{}
-	}
-	for _, existing := range prov.Evidence {
-		if existing.Kind == evidence.Kind && existing.Value == evidence.Value && existing.Weight == evidence.Weight {
-			return prov
-		}
-	}
-	prov.Evidence = append(prov.Evidence, evidence)
-	return prov
 }
 
 func (s *Service) removeFollow(ctx context.Context, target types.FollowTarget) error {

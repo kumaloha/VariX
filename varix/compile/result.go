@@ -233,13 +233,69 @@ type PredictionCheck struct {
 	AsOf   time.Time        `json:"as_of,omitempty"`
 }
 
+type VerificationPassKind string
+
+const (
+	VerificationPassFact              VerificationPassKind = "fact"
+	VerificationPassExplicitCondition VerificationPassKind = "explicit_condition"
+	VerificationPassImplicitCondition VerificationPassKind = "implicit_condition"
+	VerificationPassPrediction        VerificationPassKind = "prediction"
+)
+
+type VerificationStageSummary struct {
+	Model         string    `json:"model,omitempty"`
+	CompletedAt   time.Time `json:"completed_at,omitempty"`
+	ParseOK       bool      `json:"parse_ok"`
+	OutputNodeIDs []string  `json:"output_node_ids,omitempty"`
+}
+
+type VerificationPassCoverage struct {
+	ExpectedNodeIDs   []string `json:"expected_node_ids,omitempty"`
+	ReturnedNodeIDs   []string `json:"returned_node_ids,omitempty"`
+	MissingNodeIDs    []string `json:"missing_node_ids,omitempty"`
+	DuplicateNodeIDs  []string `json:"duplicate_node_ids,omitempty"`
+	UnexpectedNodeIDs []string `json:"unexpected_node_ids,omitempty"`
+	Valid             bool     `json:"valid"`
+}
+
+type VerificationRetrievalSummary struct {
+	RetrievedNodeIDs     []string `json:"retrieved_node_ids,omitempty"`
+	NoResultNodeIDs      []string `json:"no_result_node_ids,omitempty"`
+	BudgetLimitedNodeIDs []string `json:"budget_limited_node_ids,omitempty"`
+	PromptContextReduced bool     `json:"prompt_context_reduced"`
+	ExcerptTruncated     bool     `json:"excerpt_truncated"`
+}
+
+type VerificationPass struct {
+	Kind             VerificationPassKind          `json:"kind,omitempty"`
+	NodeIDs          []string                      `json:"node_ids,omitempty"`
+	Coverage         VerificationPassCoverage      `json:"coverage"`
+	RetrievalSummary *VerificationRetrievalSummary `json:"retrieval_summary,omitempty"`
+	Claim            *VerificationStageSummary     `json:"claim,omitempty"`
+	Challenge        *VerificationStageSummary     `json:"challenge,omitempty"`
+	Adjudication     *VerificationStageSummary     `json:"adjudication,omitempty"`
+}
+
+type VerificationCoverageSummary struct {
+	TotalExpectedNodes  int      `json:"total_expected_nodes"`
+	TotalFinalizedNodes int      `json:"total_finalized_nodes"`
+	MissingNodeIDs      []string `json:"missing_node_ids,omitempty"`
+	DuplicateNodeIDs    []string `json:"duplicate_node_ids,omitempty"`
+	UnexpectedNodeIDs   []string `json:"unexpected_node_ids,omitempty"`
+	Valid               bool     `json:"valid"`
+}
+
 type Verification struct {
-	VerifiedAt              time.Time                `json:"verified_at,omitempty"`
-	Model                   string                   `json:"model,omitempty"`
-	FactChecks              []FactCheck              `json:"fact_checks,omitempty"`
-	ExplicitConditionChecks []ExplicitConditionCheck `json:"explicit_condition_checks,omitempty"`
-	ImplicitConditionChecks []ImplicitConditionCheck `json:"implicit_condition_checks,omitempty"`
-	PredictionChecks        []PredictionCheck        `json:"prediction_checks,omitempty"`
+	VerifiedAt              time.Time                    `json:"verified_at,omitempty"`
+	Model                   string                       `json:"model,omitempty"`
+	Version                 string                       `json:"version,omitempty"`
+	RolloutStage            string                       `json:"rollout_stage,omitempty"`
+	FactChecks              []FactCheck                  `json:"fact_checks,omitempty"`
+	ExplicitConditionChecks []ExplicitConditionCheck     `json:"explicit_condition_checks,omitempty"`
+	ImplicitConditionChecks []ImplicitConditionCheck     `json:"implicit_condition_checks,omitempty"`
+	PredictionChecks        []PredictionCheck            `json:"prediction_checks,omitempty"`
+	Passes                  []VerificationPass           `json:"passes,omitempty"`
+	CoverageSummary         *VerificationCoverageSummary `json:"coverage_summary,omitempty"`
 }
 
 type Output struct {
@@ -347,6 +403,65 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		case PredictionStatusUnresolved, PredictionStatusResolvedTrue, PredictionStatusResolvedFalse, PredictionStatusStaleUnresolved:
 		default:
 			return fmt.Errorf("unsupported prediction status: %s", check.Status)
+		}
+	}
+	for _, pass := range o.Verification.Passes {
+		for _, id := range pass.NodeIDs {
+			if _, ok := nodeIDs[id]; !ok {
+				return fmt.Errorf("verification pass references unknown node: %s", id)
+			}
+		}
+		for _, id := range pass.Coverage.ExpectedNodeIDs {
+			if _, ok := nodeIDs[id]; !ok {
+				return fmt.Errorf("verification coverage expected references unknown node: %s", id)
+			}
+		}
+		for _, id := range pass.Coverage.ReturnedNodeIDs {
+			if _, ok := nodeIDs[id]; !ok {
+				return fmt.Errorf("verification coverage returned references unknown node: %s", id)
+			}
+		}
+		for _, id := range pass.Coverage.MissingNodeIDs {
+			if _, ok := nodeIDs[id]; !ok {
+				return fmt.Errorf("verification coverage missing references unknown node: %s", id)
+			}
+		}
+		for _, id := range pass.Coverage.DuplicateNodeIDs {
+			if _, ok := nodeIDs[id]; !ok {
+				return fmt.Errorf("verification coverage duplicate references unknown node: %s", id)
+			}
+		}
+		for _, id := range pass.Coverage.UnexpectedNodeIDs {
+			if _, ok := nodeIDs[id]; !ok {
+				return fmt.Errorf("verification coverage unexpected references unknown node: %s", id)
+			}
+		}
+		for _, stage := range []*VerificationStageSummary{pass.Claim, pass.Challenge, pass.Adjudication} {
+			if stage == nil {
+				continue
+			}
+			for _, id := range stage.OutputNodeIDs {
+				if _, ok := nodeIDs[id]; !ok {
+					return fmt.Errorf("verification stage references unknown node: %s", id)
+				}
+			}
+		}
+	}
+	if summary := o.Verification.CoverageSummary; summary != nil {
+		for _, id := range summary.MissingNodeIDs {
+			if _, ok := nodeIDs[id]; !ok {
+				return fmt.Errorf("verification summary missing references unknown node: %s", id)
+			}
+		}
+		for _, id := range summary.DuplicateNodeIDs {
+			if _, ok := nodeIDs[id]; !ok {
+				return fmt.Errorf("verification summary duplicate references unknown node: %s", id)
+			}
+		}
+		for _, id := range summary.UnexpectedNodeIDs {
+			if _, ok := nodeIDs[id]; !ok {
+				return fmt.Errorf("verification summary unexpected references unknown node: %s", id)
+			}
 		}
 	}
 	return nil

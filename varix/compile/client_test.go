@@ -2,6 +2,8 @@ package compile
 
 import (
 	"context"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -56,7 +58,9 @@ func TestParseOutputAcceptsJSONString(t *testing.T) {
 func TestClientCompileUsesForgeRuntime(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "verifier-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
@@ -72,8 +76,8 @@ func TestClientCompileUsesForgeRuntime(t *testing.T) {
 	if record.Output.Summary != "一句话" {
 		t.Fatalf("Summary = %q", record.Output.Summary)
 	}
-	if len(provider.requests) != 2 {
-		t.Fatalf("provider calls = %d, want 2", len(provider.requests))
+	if len(provider.requests) != 4 {
+		t.Fatalf("provider calls = %d, want 4", len(provider.requests))
 	}
 	if provider.requests[0].Model != "compile-model" {
 		t.Fatalf("request model = %q, want compile-model", provider.requests[0].Model)
@@ -86,7 +90,9 @@ func TestClientCompileUsesForgeRuntime(t *testing.T) {
 func TestClientCompileCarriesAttachmentTranscriptIntoForgePrompt(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "verifier-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
@@ -103,8 +109,8 @@ func TestClientCompileCarriesAttachmentTranscriptIntoForgePrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 2 {
-		t.Fatalf("provider calls = %d, want 2", len(provider.requests))
+	if len(provider.requests) != 4 {
+		t.Fatalf("provider calls = %d, want 4", len(provider.requests))
 	}
 	if len(provider.requests[0].UserParts) == 0 {
 		t.Fatalf("provider request missing user parts: %#v", provider.requests[0])
@@ -119,7 +125,9 @@ func TestClientCompileRetriesWhenFirstResponseHasEmptyGraph(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
 		{Text: `{"summary":"一句话","graph":{},"details":{},"topics":[],"confidence":"medium"}`, Model: "compile-model"},
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "verifier-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
@@ -132,8 +140,8 @@ func TestClientCompileRetriesWhenFirstResponseHasEmptyGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 3 {
-		t.Fatalf("call count = %d, want 3", len(provider.requests))
+	if len(provider.requests) != 5 {
+		t.Fatalf("call count = %d, want 5", len(provider.requests))
 	}
 	retryPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
 	if !containsAll(
@@ -154,7 +162,9 @@ func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"事实","text":"事实B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n3","kind":"隐含条件","text":"条件C","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n4","kind":"结论","text":"结论D","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n3","kind":"正向"},{"from":"n2","to":"n3","kind":"正向"},{"from":"n3","to":"n4","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"unverifiable","reason":"unclear"}]}`, Model: "verifier-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"unverifiable","reason":"unclear"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"},{"node_id":"n2","assessment":"insufficient_evidence","reason":"evidence is weak"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"unverifiable","reason":"unclear"}]}`, Model: "fact-judge-model"},
 		{Text: `{"implicit_condition_checks":[{"node_id":"n3","status":"unverifiable","reason":"implicit premise not evidenced"}]}`, Model: "implicit-verifier-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
@@ -168,8 +178,8 @@ func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 4 {
-		t.Fatalf("call count = %d, want 4", len(provider.requests))
+	if len(provider.requests) != 6 {
+		t.Fatalf("call count = %d, want 6", len(provider.requests))
 	}
 	if len(record.Output.Graph.Nodes) != 4 || len(record.Output.Graph.Edges) != 3 {
 		t.Fatalf("graph = %#v", record.Output.Graph)
@@ -180,7 +190,9 @@ func TestClientCompileRetriesWhenDetailsEmpty(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "verifier-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
@@ -193,8 +205,8 @@ func TestClientCompileRetriesWhenDetailsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 3 {
-		t.Fatalf("call count = %d, want 3", len(provider.requests))
+	if len(provider.requests) != 5 {
+		t.Fatalf("call count = %d, want 5", len(provider.requests))
 	}
 	if len(record.Output.Details.Caveats) != 1 {
 		t.Fatalf("details = %#v", record.Output.Details)
@@ -217,7 +229,9 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","kind":"预测","text":"预测B","prediction_start_at":"2026-04-14T00:00:00Z","prediction_due_at":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-verifier-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
 		{Text: `{"prediction_checks":[{"node_id":"n2","status":"unresolved","reason":"still in window","as_of":"2026-04-15T00:00:00Z"}]}`, Model: "prediction-verifier-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
@@ -231,8 +245,8 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 3 {
-		t.Fatalf("provider calls = %d, want 3", len(provider.requests))
+	if len(provider.requests) != 5 {
+		t.Fatalf("provider calls = %d, want 5", len(provider.requests))
 	}
 	if len(record.Output.Verification.FactChecks) != 1 || len(record.Output.Verification.PredictionChecks) != 1 {
 		t.Fatalf("verification = %#v", record.Output.Verification)
@@ -250,7 +264,7 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 	if strings.Contains(factPrompt, `"valid_from"`) {
 		t.Fatalf("fact verifier prompt should prefer occurred_at over legacy valid_from: %q", factPrompt)
 	}
-	predictionPrompt := provider.requests[2].UserParts[len(provider.requests[2].UserParts)-1].Text
+	predictionPrompt := provider.requests[4].UserParts[len(provider.requests[4].UserParts)-1].Text
 	if !containsAll(predictionPrompt, `"kind": "预测"`, `"prediction_start_at": "2026-04-14T00:00:00Z"`, `"prediction_due_at": "2026-07-14T00:00:00Z"`, `"as_of": "`) {
 		t.Fatalf("prediction verifier prompt missing prediction window evidence: %q", predictionPrompt)
 	}
@@ -262,7 +276,9 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"显式条件","text":"条件B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n3","kind":"隐含条件","text":"条件C","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n4","kind":"结论","text":"结论D","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n5","kind":"预测","text":"预测E","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"正向"},{"from":"n2","to":"n3","kind":"预设"},{"from":"n3","to":"n4","kind":"推出"},{"from":"n4","to":"n5","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-verifier-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
 		{Text: `{"explicit_condition_checks":[{"node_id":"n2","status":"unknown","reason":"future condition uncertain"}]}`, Model: "explicit-verifier-model"},
 		{Text: `{"implicit_condition_checks":[{"node_id":"n3","status":"unverifiable","reason":"implicit premise not evidenced"}]}`, Model: "implicit-verifier-model"},
 		{Text: `{"prediction_checks":[{"node_id":"n5","status":"unresolved","reason":"still in window","as_of":"2026-04-15T00:00:00Z"}]}`, Model: "prediction-verifier-model"},
@@ -278,8 +294,8 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 5 {
-		t.Fatalf("provider calls = %d, want 5", len(provider.requests))
+	if len(provider.requests) != 7 {
+		t.Fatalf("provider calls = %d, want 7", len(provider.requests))
 	}
 	factPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
 	for _, want := range []string{`"kind": "事实"`} {
@@ -301,14 +317,14 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	if len(record.Output.Verification.ExplicitConditionChecks) != 1 {
 		t.Fatalf("len(ExplicitConditionChecks) = %d, want 1", len(record.Output.Verification.ExplicitConditionChecks))
 	}
-	explicitPrompt := provider.requests[2].UserParts[len(provider.requests[2].UserParts)-1].Text
+	explicitPrompt := provider.requests[4].UserParts[len(provider.requests[4].UserParts)-1].Text
 	if !strings.Contains(explicitPrompt, `"as_of": "`) {
 		t.Fatalf("explicit condition verifier prompt missing as_of context: %q", explicitPrompt)
 	}
 	if len(record.Output.Verification.ImplicitConditionChecks) != 1 {
 		t.Fatalf("len(ImplicitConditionChecks) = %d, want 1", len(record.Output.Verification.ImplicitConditionChecks))
 	}
-	implicitPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
+	implicitPrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
 	if !strings.Contains(implicitPrompt, `"as_of": "`) {
 		t.Fatalf("implicit condition verifier prompt missing as_of context: %q", implicitPrompt)
 	}
@@ -320,7 +336,9 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 func TestClientCompileCarriesStructuredWeiboEvidenceIntoVerifierPrompt(t *testing.T) {
 	provider := &compileMockProvider{responses: []llm.ProviderResponse{
 		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"正向"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-verifier-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
 	}}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
@@ -369,6 +387,213 @@ func TestClientCompileCarriesStructuredWeiboEvidenceIntoVerifierPrompt(t *testin
 		if !strings.Contains(factPrompt, want) {
 			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
 		}
+	}
+}
+
+func TestClientCompileAppliesVerifyV2FactsMetadataWithoutBreakingLegacyArrays(t *testing.T) {
+	prevBuildFactRetrievalContext := buildFactRetrievalContext
+	t.Cleanup(func() { buildFactRetrievalContext = prevBuildFactRetrievalContext })
+	buildFactRetrievalContext = func(ctx context.Context, bundle Bundle, nodes []GraphNode) ([]map[string]any, error) {
+		return []map[string]any{{
+			"node_id": "n1",
+			"results": []map[string]any{{
+				"url":     "https://example.com/fact",
+				"title":   "Example",
+				"excerpt": "验证材料",
+			}},
+		}}, nil
+	}
+
+	provider := &compileMockProvider{responses: []llm.ProviderResponse{
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"claim_checks":[{"node_id":"n1","status":"clearly_true","reason":"retrieval-backed claim"}],"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"retrieval-backed claim"}],"output_node_ids":["n1"]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"contested","reason":"challenge raised"}],"output_node_ids":["n1"]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"retrieval-backed adjudication"}],"output_node_ids":["n1"]}`, Model: "fact-judge-model"},
+	}}
+	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
+
+	record, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "weibo:verify-v2",
+		Source:     "weibo",
+		ExternalID: "verify-v2",
+		Content:    "root body",
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(record.Output.Verification.FactChecks) != 1 {
+		t.Fatalf("len(FactChecks) = %d, want 1", len(record.Output.Verification.FactChecks))
+	}
+	if record.Output.Verification.FactChecks[0].NodeID != "n1" || record.Output.Verification.FactChecks[0].Status != FactStatusClearlyTrue {
+		t.Fatalf("FactChecks = %#v", record.Output.Verification.FactChecks)
+	}
+	assertClientVerifyV2StringField(t, record.Output.Verification, "Version", "verify_v2")
+	assertClientVerifyV2StringField(t, record.Output.Verification, "RolloutStage", "facts_only")
+	assertClientVerifyV2SliceLen(t, record.Output.Verification, "Passes", 1)
+	assertClientVerifyV2StringField(t, record.Output.Verification, []string{"Passes", "0", "Kind"}, "fact")
+	assertClientVerifyV2BoolField(t, record.Output.Verification, []string{"Passes", "0", "Coverage", "Valid"}, true)
+	assertClientVerifyV2StringSlice(t, record.Output.Verification, []string{"Passes", "0", "RetrievalSummary", "RetrievedNodeIDs"}, []string{"n1"})
+	assertClientVerifyV2StringField(t, record.Output.Verification, []string{"Passes", "0", "Adjudication", "Model"}, "fact-judge-model")
+	assertClientVerifyV2TimeFieldMatchesVerification(t, record.Output.Verification, []string{"Passes", "0", "Adjudication", "CompletedAt"})
+	assertClientVerifyV2IntField(t, record.Output.Verification, []string{"CoverageSummary", "TotalExpectedNodes"}, 1)
+	assertClientVerifyV2IntField(t, record.Output.Verification, []string{"CoverageSummary", "TotalFinalizedNodes"}, 1)
+	assertClientVerifyV2BoolField(t, record.Output.Verification, []string{"CoverageSummary", "Valid"}, true)
+	if record.Output.Verification.Model != "fact-judge-model" {
+		t.Fatalf("Verification.Model = %q, want fact-judge-model", record.Output.Verification.Model)
+	}
+	factPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
+	if !containsAll(factPrompt, `"retrieval_context"`, `"https://example.com/fact"`) {
+		t.Fatalf("fact verifier prompt missing retrieval context: %q", factPrompt)
+	}
+}
+
+func TestClientCompileFailsDeterministicallyOnVerifyV2CoverageMismatch(t *testing.T) {
+	provider := &compileMockProvider{responses: []llm.ProviderResponse{
+		{Text: `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","kind":"事实","text":"事实B","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n3","kind":"结论","text":"结论C"}],"edges":[{"from":"n1","to":"n3","kind":"推出"},{"from":"n2","to":"n3","kind":"正向"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, Model: "compile-model"},
+		{Text: `{"claim_checks":[{"node_id":"n1","status":"clearly_true","reason":"claim"},{"node_id":"n2","status":"unverifiable","reason":"claim"}],"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"claim"},{"node_id":"n2","status":"unverifiable","reason":"claim"}],"output_node_ids":["n1","n2"]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"contested","reason":"challenge"},{"node_id":"n2","assessment":"insufficient_evidence","reason":"challenge"}],"output_node_ids":["n1","n2"]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"adjudicated only one node"}],"output_node_ids":["n1"]}`, Model: "fact-judge-model"},
+	}}
+	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
+
+	_, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "weibo:coverage-mismatch",
+		Source:     "weibo",
+		ExternalID: "coverage-mismatch",
+		Content:    "root body",
+	})
+	if err == nil {
+		t.Fatal("Compile() error = nil, want coverage mismatch failure")
+	}
+	for _, want := range []string{"coverage", "n2"} {
+		if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(want)) {
+			t.Fatalf("Compile() error = %q, want substring %q", err.Error(), want)
+		}
+	}
+}
+
+func assertClientVerifyV2StringField(t *testing.T, root any, path any, want string) {
+	t.Helper()
+	got := mustResolveClientVerifyV2Path(t, root, path)
+	if got.Kind() != reflect.String {
+		t.Fatalf("path %v kind = %s, want string", normalizeClientVerifyV2Path(path), got.Kind())
+	}
+	if got.String() != want {
+		t.Fatalf("path %v = %q, want %q", normalizeClientVerifyV2Path(path), got.String(), want)
+	}
+}
+
+func assertClientVerifyV2BoolField(t *testing.T, root any, path any, want bool) {
+	t.Helper()
+	got := mustResolveClientVerifyV2Path(t, root, path)
+	if got.Kind() != reflect.Bool {
+		t.Fatalf("path %v kind = %s, want bool", normalizeClientVerifyV2Path(path), got.Kind())
+	}
+	if got.Bool() != want {
+		t.Fatalf("path %v = %v, want %v", normalizeClientVerifyV2Path(path), got.Bool(), want)
+	}
+}
+
+func assertClientVerifyV2StringSlice(t *testing.T, root any, path []string, want []string) {
+	t.Helper()
+	got := mustResolveClientVerifyV2Path(t, root, path)
+	if got.Kind() != reflect.Slice {
+		t.Fatalf("path %v kind = %s, want slice", path, got.Kind())
+	}
+	if got.Len() != len(want) {
+		t.Fatalf("path %v len = %d, want %d", path, got.Len(), len(want))
+	}
+	for i := range want {
+		if got.Index(i).Kind() != reflect.String {
+			t.Fatalf("path %v[%d] kind = %s, want string", path, i, got.Index(i).Kind())
+		}
+		if got.Index(i).String() != want[i] {
+			t.Fatalf("path %v[%d] = %q, want %q", path, i, got.Index(i).String(), want[i])
+		}
+	}
+}
+
+func assertClientVerifyV2SliceLen(t *testing.T, root any, field string, want int) {
+	t.Helper()
+	got := mustResolveClientVerifyV2Path(t, root, []string{field})
+	if got.Kind() != reflect.Slice {
+		t.Fatalf("field %s kind = %s, want slice", field, got.Kind())
+	}
+	if got.Len() != want {
+		t.Fatalf("field %s len = %d, want %d", field, got.Len(), want)
+	}
+}
+
+func assertClientVerifyV2IntField(t *testing.T, root any, path any, want int) {
+	t.Helper()
+	got := mustResolveClientVerifyV2Path(t, root, path)
+	if got.Kind() != reflect.Int {
+		t.Fatalf("path %v kind = %s, want int", normalizeClientVerifyV2Path(path), got.Kind())
+	}
+	if int(got.Int()) != want {
+		t.Fatalf("path %v = %d, want %d", normalizeClientVerifyV2Path(path), got.Int(), want)
+	}
+}
+
+func assertClientVerifyV2TimeFieldMatchesVerification(t *testing.T, verification Verification, path []string) {
+	t.Helper()
+	got := mustResolveClientVerifyV2Path(t, verification, path)
+	if got.Type() != reflect.TypeOf(time.Time{}) {
+		t.Fatalf("path %v type = %s, want time.Time", path, got.Type())
+	}
+	completedAt := got.Interface().(time.Time)
+	if !verification.VerifiedAt.Equal(completedAt) {
+		t.Fatalf("Verification.VerifiedAt = %v, want adjudication completed_at %v", verification.VerifiedAt, completedAt)
+	}
+}
+
+func mustResolveClientVerifyV2Path(t *testing.T, root any, path any) reflect.Value {
+	t.Helper()
+	parts := normalizeClientVerifyV2Path(path)
+	value := reflect.ValueOf(root)
+	for _, part := range parts {
+		for value.Kind() == reflect.Pointer {
+			if value.IsNil() {
+				t.Fatalf("path %v hit nil pointer before %q", parts, part)
+			}
+			value = value.Elem()
+		}
+		if index, err := strconv.Atoi(part); err == nil {
+			if value.Kind() != reflect.Slice {
+				t.Fatalf("path %v reached non-slice %s before index %d", parts, value.Kind(), index)
+			}
+			if index < 0 || index >= value.Len() {
+				t.Fatalf("path %v index %d out of range", parts, index)
+			}
+			value = value.Index(index)
+			continue
+		}
+		if value.Kind() != reflect.Struct {
+			t.Fatalf("path %v reached non-struct %s before field %q", parts, value.Kind(), part)
+		}
+		field := value.FieldByName(part)
+		if !field.IsValid() {
+			t.Fatalf("missing verify-v2 field %q at path %v", part, parts)
+		}
+		value = field
+	}
+	for value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			t.Fatalf("path %v resolved to nil pointer", parts)
+		}
+		value = value.Elem()
+	}
+	return value
+}
+
+func normalizeClientVerifyV2Path(path any) []string {
+	switch v := path.(type) {
+	case string:
+		return []string{v}
+	case []string:
+		return append([]string(nil), v...)
+	default:
+		panic("unsupported verify-v2 path type")
 	}
 }
 

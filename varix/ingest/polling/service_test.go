@@ -102,6 +102,23 @@ func (s *fakeStore) RecordPollReport(_ context.Context, report types.PollReport)
 	return nil
 }
 
+type replaceStore struct {
+	fakeStore
+}
+
+func (s *replaceStore) UpsertRawCapture(_ context.Context, raw types.RawContent) error {
+	for i, existing := range s.raws {
+		if existing.Source == raw.Source && existing.ExternalID == raw.ExternalID {
+			s.raws[i] = raw
+			s.ops = append(s.ops, "raw:"+raw.Source+":"+raw.ExternalID)
+			return nil
+		}
+	}
+	s.raws = append(s.raws, raw)
+	s.ops = append(s.ops, "raw:"+raw.Source+":"+raw.ExternalID)
+	return nil
+}
+
 type candidateEnricher struct{}
 
 func (candidateEnricher) Annotate(items []types.RawContent) []types.RawContent {
@@ -1059,6 +1076,50 @@ func (d provenanceEvidencePollingDispatcher) FetchDiscoveryItem(context.Context,
 	return []types.RawContent{raw}, nil
 }
 
+type changingTranscriptDispatcher struct {
+	methods []string
+	call    int
+}
+
+func (changingTranscriptDispatcher) SupportsFollow(kind types.Kind, platform types.Platform) bool {
+	return kind == types.KindNative && platform == types.PlatformYouTube
+}
+
+func (d *changingTranscriptDispatcher) DiscoverFollowedTarget(context.Context, types.FollowTarget) ([]types.DiscoveryItem, error) {
+	return nil, nil
+}
+
+func (d *changingTranscriptDispatcher) ParseURL(_ context.Context, rawURL string) (types.ParsedURL, error) {
+	return types.ParsedURL{
+		Platform:     types.PlatformYouTube,
+		ContentType:  types.ContentTypePost,
+		PlatformID:   "yt-1",
+		CanonicalURL: rawURL,
+	}, nil
+}
+
+func (d *changingTranscriptDispatcher) FetchByParsedURL(_ context.Context, parsed types.ParsedURL) ([]types.RawContent, error) {
+	method := "title_only"
+	if d.call < len(d.methods) {
+		method = d.methods[d.call]
+	}
+	d.call++
+	return []types.RawContent{{
+		Source:     string(types.PlatformYouTube),
+		ExternalID: parsed.PlatformID,
+		URL:        parsed.CanonicalURL,
+		Content:    "fresh content " + method,
+		Metadata: types.RawMetadata{YouTube: &types.YouTubeMetadata{
+			Title:            "title",
+			TranscriptMethod: method,
+		}},
+	}}, nil
+}
+
+func (d *changingTranscriptDispatcher) FetchDiscoveryItem(context.Context, types.DiscoveryItem) ([]types.RawContent, error) {
+	return nil, nil
+}
+
 func TestService_PollPreservesExistingDispatcherDecisionEvidence(t *testing.T) {
 	store := &fakeStore{
 		processed: map[string]bool{},
@@ -1104,6 +1165,57 @@ func TestService_PollPreservesExistingDispatcherDecisionEvidence(t *testing.T) {
 	}
 }
 
+func TestService_FetchURLStoredCaptureReuseDoesNotDriftWhenReplacedMethodChanges(t *testing.T) {
+	store := &replaceStore{fakeStore: fakeStore{
+		processed: map[string]bool{},
+		raws: []types.RawContent{{
+			Source:     "youtube",
+			ExternalID: "yt-1",
+			URL:        "https://www.youtube.com/watch?v=yt-1",
+			Content:    "stored high quality transcript",
+			Metadata: types.RawMetadata{YouTube: &types.YouTubeMetadata{
+				Title:            "title",
+				TranscriptMethod: "subtitle_vtt",
+			}},
+		}},
+	}}
+	dispatcher := &changingTranscriptDispatcher{methods: []string{"title_only", "whisper"}}
+	svc := New(store, dispatcher, fakeEnricher{})
+
+	first, err := svc.FetchURL(context.Background(), "https://www.youtube.com/watch?v=yt-1")
+	if err != nil {
+		t.Fatalf("FetchURL() first error = %v", err)
+	}
+	second, err := svc.FetchURL(context.Background(), "https://www.youtube.com/watch?v=yt-1")
+	if err != nil {
+		t.Fatalf("FetchURL() second error = %v", err)
+	}
+
+	for idx, items := range [][]types.RawContent{first, second} {
+		if len(items) != 1 {
+			t.Fatalf("call %d len(items) = %d, want 1", idx+1, len(items))
+		}
+		evidence := matchingEvidence(items[0].Provenance, "stored_capture_reused")
+		if len(evidence) != 1 {
+			t.Fatalf("call %d len(stored_capture_reused evidence) = %d, want 1; provenance=%#v", idx+1, len(evidence), items[0].Provenance)
+		}
+		if strings.Contains(evidence[0].Value, "replaced=") {
+			t.Fatalf("call %d evidence value = %q, want stable dedupe key without replaced method", idx+1, evidence[0].Value)
+		}
+		if !strings.Contains(evidence[0].Value, "kept=subtitle_vtt") {
+			t.Fatalf("call %d evidence value = %q, want kept method preserved", idx+1, evidence[0].Value)
+		}
+	}
+
+	stored, err := store.GetRawCapture(context.Background(), "youtube", "yt-1")
+	if err != nil {
+		t.Fatalf("GetRawCapture() error = %v", err)
+	}
+	if evidence := matchingEvidence(stored.Provenance, "stored_capture_reused"); len(evidence) != 1 {
+		t.Fatalf("stored len(stored_capture_reused evidence) = %d, want 1; provenance=%#v", len(evidence), stored.Provenance)
+	}
+}
+
 func hasEvidence(prov *types.Provenance, kind, contains string) bool {
 	if prov == nil {
 		return false
@@ -1114,4 +1226,17 @@ func hasEvidence(prov *types.Provenance, kind, contains string) bool {
 		}
 	}
 	return false
+}
+
+func matchingEvidence(prov *types.Provenance, kind string) []types.ProvenanceEvidence {
+	if prov == nil {
+		return nil
+	}
+	out := make([]types.ProvenanceEvidence, 0)
+	for _, evidence := range prov.Evidence {
+		if evidence.Kind == kind {
+			out = append(out, evidence)
+		}
+	}
+	return out
 }

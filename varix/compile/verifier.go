@@ -18,8 +18,33 @@ var buildFactRetrievalContext = func(ctx context.Context, bundle Bundle, nodes [
 	return nil, nil
 }
 
+var verifierNow = func() time.Time {
+	return time.Now().UTC()
+}
+
+type verifierPassResult struct {
+	kind                    VerificationPassKind
+	nodeIDs                 []string
+	factChecks              []FactCheck
+	explicitConditionChecks []ExplicitConditionCheck
+	implicitConditionChecks []ImplicitConditionCheck
+	predictionChecks        []PredictionCheck
+	claim                   *VerificationStageSummary
+	challenge               *VerificationStageSummary
+	adjudication            *VerificationStageSummary
+	coverage                VerificationPassCoverage
+	retrievalSummary        *VerificationRetrievalSummary
+	debateEnabled           bool
+}
+
+type factChallenge struct {
+	NodeID     string `json:"node_id"`
+	Assessment string `json:"assessment,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
 func runVerifier(ctx context.Context, rt verifierCall, model string, bundle Bundle, output Output) (Verification, error) {
-	verification := Verification{}
+	var passResults []verifierPassResult
 
 	factNodes := make([]GraphNode, 0)
 	explicitConditionNodes := make([]GraphNode, 0)
@@ -38,133 +63,257 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, bundle Bund
 		}
 	}
 
-	var verifierModel string
 	if len(factNodes) > 0 {
-		facts, modelName, err := verifyFacts(ctx, rt, model, bundle, factNodes)
+		result, err := verifyFacts(ctx, rt, model, bundle, factNodes)
 		if err != nil {
 			return Verification{}, err
 		}
-		verification.FactChecks = facts
-		verifierModel = firstNonEmpty(modelName, verifierModel)
+		passResults = append(passResults, result)
 	}
 	if len(explicitConditionNodes) > 0 {
-		checks, modelName, err := verifyExplicitConditions(ctx, rt, model, bundle, explicitConditionNodes)
+		result, err := verifyExplicitConditions(ctx, rt, model, bundle, explicitConditionNodes)
 		if err != nil {
 			return Verification{}, err
 		}
-		verification.ExplicitConditionChecks = checks
-		verifierModel = firstNonEmpty(modelName, verifierModel)
+		passResults = append(passResults, result)
 	}
 	if len(implicitConditionNodes) > 0 {
-		checks, modelName, err := verifyImplicitConditions(ctx, rt, model, bundle, implicitConditionNodes)
+		result, err := verifyImplicitConditions(ctx, rt, model, bundle, implicitConditionNodes)
 		if err != nil {
 			return Verification{}, err
 		}
-		verification.ImplicitConditionChecks = checks
-		verifierModel = firstNonEmpty(modelName, verifierModel)
+		passResults = append(passResults, result)
 	}
 	if len(predictionNodes) > 0 {
-		predictions, modelName, err := verifyPredictions(ctx, rt, model, bundle, predictionNodes)
+		result, err := verifyPredictions(ctx, rt, model, bundle, predictionNodes)
 		if err != nil {
 			return Verification{}, err
 		}
-		verification.PredictionChecks = predictions
-		verifierModel = firstNonEmpty(modelName, verifierModel)
+		passResults = append(passResults, result)
 	}
 
-	if len(verification.FactChecks) > 0 || len(verification.ExplicitConditionChecks) > 0 || len(verification.ImplicitConditionChecks) > 0 || len(verification.PredictionChecks) > 0 {
-		verification.VerifiedAt = time.Now().UTC()
-		verification.Model = firstNonEmpty(verifierModel, model)
+	if len(passResults) == 0 {
+		return Verification{}, nil
 	}
+	for _, result := range passResults {
+		if !result.coverage.Valid {
+			return Verification{}, coverageError(result.kind, result.coverage)
+		}
+	}
+
+	verification := Verification{
+		Version:         "verify_v2",
+		RolloutStage:    verifierRolloutStage(passResults),
+		Passes:          make([]VerificationPass, 0, len(passResults)),
+		CoverageSummary: aggregateCoverageSummary(passResults),
+	}
+	for _, result := range passResults {
+		switch result.kind {
+		case VerificationPassFact:
+			verification.FactChecks = append(verification.FactChecks, result.factChecks...)
+		case VerificationPassExplicitCondition:
+			verification.ExplicitConditionChecks = append(verification.ExplicitConditionChecks, result.explicitConditionChecks...)
+		case VerificationPassImplicitCondition:
+			verification.ImplicitConditionChecks = append(verification.ImplicitConditionChecks, result.implicitConditionChecks...)
+		case VerificationPassPrediction:
+			verification.PredictionChecks = append(verification.PredictionChecks, result.predictionChecks...)
+		}
+		verification.Passes = append(verification.Passes, VerificationPass{
+			Kind:             result.kind,
+			NodeIDs:          cloneStrings(result.nodeIDs),
+			Coverage:         result.coverage,
+			RetrievalSummary: result.retrievalSummary,
+			Claim:            cloneStageSummary(result.claim),
+			Challenge:        cloneStageSummary(result.challenge),
+			Adjudication:     cloneStageSummary(result.adjudication),
+		})
+		if result.adjudication != nil && result.adjudication.CompletedAt.After(verification.VerifiedAt) {
+			verification.VerifiedAt = result.adjudication.CompletedAt
+		}
+	}
+	verification.Model = uniformAdjudicationModel(passResults)
 	return verification, nil
 }
 
-func verifyFacts(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) ([]FactCheck, string, error) {
-	prompt, err := buildFactVerificationPrompt(bundle, nodes)
+func verifyFacts(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
+	retrievalContext, retrievalSummary, err := buildFactRetrievalPayload(ctx, bundle, nodes)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
-	req, err := BuildQwen36ProviderRequest(model, bundle, factVerifierInstruction, prompt)
+
+	claimPrompt, err := buildFactVerificationPrompt(bundle, nodes, retrievalContext, retrievalSummary, nil)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
-	resp, err := rt.Call(ctx, req)
+	claimReq, err := BuildQwen36ProviderRequest(model, bundle, factVerifierClaimInstruction, claimPrompt)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
-	var payload struct {
+	claimResp, claimCompletedAt, err := callVerifierStage(ctx, rt, claimReq)
+	if err != nil {
+		return verifierPassResult{}, err
+	}
+	var claimPayload struct {
 		FactChecks []FactCheck `json:"fact_checks"`
 	}
-	if err := unmarshalVerifierPayload(resp.Text, &payload); err != nil {
-		return nil, "", err
+	if err := unmarshalVerifierPayload(claimResp.Text, &claimPayload); err != nil {
+		return verifierPassResult{}, fmt.Errorf("parse fact claim output: %w", err)
 	}
-	return payload.FactChecks, resp.Model, nil
+	claimSummary := newStageSummary(firstNonEmpty(claimResp.Model, model), claimCompletedAt, true, factCheckNodeIDs(claimPayload.FactChecks))
+
+	challengePrompt, err := buildFactVerificationPrompt(bundle, nodes, retrievalContext, retrievalSummary, map[string]any{
+		"claim_checks": claimPayload.FactChecks,
+	})
+	if err != nil {
+		return verifierPassResult{}, err
+	}
+	challengeReq, err := BuildQwen36ProviderRequest(model, bundle, factVerifierChallengeInstruction, challengePrompt)
+	if err != nil {
+		return verifierPassResult{}, err
+	}
+	challengeResp, challengeCompletedAt, err := callVerifierStage(ctx, rt, challengeReq)
+	if err != nil {
+		return verifierPassResult{}, err
+	}
+	var challengePayload struct {
+		Challenges []factChallenge `json:"challenges"`
+	}
+	if err := unmarshalVerifierPayload(challengeResp.Text, &challengePayload); err != nil {
+		return verifierPassResult{}, fmt.Errorf("parse fact challenge output: %w", err)
+	}
+	challengeSummary := newStageSummary(firstNonEmpty(challengeResp.Model, model), challengeCompletedAt, true, factChallengeNodeIDs(challengePayload.Challenges))
+
+	adjudicationPrompt, err := buildFactVerificationPrompt(bundle, nodes, retrievalContext, retrievalSummary, map[string]any{
+		"claim_checks": claimPayload.FactChecks,
+		"challenges":   challengePayload.Challenges,
+	})
+	if err != nil {
+		return verifierPassResult{}, err
+	}
+	adjudicationReq, err := BuildQwen36ProviderRequest(model, bundle, factVerifierAdjudicationInstruction, adjudicationPrompt)
+	if err != nil {
+		return verifierPassResult{}, err
+	}
+	adjudicationResp, adjudicationCompletedAt, err := callVerifierStage(ctx, rt, adjudicationReq)
+	if err != nil {
+		return verifierPassResult{}, err
+	}
+	var adjudicationPayload struct {
+		FactChecks []FactCheck `json:"fact_checks"`
+	}
+	if err := unmarshalVerifierPayload(adjudicationResp.Text, &adjudicationPayload); err != nil {
+		return verifierPassResult{}, fmt.Errorf("parse fact adjudication output: %w", err)
+	}
+
+	finalNodeIDs := factCheckNodeIDs(adjudicationPayload.FactChecks)
+	return verifierPassResult{
+		kind:             VerificationPassFact,
+		nodeIDs:          nodeIDs(nodes),
+		factChecks:       adjudicationPayload.FactChecks,
+		claim:            claimSummary,
+		challenge:        challengeSummary,
+		adjudication:     newStageSummary(firstNonEmpty(adjudicationResp.Model, model), adjudicationCompletedAt, true, finalNodeIDs),
+		coverage:         buildCoverage(nodeIDs(nodes), finalNodeIDs),
+		retrievalSummary: retrievalSummary,
+		debateEnabled:    true,
+	}, nil
 }
 
-func verifyPredictions(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) ([]PredictionCheck, string, error) {
+func verifyPredictions(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
 	prompt, err := buildPredictionVerificationPrompt(bundle, nodes)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
 	req, err := BuildQwen36ProviderRequest(model, bundle, predictionVerifierInstruction, prompt)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
-	resp, err := rt.Call(ctx, req)
+	resp, completedAt, err := callVerifierStage(ctx, rt, req)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
 	var payload struct {
 		PredictionChecks []PredictionCheck `json:"prediction_checks"`
 	}
 	if err := unmarshalVerifierPayload(resp.Text, &payload); err != nil {
-		return nil, "", err
+		return verifierPassResult{}, fmt.Errorf("parse prediction verifier output: %w", err)
 	}
-	return payload.PredictionChecks, resp.Model, nil
+	finalNodeIDs := predictionCheckNodeIDs(payload.PredictionChecks)
+	stage := newStageSummary(firstNonEmpty(resp.Model, model), completedAt, true, finalNodeIDs)
+	return verifierPassResult{
+		kind:             VerificationPassPrediction,
+		nodeIDs:          nodeIDs(nodes),
+		predictionChecks: payload.PredictionChecks,
+		adjudication:     stage,
+		coverage:         buildCoverage(nodeIDs(nodes), finalNodeIDs),
+	}, nil
 }
 
-func verifyExplicitConditions(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) ([]ExplicitConditionCheck, string, error) {
+func verifyExplicitConditions(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
 	prompt, err := buildExplicitConditionVerificationPrompt(bundle, nodes)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
 	req, err := BuildQwen36ProviderRequest(model, bundle, explicitConditionVerifierInstruction, prompt)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
-	resp, err := rt.Call(ctx, req)
+	resp, completedAt, err := callVerifierStage(ctx, rt, req)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
 	var payload struct {
 		ExplicitConditionChecks []ExplicitConditionCheck `json:"explicit_condition_checks"`
 	}
 	if err := unmarshalVerifierPayload(resp.Text, &payload); err != nil {
-		return nil, "", err
+		return verifierPassResult{}, fmt.Errorf("parse explicit condition verifier output: %w", err)
 	}
-	return payload.ExplicitConditionChecks, resp.Model, nil
+	finalNodeIDs := explicitConditionCheckNodeIDs(payload.ExplicitConditionChecks)
+	stage := newStageSummary(firstNonEmpty(resp.Model, model), completedAt, true, finalNodeIDs)
+	return verifierPassResult{
+		kind:                    VerificationPassExplicitCondition,
+		nodeIDs:                 nodeIDs(nodes),
+		explicitConditionChecks: payload.ExplicitConditionChecks,
+		claim:                   cloneStageSummary(stage),
+		adjudication:            stage,
+		coverage:                buildCoverage(nodeIDs(nodes), finalNodeIDs),
+	}, nil
 }
 
-func verifyImplicitConditions(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) ([]ImplicitConditionCheck, string, error) {
+func verifyImplicitConditions(ctx context.Context, rt verifierCall, model string, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
 	prompt, err := buildImplicitConditionVerificationPrompt(bundle, nodes)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
 	req, err := BuildQwen36ProviderRequest(model, bundle, implicitConditionVerifierInstruction, prompt)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
-	resp, err := rt.Call(ctx, req)
+	resp, completedAt, err := callVerifierStage(ctx, rt, req)
 	if err != nil {
-		return nil, "", err
+		return verifierPassResult{}, err
 	}
 	var payload struct {
 		ImplicitConditionChecks []ImplicitConditionCheck `json:"implicit_condition_checks"`
 	}
 	if err := unmarshalVerifierPayload(resp.Text, &payload); err != nil {
-		return nil, "", err
+		return verifierPassResult{}, fmt.Errorf("parse implicit condition verifier output: %w", err)
 	}
-	return payload.ImplicitConditionChecks, resp.Model, nil
+	finalNodeIDs := implicitConditionCheckNodeIDs(payload.ImplicitConditionChecks)
+	stage := newStageSummary(firstNonEmpty(resp.Model, model), completedAt, true, finalNodeIDs)
+	return verifierPassResult{
+		kind:                    VerificationPassImplicitCondition,
+		nodeIDs:                 nodeIDs(nodes),
+		implicitConditionChecks: payload.ImplicitConditionChecks,
+		claim:                   cloneStageSummary(stage),
+		adjudication:            stage,
+		coverage:                buildCoverage(nodeIDs(nodes), finalNodeIDs),
+	}, nil
+}
+
+func callVerifierStage(ctx context.Context, rt verifierCall, req llm.ProviderRequest) (llm.Response, time.Time, error) {
+	resp, err := rt.Call(ctx, req)
+	return resp, verifierNow(), err
 }
 
 func unmarshalVerifierPayload(raw string, target any) error {
@@ -179,31 +328,37 @@ func unmarshalVerifierPayload(raw string, target any) error {
 	return nil
 }
 
-func buildFactVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
-	extra := map[string]any{
-		"as_of": time.Now().UTC().Format(time.RFC3339),
+func buildFactVerificationPrompt(bundle Bundle, nodes []GraphNode, retrievalContext []map[string]any, retrievalSummary *VerificationRetrievalSummary, extra map[string]any) (string, error) {
+	payload := map[string]any{
+		"as_of": verifierNow().Format(time.RFC3339),
 	}
-	if retrieval, err := buildFactRetrievalContext(context.Background(), bundle, nodes); err == nil && len(retrieval) > 0 {
-		extra["retrieval_context"] = retrieval
+	if len(retrievalContext) > 0 {
+		payload["retrieval_context"] = retrievalContext
 	}
-	return buildVerificationPrompt(bundle, nodes, extra)
+	if retrievalSummary != nil {
+		payload["retrieval_summary"] = retrievalSummary
+	}
+	for key, value := range extra {
+		payload[key] = value
+	}
+	return buildVerificationPrompt(bundle, nodes, payload)
 }
 
 func buildPredictionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
 	return buildVerificationPrompt(bundle, nodes, map[string]any{
-		"as_of": time.Now().UTC().Format(time.RFC3339),
+		"as_of": verifierNow().Format(time.RFC3339),
 	})
 }
 
 func buildExplicitConditionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
 	return buildVerificationPrompt(bundle, nodes, map[string]any{
-		"as_of": time.Now().UTC().Format(time.RFC3339),
+		"as_of": verifierNow().Format(time.RFC3339),
 	})
 }
 
 func buildImplicitConditionVerificationPrompt(bundle Bundle, nodes []GraphNode) (string, error) {
 	return buildVerificationPrompt(bundle, nodes, map[string]any{
-		"as_of": time.Now().UTC().Format(time.RFC3339),
+		"as_of": verifierNow().Format(time.RFC3339),
 	})
 }
 
@@ -270,6 +425,242 @@ func marshalVerificationNodes(nodes []GraphNode) []map[string]any {
 	return out
 }
 
+func buildFactRetrievalPayload(ctx context.Context, bundle Bundle, nodes []GraphNode) ([]map[string]any, *VerificationRetrievalSummary, error) {
+	retrieval, err := buildFactRetrievalContext(ctx, bundle, nodes)
+	if err != nil {
+		return nil, nil, err
+	}
+	summary := &VerificationRetrievalSummary{
+		RetrievedNodeIDs:     make([]string, 0, len(retrieval)),
+		NoResultNodeIDs:      make([]string, 0, minInt(len(nodes), maxFactRetrievalNodes)),
+		BudgetLimitedNodeIDs: cloneStrings(nodeIDs(nodes[minInt(len(nodes), maxFactRetrievalNodes):])),
+		PromptContextReduced: len(nodes) > maxFactRetrievalNodes,
+	}
+	seen := make(map[string]struct{}, len(retrieval))
+	for _, item := range retrieval {
+		nodeID := strings.TrimSpace(asString(item["node_id"]))
+		if nodeID == "" {
+			continue
+		}
+		seen[nodeID] = struct{}{}
+		summary.RetrievedNodeIDs = append(summary.RetrievedNodeIDs, nodeID)
+		if truthy(item["results_limited"]) {
+			summary.PromptContextReduced = true
+		}
+		if truthy(item["excerpt_truncated"]) {
+			summary.ExcerptTruncated = true
+		}
+	}
+	for _, node := range nodes {
+		if _, ok := seen[node.ID]; ok {
+			continue
+		}
+		summary.NoResultNodeIDs = append(summary.NoResultNodeIDs, node.ID)
+	}
+	if len(summary.RetrievedNodeIDs) == 0 && len(summary.NoResultNodeIDs) == 0 && !summary.PromptContextReduced && !summary.ExcerptTruncated {
+		return retrieval, nil, nil
+	}
+	return retrieval, summary, nil
+}
+
+func buildCoverage(expectedNodeIDs, returnedNodeIDs []string) VerificationPassCoverage {
+	coverage := VerificationPassCoverage{
+		ExpectedNodeIDs: cloneStrings(expectedNodeIDs),
+		ReturnedNodeIDs: cloneStrings(returnedNodeIDs),
+		Valid:           true,
+	}
+	expected := make(map[string]struct{}, len(expectedNodeIDs))
+	for _, id := range expectedNodeIDs {
+		expected[id] = struct{}{}
+	}
+	returnedCounts := make(map[string]int, len(returnedNodeIDs))
+	for _, id := range returnedNodeIDs {
+		returnedCounts[id]++
+		if _, ok := expected[id]; !ok {
+			coverage.UnexpectedNodeIDs = append(coverage.UnexpectedNodeIDs, id)
+		}
+	}
+	for _, id := range expectedNodeIDs {
+		if returnedCounts[id] == 0 {
+			coverage.MissingNodeIDs = append(coverage.MissingNodeIDs, id)
+		}
+	}
+	for _, id := range returnedNodeIDs {
+		if returnedCounts[id] > 1 && !containsString(coverage.DuplicateNodeIDs, id) {
+			coverage.DuplicateNodeIDs = append(coverage.DuplicateNodeIDs, id)
+		}
+	}
+	coverage.Valid = len(coverage.MissingNodeIDs) == 0 && len(coverage.DuplicateNodeIDs) == 0 && len(coverage.UnexpectedNodeIDs) == 0 && len(expectedNodeIDs) == len(returnedNodeIDs)
+	return coverage
+}
+
+func coverageError(kind VerificationPassKind, coverage VerificationPassCoverage) error {
+	return fmt.Errorf(
+		"verification pass %s coverage mismatch: expected=%v returned=%v missing=%v duplicate=%v unexpected=%v",
+		kind,
+		coverage.ExpectedNodeIDs,
+		coverage.ReturnedNodeIDs,
+		coverage.MissingNodeIDs,
+		coverage.DuplicateNodeIDs,
+		coverage.UnexpectedNodeIDs,
+	)
+}
+
+func aggregateCoverageSummary(results []verifierPassResult) *VerificationCoverageSummary {
+	summary := &VerificationCoverageSummary{Valid: true}
+	for _, result := range results {
+		summary.TotalExpectedNodes += len(result.coverage.ExpectedNodeIDs)
+		summary.TotalFinalizedNodes += len(result.coverage.ReturnedNodeIDs)
+		summary.MissingNodeIDs = append(summary.MissingNodeIDs, result.coverage.MissingNodeIDs...)
+		summary.DuplicateNodeIDs = append(summary.DuplicateNodeIDs, result.coverage.DuplicateNodeIDs...)
+		summary.UnexpectedNodeIDs = append(summary.UnexpectedNodeIDs, result.coverage.UnexpectedNodeIDs...)
+		if !result.coverage.Valid {
+			summary.Valid = false
+		}
+	}
+	return summary
+}
+
+func uniformAdjudicationModel(results []verifierPassResult) string {
+	var models []string
+	for _, result := range results {
+		if result.adjudication == nil {
+			continue
+		}
+		model := strings.TrimSpace(result.adjudication.Model)
+		if model == "" {
+			return ""
+		}
+		if len(models) == 0 {
+			models = append(models, model)
+			continue
+		}
+		if model != models[0] {
+			return ""
+		}
+	}
+	if len(models) == 0 {
+		return ""
+	}
+	return models[0]
+}
+
+func verifierRolloutStage(results []verifierPassResult) string {
+	for _, result := range results {
+		if result.kind == VerificationPassFact && result.debateEnabled {
+			return "facts_only"
+		}
+	}
+	return "coverage_only"
+}
+
+func newStageSummary(model string, completedAt time.Time, parseOK bool, outputNodeIDs []string) *VerificationStageSummary {
+	return &VerificationStageSummary{
+		Model:         strings.TrimSpace(model),
+		CompletedAt:   completedAt.UTC(),
+		ParseOK:       parseOK,
+		OutputNodeIDs: cloneStrings(outputNodeIDs),
+	}
+}
+
+func cloneStageSummary(in *VerificationStageSummary) *VerificationStageSummary {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.OutputNodeIDs = cloneStrings(in.OutputNodeIDs)
+	return &out
+}
+
+func nodeIDs(nodes []GraphNode) []string {
+	ids := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		ids = append(ids, node.ID)
+	}
+	return ids
+}
+
+func factCheckNodeIDs(checks []FactCheck) []string {
+	ids := make([]string, 0, len(checks))
+	for _, check := range checks {
+		ids = append(ids, check.NodeID)
+	}
+	return ids
+}
+
+func explicitConditionCheckNodeIDs(checks []ExplicitConditionCheck) []string {
+	ids := make([]string, 0, len(checks))
+	for _, check := range checks {
+		ids = append(ids, check.NodeID)
+	}
+	return ids
+}
+
+func implicitConditionCheckNodeIDs(checks []ImplicitConditionCheck) []string {
+	ids := make([]string, 0, len(checks))
+	for _, check := range checks {
+		ids = append(ids, check.NodeID)
+	}
+	return ids
+}
+
+func predictionCheckNodeIDs(checks []PredictionCheck) []string {
+	ids := make([]string, 0, len(checks))
+	for _, check := range checks {
+		ids = append(ids, check.NodeID)
+	}
+	return ids
+}
+
+func factChallengeNodeIDs(challenges []factChallenge) []string {
+	ids := make([]string, 0, len(challenges))
+	for _, challenge := range challenges {
+		ids = append(ids, challenge.NodeID)
+	}
+	return ids
+}
+
+func cloneStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, len(values))
+	copy(out, values)
+	return out
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func asString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	default:
+		return ""
+	}
+}
+
+func truthy(value any) bool {
+	if v, ok := value.(bool); ok {
+		return v
+	}
+	return false
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
@@ -279,8 +670,26 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-const factVerifierInstruction = `
-你是一个事实节点验证器。只看输入中的事实节点，返回 JSON：
+const factVerifierClaimInstruction = `
+你是一个事实节点验证器的主张阶段。只看输入中的事实节点，输出每个节点当前最可信的判定。返回 JSON：
+{
+  "fact_checks": [
+    {"node_id":"n1","status":"clearly_true|clearly_false|unverifiable","reason":"..."}
+  ]
+}
+必须为每个输入节点恰好返回一条记录，不要返回多余文本。`
+
+const factVerifierChallengeInstruction = `
+你是一个事实节点验证器的质疑阶段。你会收到事实节点、检索摘要与主张结果。请针对每个输入节点指出主张最薄弱的地方，尤其要区分“有检索支持”和“仅依赖原始材料”的情况。返回 JSON：
+{
+  "challenges": [
+    {"node_id":"n1","assessment":"supported|contested|insufficient_evidence","reason":"..."}
+  ]
+}
+必须为每个输入节点恰好返回一条记录，不要返回多余文本。`
+
+const factVerifierAdjudicationInstruction = `
+你是一个事实节点验证器的裁决阶段。你会收到事实节点、检索摘要、主张结果和质疑结果。请输出最终裁决，并确保每个输入节点恰好一条最终记录。返回 JSON：
 {
   "fact_checks": [
     {"node_id":"n1","status":"clearly_true|clearly_false|unverifiable","reason":"..."}
@@ -295,7 +704,7 @@ const predictionVerifierInstruction = `
     {"node_id":"n1","status":"unresolved|resolved_true|resolved_false|stale_unresolved","reason":"...","as_of":"2026-04-14T00:00:00Z"}
   ]
 }
-不要返回多余文本。`
+必须为每个输入节点恰好返回一条记录，不要返回多余文本。`
 
 const explicitConditionVerifierInstruction = `
 你是一个显式条件评估器。只看输入中的显式条件节点，返回 JSON：
@@ -304,7 +713,7 @@ const explicitConditionVerifierInstruction = `
     {"node_id":"n1","status":"high|medium|low|unknown","reason":"..."}
   ]
 }
-不要返回多余文本。`
+必须为每个输入节点恰好返回一条记录，不要返回多余文本。`
 
 const implicitConditionVerifierInstruction = `
 你是一个隐含条件验证器。只看输入中的隐含条件节点，返回 JSON：
@@ -313,4 +722,4 @@ const implicitConditionVerifierInstruction = `
     {"node_id":"n1","status":"clearly_true|clearly_false|unverifiable","reason":"..."}
   ]
 }
-不要返回多余文本。`
+必须为每个输入节点恰好返回一条记录，不要返回多余文本。`

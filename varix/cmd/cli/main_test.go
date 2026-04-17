@@ -11,24 +11,37 @@ import (
 	"github.com/kumaloha/VariX/varix/bootstrap"
 	c "github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/ingest/dispatcher"
+	"github.com/kumaloha/VariX/varix/ingest/polling"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 	"github.com/kumaloha/VariX/varix/memory"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
 type fakeItemSource struct {
-	items []types.RawContent
+	platform types.Platform
+	kind     types.Kind
+	items    []types.RawContent
+	fetchFn  func(context.Context, types.ParsedURL) ([]types.RawContent, error)
 }
 
 func (f fakeItemSource) Platform() types.Platform {
+	if f.platform != "" {
+		return f.platform
+	}
 	return types.PlatformWeb
 }
 
 func (f fakeItemSource) Kind() types.Kind {
+	if f.kind != "" {
+		return f.kind
+	}
 	return types.KindNative
 }
 
-func (f fakeItemSource) Fetch(context.Context, types.ParsedURL) ([]types.RawContent, error) {
+func (f fakeItemSource) Fetch(ctx context.Context, parsed types.ParsedURL) ([]types.RawContent, error) {
+	if f.fetchFn != nil {
+		return f.fetchFn(ctx, parsed)
+	}
 	return f.items, nil
 }
 
@@ -1858,11 +1871,15 @@ func TestRunMemoryGlobalCompareSuggestsRunWhenNoStoredOutputs(t *testing.T) {
 }
 
 type fakeCompileClient struct {
-	record c.Record
-	err    error
+	record    c.Record
+	err       error
+	compileFn func(context.Context, c.Bundle) (c.Record, error)
 }
 
-func (f fakeCompileClient) Compile(_ context.Context, _ c.Bundle) (c.Record, error) {
+func (f fakeCompileClient) Compile(ctx context.Context, bundle c.Bundle) (c.Record, error) {
+	if f.compileFn != nil {
+		return f.compileFn(ctx, bundle)
+	}
 	return f.record, f.err
 }
 
@@ -2274,6 +2291,227 @@ func TestRunCompileForceBypassesStoredCompiledOutput(t *testing.T) {
 	}
 	if got.Output.Summary != "forced summary" {
 		t.Fatalf("Summary = %q, want forced summary", got.Output.Summary)
+	}
+}
+
+func TestRunHarnessPersistsNoNetworkIngestCompileAndMemoryFlow(t *testing.T) {
+	prevBuildApp := buildApp
+	prevBuildCompileClient := buildCompileClient
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		buildCompileClient = prevBuildCompileClient
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	dbPath := tmp + "/content.db"
+	rawURL := "https://x.com/VarixHarness/status/12345"
+	rawCapture := types.RawContent{
+		Source:     "twitter",
+		ExternalID: "12345",
+		Content:    "CPI cooled again, so yields may fall and equities could re-rate.",
+		AuthorName: "Macro Alice",
+		URL:        rawURL,
+		PostedAt:   time.Date(2026, 4, 15, 9, 30, 0, 0, time.UTC),
+	}
+	compiledAt := time.Date(2026, 4, 16, 8, 0, 0, 0, time.UTC)
+
+	openStore := func(t *testing.T) *contentstore.SQLiteStore {
+		t.Helper()
+		store, err := contentstore.NewSQLiteStore(dbPath)
+		if err != nil {
+			t.Fatalf("NewSQLiteStore(%q) error = %v", dbPath, err)
+		}
+		return store
+	}
+
+	var fetchCount int
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		store, err := contentstore.NewSQLiteStore(dbPath)
+		if err != nil {
+			return nil, err
+		}
+		dispatch := dispatcher.New(
+			func(raw string) (types.ParsedURL, error) {
+				return types.ParsedURL{
+					Platform:     types.PlatformTwitter,
+					ContentType:  types.ContentTypePost,
+					PlatformID:   rawCapture.ExternalID,
+					CanonicalURL: raw,
+				}, nil
+			},
+			[]dispatcher.ItemSource{fakeItemSource{
+				platform: types.PlatformTwitter,
+				kind:     types.KindNative,
+				items: []types.RawContent{{
+					Source:     rawCapture.Source,
+					ExternalID: rawCapture.ExternalID,
+					Content:    rawCapture.Content,
+					AuthorName: rawCapture.AuthorName,
+					URL:        rawCapture.URL,
+					PostedAt:   rawCapture.PostedAt,
+				}},
+			}},
+			nil,
+			nil,
+		)
+		app := &bootstrap.App{
+			Dispatcher: dispatch,
+			Polling: polling.New(
+				store,
+				dispatch,
+				nil,
+			),
+		}
+		app.Settings.ContentDBPath = dbPath
+		return app, nil
+	}
+
+	buildCompileClient = func(projectRoot string) compileClient {
+		return fakeCompileClient{
+			compileFn: func(_ context.Context, bundle c.Bundle) (c.Record, error) {
+				fetchCount++
+				if bundle.Source != rawCapture.Source {
+					t.Fatalf("bundle.Source = %q, want %q", bundle.Source, rawCapture.Source)
+				}
+				if bundle.ExternalID != rawCapture.ExternalID {
+					t.Fatalf("bundle.ExternalID = %q, want %q", bundle.ExternalID, rawCapture.ExternalID)
+				}
+				if bundle.Content != rawCapture.Content {
+					t.Fatalf("bundle.Content = %q, want persisted raw capture content", bundle.Content)
+				}
+				return c.Record{
+					UnitID:         "twitter:12345",
+					Source:         rawCapture.Source,
+					ExternalID:     rawCapture.ExternalID,
+					RootExternalID: rawCapture.ExternalID,
+					Model:          c.Qwen36PlusModel,
+					Output: c.Output{
+						Summary: "Cooling CPI points to lower yields and a bullish risk setup.",
+						Graph: c.ReasoningGraph{
+							Nodes: []c.GraphNode{
+								{ID: "n1", Kind: c.NodeFact, Text: "CPI cooled again", OccurredAt: rawCapture.PostedAt},
+								{ID: "n2", Kind: c.NodeConclusion, Text: "Yields may fall"},
+								{ID: "n3", Kind: c.NodePrediction, Text: "Equities may re-rate higher", PredictionStartAt: rawCapture.PostedAt},
+							},
+							Edges: []c.GraphEdge{
+								{From: "n1", To: "n2", Kind: c.EdgeDerives},
+								{From: "n2", To: "n3", Kind: c.EdgeDerives},
+							},
+						},
+						Details: c.HiddenDetails{Caveats: []string{"Macro path can reverse quickly."}},
+					},
+					CompiledAt: compiledAt,
+				}, nil
+			},
+		}
+	}
+
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		return contentstore.NewSQLiteStore(path)
+	}
+
+	app, err := buildApp("/tmp/project")
+	if err != nil {
+		t.Fatalf("buildApp() error = %v", err)
+	}
+	fetched, err := app.Polling.FetchURL(context.Background(), rawURL)
+	if err != nil {
+		t.Fatalf("app.Polling.FetchURL() error = %v", err)
+	}
+	if len(fetched) != 1 || fetched[0].ExternalID != rawCapture.ExternalID {
+		t.Fatalf("FetchURL() = %#v, want one persisted raw capture", fetched)
+	}
+
+	store := openStore(t)
+	persistedRaw, err := store.GetRawCapture(context.Background(), rawCapture.Source, rawCapture.ExternalID)
+	store.Close()
+	if err != nil {
+		t.Fatalf("GetRawCapture() error = %v", err)
+	}
+	if persistedRaw.Content != rawCapture.Content {
+		t.Fatalf("persisted raw content = %q, want %q", persistedRaw.Content, rawCapture.Content)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "run", "--platform", rawCapture.Source, "--id", rawCapture.ExternalID}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("compile run code = %d, stderr = %s", code, stderr.String())
+	}
+	if fetchCount != 1 {
+		t.Fatalf("compile client calls = %d, want 1", fetchCount)
+	}
+	var compiled c.Record
+	if err := json.Unmarshal(stdout.Bytes(), &compiled); err != nil {
+		t.Fatalf("json.Unmarshal(compile stdout) error = %v", err)
+	}
+	if compiled.Output.Summary == "" {
+		t.Fatalf("compiled stdout = %#v, want summary", compiled)
+	}
+
+	store = openStore(t)
+	persistedCompiled, err := store.GetCompiledOutput(context.Background(), rawCapture.Source, rawCapture.ExternalID)
+	store.Close()
+	if err != nil {
+		t.Fatalf("GetCompiledOutput() error = %v", err)
+	}
+	if persistedCompiled.Output.Summary != compiled.Output.Summary {
+		t.Fatalf("persisted compiled summary = %q, want %q", persistedCompiled.Output.Summary, compiled.Output.Summary)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "accept-batch", "--user", "u-harness", "--platform", rawCapture.Source, "--id", rawCapture.ExternalID, "--nodes", "n1,n2"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory accept-batch code = %d, stderr = %s", code, stderr.String())
+	}
+	var accepted memory.AcceptResult
+	if err := json.Unmarshal(stdout.Bytes(), &accepted); err != nil {
+		t.Fatalf("json.Unmarshal(accept-batch stdout) error = %v", err)
+	}
+	if len(accepted.Nodes) != 2 {
+		t.Fatalf("accept-batch nodes = %#v, want 2", accepted.Nodes)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "organize-run", "--user", "u-harness"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory organize-run code = %d, stderr = %s", code, stderr.String())
+	}
+	var organized memory.OrganizationOutput
+	if err := json.Unmarshal(stdout.Bytes(), &organized); err != nil {
+		t.Fatalf("json.Unmarshal(organize-run stdout) error = %v", err)
+	}
+	if organized.JobID == 0 {
+		t.Fatalf("organize-run stdout = %#v, want job id", organized)
+	}
+
+	store = openStore(t)
+	defer store.Close()
+	nodes, err := store.ListUserMemoryBySource(context.Background(), "u-harness", rawCapture.Source, rawCapture.ExternalID)
+	if err != nil {
+		t.Fatalf("ListUserMemoryBySource() error = %v", err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("len(ListUserMemoryBySource) = %d, want 2", len(nodes))
+	}
+	persistedOutput, err := store.GetLatestMemoryOrganizationOutput(context.Background(), "u-harness", rawCapture.Source, rawCapture.ExternalID)
+	if err != nil {
+		t.Fatalf("GetLatestMemoryOrganizationOutput() error = %v", err)
+	}
+	if persistedOutput.JobID != organized.JobID {
+		t.Fatalf("persisted JobID = %d, want %d", persistedOutput.JobID, organized.JobID)
+	}
+	if len(persistedOutput.ActiveNodes) != 2 {
+		t.Fatalf("len(persisted active nodes) = %d, want 2", len(persistedOutput.ActiveNodes))
+	}
+	if len(persistedOutput.Hierarchy) == 0 {
+		t.Fatalf("persisted hierarchy = %#v, want derived links", persistedOutput.Hierarchy)
+	}
+	if fetchCount != 1 {
+		t.Fatalf("unexpected refetch/compile count = %d, want 1 total compile invocation", fetchCount)
 	}
 }
 

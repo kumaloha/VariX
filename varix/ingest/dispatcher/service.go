@@ -218,7 +218,7 @@ func appendDiscoveryDecisionEvidence(items []types.RawContent, originalParsed, r
 		item.URL,
 	)
 	for _, raw := range items {
-		raw.Provenance = appendEvidence(raw.Provenance, types.ProvenanceEvidence{
+		raw.Provenance = provenance.AppendEvidence(raw.Provenance, types.ProvenanceEvidence{
 			Kind:   "discovery_identity_decision",
 			Value:  value,
 			Weight: string(types.ConfidenceHigh),
@@ -226,17 +226,4 @@ func appendDiscoveryDecisionEvidence(items []types.RawContent, originalParsed, r
 		out = append(out, raw)
 	}
 	return out
-}
-
-func appendEvidence(prov *types.Provenance, evidence types.ProvenanceEvidence) *types.Provenance {
-	if prov == nil {
-		prov = &types.Provenance{}
-	}
-	for _, existing := range prov.Evidence {
-		if existing.Kind == evidence.Kind && existing.Value == evidence.Value && existing.Weight == evidence.Weight {
-			return prov
-		}
-	}
-	prov.Evidence = append(prov.Evidence, evidence)
-	return prov
 }

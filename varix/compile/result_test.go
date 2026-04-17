@@ -2,6 +2,8 @@ package compile
 
 import (
 	"encoding/json"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -460,6 +462,367 @@ func TestOutputValidateRejectsUnsupportedExplicitConditionStatus(t *testing.T) {
 	}
 	if err := out.Validate(); err == nil {
 		t.Fatal("Validate() error = nil, want unsupported explicit condition status rejection")
+	}
+}
+
+func TestParseOutputKeepsLegacyVerificationCompatibleWithVerifyV2Fields(t *testing.T) {
+	raw := `{
+	  "summary":"一句话",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n2","kind":"结论","text":"结论B"}
+	    ],
+	    "edges":[{"from":"n1","to":"n2","kind":"推出"}]
+	  },
+	  "details":{"caveats":["说明"]},
+	  "verification":{
+	    "verified_at":"2026-04-15T00:00:00Z",
+	    "model":"legacy-verifier",
+	    "fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]
+	  }
+	}`
+	out, err := ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	if len(out.Verification.FactChecks) != 1 {
+		t.Fatalf("len(FactChecks) = %d, want 1", len(out.Verification.FactChecks))
+	}
+	assertVerifyV2StringField(t, out.Verification, "Version", "")
+	assertVerifyV2StringField(t, out.Verification, "RolloutStage", "")
+	assertVerifyV2SliceLen(t, out.Verification, "Passes", 0)
+	if _, ok := tryResolveVerifyV2Path(out.Verification, []string{"CoverageSummary"}); ok {
+		t.Fatal("legacy verification should not require verify-v2 coverage summary")
+	}
+}
+
+func TestParseOutputPreservesVerifyV2FactsMetadataAlongsideLegacyArrays(t *testing.T) {
+	raw := `{
+	  "summary":"一句话",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n2","kind":"事实","text":"事实B","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n3","kind":"结论","text":"结论C"}
+	    ],
+	    "edges":[{"from":"n1","to":"n3","kind":"推出"},{"from":"n2","to":"n3","kind":"正向"}]
+	  },
+	  "details":{"caveats":["说明"]},
+	  "verification":{
+	    "version":"verify_v2",
+	    "rollout_stage":"facts_only",
+	    "verified_at":"2026-04-15T03:00:00Z",
+	    "model":"judge-model",
+	    "fact_checks":[
+	      {"node_id":"n1","status":"clearly_true","reason":"retrieved support"},
+	      {"node_id":"n2","status":"unverifiable","reason":"bundle-only evidence"}
+	    ],
+	    "passes":[{
+	      "kind":"fact",
+	      "node_ids":["n1","n2"],
+	      "coverage":{
+	        "expected_node_ids":["n1","n2"],
+	        "returned_node_ids":["n1","n2"],
+	        "missing_node_ids":[],
+	        "duplicate_node_ids":[],
+	        "valid":true
+	      },
+	      "retrieval_summary":{
+	        "retrieved_node_ids":["n1"],
+	        "no_result_node_ids":["n2"],
+	        "excerpt_truncated":true
+	      },
+	      "claim":{
+	        "model":"claim-model",
+	        "completed_at":"2026-04-15T01:00:00Z",
+	        "parse_ok":true,
+	        "output_node_ids":["n1","n2"]
+	      },
+	      "challenge":{
+	        "model":"challenge-model",
+	        "completed_at":"2026-04-15T02:00:00Z",
+	        "parse_ok":true,
+	        "output_node_ids":["n1","n2"]
+	      },
+	      "adjudication":{
+	        "model":"judge-model",
+	        "completed_at":"2026-04-15T03:00:00Z",
+	        "parse_ok":true,
+	        "output_node_ids":["n1","n2"]
+	      }
+	    }],
+	    "coverage_summary":{
+	      "total_expected_nodes":2,
+	      "total_finalized_nodes":2,
+	      "missing_node_ids":[],
+	      "duplicate_node_ids":[],
+	      "valid":true
+	    }
+	  }
+	}`
+	out, err := ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	if len(out.Verification.FactChecks) != 2 {
+		t.Fatalf("len(FactChecks) = %d, want 2", len(out.Verification.FactChecks))
+	}
+	assertVerifyV2StringField(t, out.Verification, "Version", "verify_v2")
+	assertVerifyV2StringField(t, out.Verification, "RolloutStage", "facts_only")
+	assertVerifyV2SliceLen(t, out.Verification, "Passes", 1)
+	assertVerifyV2StringField(t, out.Verification, []string{"Passes", "0", "Kind"}, "fact")
+	assertVerifyV2StringSlice(t, out.Verification, []string{"Passes", "0", "NodeIDs"}, []string{"n1", "n2"})
+	assertVerifyV2BoolField(t, out.Verification, []string{"Passes", "0", "Coverage", "Valid"}, true)
+	assertVerifyV2StringSlice(t, out.Verification, []string{"Passes", "0", "RetrievalSummary", "RetrievedNodeIDs"}, []string{"n1"})
+	assertVerifyV2StringSlice(t, out.Verification, []string{"Passes", "0", "RetrievalSummary", "NoResultNodeIDs"}, []string{"n2"})
+	assertVerifyV2BoolField(t, out.Verification, []string{"Passes", "0", "RetrievalSummary", "ExcerptTruncated"}, true)
+	assertVerifyV2StringField(t, out.Verification, []string{"Passes", "0", "Claim", "Model"}, "claim-model")
+	assertVerifyV2StringField(t, out.Verification, []string{"Passes", "0", "Challenge", "Model"}, "challenge-model")
+	assertVerifyV2StringField(t, out.Verification, []string{"Passes", "0", "Adjudication", "Model"}, "judge-model")
+	assertVerifyV2TimeField(t, out.Verification, []string{"Passes", "0", "Adjudication", "CompletedAt"}, mustTime(t, "2026-04-15T03:00:00Z"))
+	assertVerifyV2BoolField(t, out.Verification, []string{"CoverageSummary", "Valid"}, true)
+	assertVerifyV2IntField(t, out.Verification, []string{"CoverageSummary", "TotalExpectedNodes"}, 2)
+	assertVerifyV2IntField(t, out.Verification, []string{"CoverageSummary", "TotalFinalizedNodes"}, 2)
+}
+
+func TestOutputValidateAcceptsVerifyV2MixedAdjudicationMetadataWithEmptyTopLevelModel(t *testing.T) {
+	raw := `{
+	  "summary":"一句话",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n2","kind":"预测","text":"预测B","prediction_start_at":"2026-04-14T00:00:00Z","prediction_due_at":"2026-07-14T00:00:00Z"}
+	    ],
+	    "edges":[{"from":"n1","to":"n2","kind":"推出"}]
+	  },
+	  "details":{"caveats":["说明"]},
+	  "verification":{
+	    "version":"verify_v2",
+	    "verified_at":"2026-04-15T04:00:00Z",
+	    "model":"",
+	    "fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}],
+	    "prediction_checks":[{"node_id":"n2","status":"unresolved","reason":"still in window","as_of":"2026-04-15T04:00:00Z"}],
+	    "passes":[
+	      {
+	        "kind":"fact",
+	        "node_ids":["n1"],
+	        "coverage":{"expected_node_ids":["n1"],"returned_node_ids":["n1"],"missing_node_ids":[],"duplicate_node_ids":[],"valid":true},
+	        "claim":{"model":"claim-model","completed_at":"2026-04-15T01:00:00Z","parse_ok":true,"output_node_ids":["n1"]},
+	        "challenge":{"model":"challenge-model","completed_at":"2026-04-15T02:00:00Z","parse_ok":true,"output_node_ids":["n1"]},
+	        "adjudication":{"model":"judge-a","completed_at":"2026-04-15T03:00:00Z","parse_ok":true,"output_node_ids":["n1"]}
+	      },
+	      {
+	        "kind":"prediction",
+	        "node_ids":["n2"],
+	        "coverage":{"expected_node_ids":["n2"],"returned_node_ids":["n2"],"missing_node_ids":[],"duplicate_node_ids":[],"valid":true},
+	        "claim":{"model":"claim-model","completed_at":"2026-04-15T01:30:00Z","parse_ok":true,"output_node_ids":["n2"]},
+	        "challenge":{"model":"challenge-model","completed_at":"2026-04-15T02:30:00Z","parse_ok":true,"output_node_ids":["n2"]},
+	        "adjudication":{"model":"judge-b","completed_at":"2026-04-15T04:00:00Z","parse_ok":true,"output_node_ids":["n2"]}
+	      }
+	    ],
+	    "coverage_summary":{"total_expected_nodes":2,"total_finalized_nodes":2,"missing_node_ids":[],"duplicate_node_ids":[],"valid":true}
+	  }
+	}`
+	out, err := ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	if out.Verification.Model != "" {
+		t.Fatalf("Verification.Model = %q, want empty when adjudication models differ", out.Verification.Model)
+	}
+	assertVerifyV2StringField(t, out.Verification, []string{"Passes", "0", "Adjudication", "Model"}, "judge-a")
+	assertVerifyV2StringField(t, out.Verification, []string{"Passes", "1", "Adjudication", "Model"}, "judge-b")
+	assertVerifyV2TimeField(t, out.Verification, []string{"Passes", "1", "Adjudication", "CompletedAt"}, mustTime(t, "2026-04-15T04:00:00Z"))
+}
+
+func assertVerifyV2FieldPresent(t *testing.T, root any, path any) {
+	t.Helper()
+	if _, ok := tryResolveVerifyV2Path(root, normalizeVerifyV2Path(path)); !ok {
+		t.Fatalf("missing verify-v2 field at path %v", normalizeVerifyV2Path(path))
+	}
+}
+
+func assertVerifyV2OneOfStringSlices(t *testing.T, root any, candidatePaths [][]string, want []string) {
+	t.Helper()
+	for _, path := range candidatePaths {
+		if got, ok := tryResolveVerifyV2Path(root, path); ok && got.IsValid() && got.Kind() == reflect.Slice {
+			if got.Len() != len(want) {
+				continue
+			}
+			matched := true
+			for i := range want {
+				if got.Index(i).Kind() != reflect.String || got.Index(i).String() != want[i] {
+					matched = false
+					break
+				}
+			}
+			if matched {
+				return
+			}
+		}
+	}
+	t.Fatalf("none of the candidate verify-v2 paths matched %v: %v", want, candidatePaths)
+}
+
+func assertVerifyV2StringField(t *testing.T, root any, path any, want string) {
+	t.Helper()
+	got := mustResolveVerifyV2Path(t, root, path)
+	if got.Kind() != reflect.String {
+		t.Fatalf("path %v kind = %s, want string", normalizeVerifyV2Path(path), got.Kind())
+	}
+	if got.String() != want {
+		t.Fatalf("path %v = %q, want %q", normalizeVerifyV2Path(path), got.String(), want)
+	}
+}
+
+func assertVerifyV2BoolField(t *testing.T, root any, path any, want bool) {
+	t.Helper()
+	got := mustResolveVerifyV2Path(t, root, path)
+	if got.Kind() != reflect.Bool {
+		t.Fatalf("path %v kind = %s, want bool", normalizeVerifyV2Path(path), got.Kind())
+	}
+	if got.Bool() != want {
+		t.Fatalf("path %v = %v, want %v", normalizeVerifyV2Path(path), got.Bool(), want)
+	}
+}
+
+func assertVerifyV2TimeField(t *testing.T, root any, path any, want time.Time) {
+	t.Helper()
+	got := mustResolveVerifyV2Path(t, root, path)
+	if got.Type() != reflect.TypeOf(time.Time{}) {
+		t.Fatalf("path %v type = %s, want time.Time", normalizeVerifyV2Path(path), got.Type())
+	}
+	if !got.Interface().(time.Time).Equal(want) {
+		t.Fatalf("path %v = %v, want %v", normalizeVerifyV2Path(path), got.Interface(), want)
+	}
+}
+
+func assertVerifyV2IntField(t *testing.T, root any, path any, want int) {
+	t.Helper()
+	got := mustResolveVerifyV2Path(t, root, path)
+	if got.Kind() != reflect.Int {
+		t.Fatalf("path %v kind = %s, want int", normalizeVerifyV2Path(path), got.Kind())
+	}
+	if int(got.Int()) != want {
+		t.Fatalf("path %v = %d, want %d", normalizeVerifyV2Path(path), got.Int(), want)
+	}
+}
+
+func assertVerifyV2SliceLen(t *testing.T, root any, field string, want int) {
+	t.Helper()
+	got := mustResolveVerifyV2Path(t, root, []string{field})
+	if got.Kind() != reflect.Slice {
+		t.Fatalf("field %s kind = %s, want slice", field, got.Kind())
+	}
+	if got.Len() != want {
+		t.Fatalf("field %s len = %d, want %d", field, got.Len(), want)
+	}
+}
+
+func assertVerifyV2StringSlice(t *testing.T, root any, path []string, want []string) {
+	t.Helper()
+	got := mustResolveVerifyV2Path(t, root, path)
+	if got.Kind() != reflect.Slice {
+		t.Fatalf("path %v kind = %s, want slice", path, got.Kind())
+	}
+	if got.Len() != len(want) {
+		t.Fatalf("path %v len = %d, want %d", path, got.Len(), len(want))
+	}
+	for i := range want {
+		if got.Index(i).Kind() != reflect.String {
+			t.Fatalf("path %v[%d] kind = %s, want string", path, i, got.Index(i).Kind())
+		}
+		if got.Index(i).String() != want[i] {
+			t.Fatalf("path %v[%d] = %q, want %q", path, i, got.Index(i).String(), want[i])
+		}
+	}
+}
+
+func tryResolveVerifyV2Path(root any, parts []string) (reflect.Value, bool) {
+	value := reflect.ValueOf(root)
+	for _, part := range parts {
+		for value.IsValid() && value.Kind() == reflect.Pointer {
+			if value.IsNil() {
+				return reflect.Value{}, false
+			}
+			value = value.Elem()
+		}
+		if !value.IsValid() {
+			return reflect.Value{}, false
+		}
+		if index, err := strconv.Atoi(part); err == nil {
+			if value.Kind() != reflect.Slice || index < 0 || index >= value.Len() {
+				return reflect.Value{}, false
+			}
+			value = value.Index(index)
+			continue
+		}
+		if value.Kind() != reflect.Struct {
+			return reflect.Value{}, false
+		}
+		field := value.FieldByName(part)
+		if !field.IsValid() {
+			return reflect.Value{}, false
+		}
+		value = field
+	}
+	for value.IsValid() && value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return reflect.Value{}, false
+		}
+		value = value.Elem()
+	}
+	return value, value.IsValid()
+}
+
+func mustResolveVerifyV2Path(t *testing.T, root any, path any) reflect.Value {
+	t.Helper()
+	parts := normalizeVerifyV2Path(path)
+	value := reflect.ValueOf(root)
+	for _, part := range parts {
+		for value.Kind() == reflect.Pointer {
+			if value.IsNil() {
+				t.Fatalf("path %v hit nil pointer before %q", parts, part)
+			}
+			value = value.Elem()
+		}
+		if index, err := strconv.Atoi(part); err == nil {
+			if value.Kind() != reflect.Slice {
+				t.Fatalf("path %v reached non-slice %s before index %d", parts, value.Kind(), index)
+			}
+			if index < 0 || index >= value.Len() {
+				t.Fatalf("path %v index %d out of range", parts, index)
+			}
+			value = value.Index(index)
+			continue
+		}
+		if value.Kind() != reflect.Struct {
+			t.Fatalf("path %v reached non-struct %s before field %q", parts, value.Kind(), part)
+		}
+		field := value.FieldByName(part)
+		if !field.IsValid() {
+			t.Fatalf("missing verify-v2 field %q at path %v", part, parts)
+		}
+		value = field
+	}
+	for value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			t.Fatalf("path %v resolved to nil pointer", parts)
+		}
+		value = value.Elem()
+	}
+	return value
+}
+
+func normalizeVerifyV2Path(path any) []string {
+	switch v := path.(type) {
+	case string:
+		return []string{v}
+	case []string:
+		return append([]string(nil), v...)
+	default:
+		panic("unsupported verify-v2 path type")
 	}
 }
 

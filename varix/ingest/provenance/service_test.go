@@ -382,6 +382,56 @@ func TestMergeCandidates_IsDeterministicAcrossRepeatedMerges(t *testing.T) {
 	}
 }
 
+func TestMergeCandidates_EmptyConfidenceStillBackfillsMissingFields(t *testing.T) {
+	got := mergeCandidates(
+		[]types.SourceCandidate{{
+			URL:        "https://example.com/source",
+			Confidence: "",
+		}},
+		[]types.SourceCandidate{{
+			URL:        "https://example.com/source",
+			Host:       "example.com",
+			Kind:       "reference_link",
+			Confidence: "",
+		}},
+	)
+
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+	if got[0].Confidence != "" {
+		t.Fatalf("Confidence = %q, want empty", got[0].Confidence)
+	}
+	if got[0].Host != "example.com" || got[0].Kind != "reference_link" {
+		t.Fatalf("merged candidate = %#v, want host/kind backfilled", got[0])
+	}
+}
+
+func TestMergeCandidates_UnknownConfidenceStillBackfillsMissingFields(t *testing.T) {
+	got := mergeCandidates(
+		[]types.SourceCandidate{{
+			URL:        "https://example.com/source",
+			Confidence: "foo",
+		}},
+		[]types.SourceCandidate{{
+			URL:        "https://example.com/source",
+			Host:       "example.com",
+			Kind:       "reference_link",
+			Confidence: "bar",
+		}},
+	)
+
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+	if got[0].URL != "https://example.com/source" {
+		t.Fatalf("URL = %q, want backfilled source url", got[0].URL)
+	}
+	if got[0].Confidence != "foo" {
+		t.Fatalf("Confidence = %q, want existing tie-ranked value preserved", got[0].Confidence)
+	}
+}
+
 type fakeStore struct {
 	pending []types.RawContent
 	marked  []markedResult

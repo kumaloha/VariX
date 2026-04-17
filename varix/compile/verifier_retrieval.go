@@ -11,6 +11,11 @@ import (
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
 
+const (
+	maxFactRetrievalNodes          = 3
+	maxFactRetrievalResultsPerNode = 2
+)
+
 func EnableFactWebVerification() {
 	buildFactRetrievalContext = defaultFactRetrievalContext
 }
@@ -22,7 +27,7 @@ func defaultFactRetrievalContext(ctx context.Context, bundle Bundle, nodes []Gra
 
 	out := make([]map[string]any, 0, len(nodes))
 	for i, node := range nodes {
-		if i >= 3 {
+		if i >= maxFactRetrievalNodes {
 			break
 		}
 		query := strings.TrimSpace(node.Text)
@@ -42,9 +47,11 @@ func defaultFactRetrievalContext(ctx context.Context, bundle Bundle, nodes []Gra
 			continue
 		}
 
-		results := make([]map[string]any, 0, 2)
+		results := make([]map[string]any, 0, maxFactRetrievalResultsPerNode)
+		resultsLimited := len(discovered) > maxFactRetrievalResultsPerNode
+		excerptTruncated := false
 		for j, item := range discovered {
-			if j >= 2 {
+			if j >= maxFactRetrievalResultsPerNode {
 				break
 			}
 			result := map[string]any{"url": item.URL}
@@ -64,7 +71,12 @@ func defaultFactRetrievalContext(ctx context.Context, bundle Bundle, nodes []Gra
 					excerpt = strings.TrimSpace(raw.Content)
 				}
 				if excerpt != "" {
-					result["excerpt"] = truncateVerifierExcerpt(excerpt, 600)
+					truncatedExcerpt, truncated := truncateVerifierExcerpt(excerpt, 600)
+					result["excerpt"] = truncatedExcerpt
+					if truncated {
+						result["excerpt_truncated"] = true
+						excerptTruncated = true
+					}
 				}
 			}
 			results = append(results, result)
@@ -73,17 +85,19 @@ func defaultFactRetrievalContext(ctx context.Context, bundle Bundle, nodes []Gra
 			continue
 		}
 		out = append(out, map[string]any{
-			"node_id": node.ID,
-			"results": results,
+			"node_id":           node.ID,
+			"results":           results,
+			"results_limited":   resultsLimited,
+			"excerpt_truncated": excerptTruncated,
 		})
 	}
 	return out, nil
 }
 
-func truncateVerifierExcerpt(text string, max int) string {
+func truncateVerifierExcerpt(text string, max int) (string, bool) {
 	text = strings.TrimSpace(text)
 	if max <= 0 || len(text) <= max {
-		return text
+		return text, false
 	}
-	return strings.TrimSpace(text[:max]) + "…"
+	return strings.TrimSpace(text[:max]) + "…", true
 }
