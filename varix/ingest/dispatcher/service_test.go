@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -268,6 +269,71 @@ func TestService_FetchDiscoveryItemPreservesWebIdentityForRSSDiscoveredURLs(t *t
 	}
 }
 
+func TestService_FetchDiscoveryItemRecordsFallbackDecisionEvidence(t *testing.T) {
+	itemSource := &capturingItemSource{platform: types.PlatformYouTube}
+	svc := New(
+		func(raw string) (types.ParsedURL, error) {
+			return types.ParsedURL{
+				Platform:     types.PlatformWeb,
+				ContentType:  types.ContentTypePost,
+				PlatformID:   "web-fallback-hash",
+				CanonicalURL: raw,
+			}, nil
+		},
+		[]ItemSource{itemSource},
+		nil,
+		nil,
+	)
+
+	got, err := svc.FetchDiscoveryItem(context.Background(), types.DiscoveryItem{
+		URL:           "https://example.com/out?to=https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+		ExternalID:    "dQw4w9WgXcQ",
+		HydrationHint: "youtube",
+	})
+	if err != nil {
+		t.Fatalf("FetchDiscoveryItem() error = %v", err)
+	}
+	if len(got) != 1 || got[0].Provenance == nil {
+		t.Fatalf("got = %#v, want provenance evidence", got)
+	}
+	if !containsEvidence(got[0].Provenance, "discovery_identity_decision", "mode=used_discovery_external_id") {
+		t.Fatalf("Evidence = %#v, want fallback decision evidence", got[0].Provenance.Evidence)
+	}
+}
+
+func TestService_FetchDiscoveryItemRecordsParsedIdentityDecisionEvidence(t *testing.T) {
+	webHash := "abc123hash"
+	itemSource := &capturingItemSource{platform: types.PlatformWeb}
+	svc := New(
+		func(raw string) (types.ParsedURL, error) {
+			return types.ParsedURL{
+				Platform:     types.PlatformWeb,
+				ContentType:  types.ContentTypePost,
+				PlatformID:   webHash,
+				CanonicalURL: raw,
+			}, nil
+		},
+		[]ItemSource{itemSource},
+		nil,
+		nil,
+	)
+
+	got, err := svc.FetchDiscoveryItem(context.Background(), types.DiscoveryItem{
+		Platform:   types.PlatformRSS,
+		URL:        "https://example.com/article",
+		ExternalID: "rss_guid_that_must_not_leak",
+	})
+	if err != nil {
+		t.Fatalf("FetchDiscoveryItem() error = %v", err)
+	}
+	if len(got) != 1 || got[0].Provenance == nil {
+		t.Fatalf("got = %#v, want provenance evidence", got)
+	}
+	if !containsEvidence(got[0].Provenance, "discovery_identity_decision", "mode=retained_parsed_identity") {
+		t.Fatalf("Evidence = %#v, want retained parsed identity evidence", got[0].Provenance.Evidence)
+	}
+}
+
 func TestService_ParseURLResolvesAllowlistedHostBeforeParsing(t *testing.T) {
 	resolver := &fakeLinkResolver{
 		out: map[string]string{
@@ -397,4 +463,16 @@ func (f *fakeLinkResolver) Resolve(_ context.Context, raw string) (string, error
 		return out, nil
 	}
 	return raw, nil
+}
+
+func containsEvidence(prov *types.Provenance, kind, contains string) bool {
+	if prov == nil {
+		return false
+	}
+	for _, evidence := range prov.Evidence {
+		if evidence.Kind == kind && strings.Contains(evidence.Value, contains) {
+			return true
+		}
+	}
+	return false
 }

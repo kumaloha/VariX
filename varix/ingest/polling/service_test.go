@@ -3,6 +3,7 @@ package polling
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -498,7 +499,7 @@ func TestService_PollSkipsProcessedMarksNewAndUpdatesFollowState(t *testing.T) {
 			{Platform: types.PlatformTwitter, ExternalID: "done", URL: "https://x.com/a/status/done"},
 			{Platform: types.PlatformTwitter, ExternalID: "new", URL: "https://x.com/a/status/new"},
 		},
-	}, fakeEnricher{})
+	}, nil)
 
 	report, items, warnings, pollWarnings, err := svc.Poll(context.Background())
 	if err != nil {
@@ -554,7 +555,7 @@ func TestService_PollContinuesAfterTargetDiscoverError(t *testing.T) {
 		discoverErrFor: map[string]error{
 			"search:twitter:bad": errors.New("discover failed"),
 		},
-	}, fakeEnricher{})
+	}, nil)
 
 	report, items, storeWarnings, pollWarnings, err := svc.Poll(context.Background())
 	if err != nil {
@@ -979,4 +980,96 @@ func TestService_PollReusesStoredHighQualityTranscriptOnRateLimit(t *testing.T) 
 	if items[0].Metadata.YouTube == nil || items[0].Metadata.YouTube.TranscriptMethod != "subtitle_vtt" {
 		t.Fatalf("TranscriptMethod = %#v, want subtitle_vtt", items[0].Metadata.YouTube)
 	}
+	if !hasEvidence(items[0].Provenance, "stored_capture_reused", "kept=subtitle_vtt") {
+		t.Fatalf("Evidence = %#v, want stored_capture_reused entry", items[0].Provenance)
+	}
+}
+
+type provenanceEvidencePollingDispatcher struct {
+	item types.DiscoveryItem
+	raw  types.RawContent
+}
+
+func (d provenanceEvidencePollingDispatcher) SupportsFollow(kind types.Kind, platform types.Platform) bool {
+	return kind == types.KindSearch && platform == types.PlatformTwitter
+}
+
+func (d provenanceEvidencePollingDispatcher) DiscoverFollowedTarget(context.Context, types.FollowTarget) ([]types.DiscoveryItem, error) {
+	return []types.DiscoveryItem{d.item}, nil
+}
+
+func (d provenanceEvidencePollingDispatcher) ParseURL(_ context.Context, rawURL string) (types.ParsedURL, error) {
+	return types.ParsedURL{
+		Platform:     types.PlatformWeb,
+		ContentType:  types.ContentTypePost,
+		PlatformID:   "web-hash",
+		CanonicalURL: rawURL,
+	}, nil
+}
+
+func (d provenanceEvidencePollingDispatcher) FetchByParsedURL(context.Context, types.ParsedURL) ([]types.RawContent, error) {
+	return nil, nil
+}
+
+func (d provenanceEvidencePollingDispatcher) FetchDiscoveryItem(context.Context, types.DiscoveryItem) ([]types.RawContent, error) {
+	raw := d.raw
+	raw.URL = d.item.URL
+	return []types.RawContent{raw}, nil
+}
+
+func TestService_PollPreservesExistingDispatcherDecisionEvidence(t *testing.T) {
+	store := &fakeStore{
+		processed: map[string]bool{},
+		follows: []types.FollowTarget{{
+			Kind:     types.KindSearch,
+			Platform: "twitter",
+			Locator:  "nvda",
+			Query:    "nvda",
+		}},
+	}
+	svc := New(store, provenanceEvidencePollingDispatcher{
+		item: types.DiscoveryItem{
+			Platform:   types.PlatformRSS,
+			ExternalID: "rss-guid",
+			URL:        "https://example.com/article",
+		},
+		raw: types.RawContent{
+			Source:     "web",
+			ExternalID: "web-hash",
+			Content:    "article body",
+			Provenance: &types.Provenance{
+				Evidence: []types.ProvenanceEvidence{{
+					Kind:   "discovery_identity_decision",
+					Value:  "mode=retained_parsed_identity reason=stable_web_identity",
+					Weight: string(types.ConfidenceHigh),
+				}},
+			},
+		},
+	}, nil)
+
+	_, items, _, pollWarnings, err := svc.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if len(pollWarnings) != 0 {
+		t.Fatalf("len(pollWarnings) = %d, want 0", len(pollWarnings))
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if !hasEvidence(items[0].Provenance, "discovery_identity_decision", "mode=retained_parsed_identity") {
+		t.Fatalf("Evidence = %#v, want preserved dispatcher decision evidence", items[0].Provenance)
+	}
+}
+
+func hasEvidence(prov *types.Provenance, kind, contains string) bool {
+	if prov == nil {
+		return false
+	}
+	for _, evidence := range prov.Evidence {
+		if evidence.Kind == kind && strings.Contains(evidence.Value, contains) {
+			return true
+		}
+	}
+	return false
 }
