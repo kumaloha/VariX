@@ -309,14 +309,42 @@ func projectPosteriorStatesOntoNodes(ctx context.Context, q rowsQuerier, nodes [
 	for memoryID, posterior := range posteriorByMemoryID {
 		indexes := indexByMemoryID[memoryID]
 		for _, idx := range indexes {
-			nodes[idx].PosteriorState = posterior.State
-			nodes[idx].PosteriorDiagnosis = posterior.Diagnosis
-			nodes[idx].PosteriorReason = posterior.Reason
-			nodes[idx].BlockedByNodeIDs = append([]string(nil), posterior.BlockedByNodeIDs...)
-			nodes[idx].PosteriorUpdatedAt = posterior.UpdatedAt
+			applyPosteriorStateRow(&nodes[idx], posterior)
 		}
 	}
 	return nil
+}
+
+func applyPosteriorStateRecord(node *memory.AcceptedNode, posterior memory.PosteriorStateRecord) {
+	if node == nil {
+		return
+	}
+	applyPosteriorStateRow(node, posteriorStateRow{
+		State:            posterior.State,
+		Diagnosis:        posterior.DiagnosisCode,
+		Reason:           posterior.Reason,
+		BlockedByNodeIDs: posterior.BlockedByNodeIDs,
+		UpdatedAt:        timePointer(posterior.UpdatedAt),
+	})
+}
+
+func applyPosteriorStateRow(node *memory.AcceptedNode, posterior posteriorStateRow) {
+	if node == nil {
+		return
+	}
+	node.PosteriorState = posterior.State
+	node.PosteriorDiagnosis = posterior.Diagnosis
+	node.PosteriorReason = posterior.Reason
+	node.BlockedByNodeIDs = append([]string(nil), posterior.BlockedByNodeIDs...)
+	node.PosteriorUpdatedAt = posterior.UpdatedAt
+}
+
+func timePointer(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	utc := value.UTC()
+	return &utc
 }
 
 func loadPosteriorStatesByMemoryID(ctx context.Context, q rowsQuerier, memoryIDs []int64) (map[int64]posteriorStateRow, error) {

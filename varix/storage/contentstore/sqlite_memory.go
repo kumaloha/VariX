@@ -107,6 +107,13 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 		if _, err := seedPosteriorStateTx(ctx, tx, node, now); err != nil {
 			return memory.AcceptResult{}, err
 		}
+		if isPosteriorEligibleNodeKind(node.NodeKind) {
+			posterior, err := getPosteriorStateTx(ctx, tx, node.MemoryID)
+			if err != nil {
+				return memory.AcceptResult{}, err
+			}
+			applyPosteriorStateRecord(&node, posterior)
+		}
 		nodes = append(nodes, node)
 	}
 
