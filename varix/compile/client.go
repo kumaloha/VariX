@@ -19,9 +19,9 @@ type runtimeChat interface {
 }
 
 type Client struct {
-	runtime runtimeChat
-	model   string
-	prompts *promptRegistry
+	runtime  runtimeChat
+	model    string
+	prompts  *promptRegistry
 	verifier VerificationService
 }
 

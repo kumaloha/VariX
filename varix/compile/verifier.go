@@ -696,10 +696,10 @@ func firstNonEmpty(values ...string) string {
 }
 
 const (
-	promptFactVerifierClaim             = "fact_claim"
-	promptFactVerifierChallenge         = "fact_challenge"
-	promptFactVerifierAdjudication      = "fact_adjudicate"
-	promptPredictionVerifier            = "prediction"
-	promptExplicitConditionVerifier     = "explicit_condition"
-	promptImplicitConditionVerifier     = "implicit_condition"
+	promptFactVerifierClaim         = "fact_claim"
+	promptFactVerifierChallenge     = "fact_challenge"
+	promptFactVerifierAdjudication  = "fact_adjudicate"
+	promptPredictionVerifier        = "prediction"
+	promptExplicitConditionVerifier = "explicit_condition"
+	promptImplicitConditionVerifier = "implicit_condition"
 )

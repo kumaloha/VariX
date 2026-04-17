@@ -165,13 +165,13 @@ func TestClientCompileUsesConfiguredPromptsDir(t *testing.T) {
 	root := t.TempDir()
 	settings := config.DefaultSettings(root)
 	for rel, body := range map[string]string{
-		"compile/system.tmpl":                   "compile system min={{.MinNodes}} edges={{.MinEdges}}",
-		"compile/user.tmpl":                     "compile user {{.PayloadJSON}}",
-		"compile/retry_suffix.tmpl":             "retry requires min={{.MinNodes}} edges={{.MinEdges}}",
-		"compile/verifier/fact_claim.tmpl":      "fact claim prompt",
-		"compile/verifier/fact_challenge.tmpl":  "fact challenge prompt",
-		"compile/verifier/fact_adjudicate.tmpl": "fact adjudication prompt",
-		"compile/verifier/prediction.tmpl":      "prediction verifier prompt",
+		"compile/system.tmpl":                      "compile system min={{.MinNodes}} edges={{.MinEdges}}",
+		"compile/user.tmpl":                        "compile user {{.PayloadJSON}}",
+		"compile/retry_suffix.tmpl":                "retry requires min={{.MinNodes}} edges={{.MinEdges}}",
+		"compile/verifier/fact_claim.tmpl":         "fact claim prompt",
+		"compile/verifier/fact_challenge.tmpl":     "fact challenge prompt",
+		"compile/verifier/fact_adjudicate.tmpl":    "fact adjudication prompt",
+		"compile/verifier/prediction.tmpl":         "prediction verifier prompt",
 		"compile/verifier/explicit_condition.tmpl": "explicit verifier prompt",
 		"compile/verifier/implicit_condition.tmpl": "implicit verifier prompt",
 	} {
