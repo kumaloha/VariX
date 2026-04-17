@@ -251,11 +251,15 @@ posterior phase-1 的持久化与 runner 核心。
 它已经在处理：
 - posterior sidecar table
 - pending seeding
-- posterior run
+- store-layer posterior run（`RunPosteriorVerification`）
 - posterior refresh trigger
 - state mutation
 
-也就是说，这层已经不只是文档设计，已经开始进入真正实现。
+也就是说，这层已经不只是文档设计，已经开始进入真正实现。  
+但要注意：**当前 operator surface 还没有完全闭环**——CLI 里还没有独立
+`memory posterior-run` 命令，`memory list` / `memory show-source` 也还没有把
+posterior projection 直接暴露给终端读路径；phase-1 目前最完整的成品面仍然是
+store seam + organizer/stale-output guard。
 
 ---
 
@@ -296,7 +300,9 @@ posterior phase-1 的持久化与 runner 核心。
 - `memory organized`
 - `global-v2-*`
 
-posterior-run 下一阶段也大概率会扩在这里。
+也就是说，posterior 的 store 能力已经存在，但 CLI operator surface 目前仍以
+accept / organize / organized 为主；如果后面把 `posterior-run` 正式暴露出来，
+入口大概率还是扩在这里。
 
 ### `main_test.go`
 非常值得重视。
@@ -654,12 +660,13 @@ organizer 会把 accepted nodes 整理成：
 
 ---
 
-### Step 7：posterior verification 未来会怎么接上
+### Step 7：posterior verification 现在接到了哪，后面还差什么
 相关代码：
 - `varix/memory/posterior_types.go`
 - `varix/storage/contentstore/sqlite_memory_posterior.go`
 
-对这条 YouTube 来说，未来 phase-1 做完后，accepted 的 conclusion / prediction 节点会进一步进入：
+对这条 YouTube 来说，phase-1 里 accepted 的 conclusion / prediction 节点现在已经能在
+store/organizer seam 上进入：
 - `pending`
 - `verified`
 - `falsified`
@@ -677,6 +684,11 @@ organizer 会把 accepted nodes 整理成：
 变成：
 
 > “一组可追踪生命周期、能事后修正的记忆节点”
+
+但当前还差最后一层 operator 收口：
+- 独立 CLI `posterior-run`
+- `memory list` / `memory show-source` 的 posterior 读投影
+- 更完整的端到端回归覆盖
 
 ---
 
@@ -716,4 +728,3 @@ organizer 会把 accepted nodes 整理成：
 因为现在真正需要强收口的，是：
 
 > **让 conclusion / prediction 进入 memory 后，不会长期变成失效垃圾。**
-
