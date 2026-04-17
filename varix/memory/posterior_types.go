@@ -19,7 +19,9 @@ const (
 )
 
 type PosteriorStateRecord struct {
-	MemoryID         int64                  `json:"memory_id"`
+	MemoryID         int64                  `json:"memory_id,omitempty"`
+	SourcePlatform   string                 `json:"source_platform,omitempty"`
+	SourceExternalID string                 `json:"source_external_id,omitempty"`
 	NodeID           string                 `json:"node_id"`
 	NodeKind         string                 `json:"node_kind"`
 	State            PosteriorState         `json:"state"`
