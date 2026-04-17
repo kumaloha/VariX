@@ -10,9 +10,7 @@ import (
 	"github.com/kumaloha/forge/llm"
 )
 
-type verifierCall interface {
-	Call(ctx context.Context, req llm.ProviderRequest) (llm.Response, error)
-}
+type verifierCall = runtimeChat
 
 var buildFactRetrievalContext = func(ctx context.Context, bundle Bundle, nodes []GraphNode) ([]map[string]any, error) {
 	return nil, nil
