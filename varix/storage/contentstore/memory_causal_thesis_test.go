@@ -55,3 +55,57 @@ func TestBuildCausalThesis_ExtractsCorePath(t *testing.T) {
 		t.Fatalf("Edges = %#v, want inferred core-path edges", got.Edges)
 	}
 }
+
+func TestBuildCausalThesis_PreservesConditionAndMechanismInCorePath(t *testing.T) {
+	thesis := memory.CandidateThesis{
+		ThesisID: "thesis-1",
+		NodeIDs:  []string{"weibo:S1:n1", "weibo:S1:n2", "weibo:S1:n3", "weibo:S1:n4", "weibo:S1:n5"},
+	}
+	nodesByID := map[string]memory.AcceptedNode{
+		"weibo:S1:n1": {NodeID: "weibo:S1:n1", NodeKind: string(compile.NodeFact), NodeText: "流动性收紧"},
+		"weibo:S1:n2": {NodeID: "weibo:S1:n2", NodeKind: string(compile.NodeExplicitCondition), NodeText: "若融资环境继续恶化"},
+		"weibo:S1:n3": {NodeID: "weibo:S1:n3", NodeKind: string(compile.NodeImplicitCondition), NodeText: "高杠杆会放大资产价格脆弱性"},
+		"weibo:S1:n4": {NodeID: "weibo:S1:n4", NodeKind: string(compile.NodeConclusion), NodeText: "风险资产承压"},
+		"weibo:S1:n5": {NodeID: "weibo:S1:n5", NodeKind: string(compile.NodePrediction), NodeText: "未来数月波动加大"},
+	}
+
+	got := buildCausalThesis(thesis, nodesByID)
+	want := []string{"weibo:S1:n1", "weibo:S1:n2", "weibo:S1:n3", "weibo:S1:n4", "weibo:S1:n5"}
+	if len(got.CorePathNodeIDs) != len(want) {
+		t.Fatalf("CorePathNodeIDs = %#v, want %#v", got.CorePathNodeIDs, want)
+	}
+	for i := range want {
+		if got.CorePathNodeIDs[i] != want[i] {
+			t.Fatalf("CorePathNodeIDs[%d] = %q, want %q", i, got.CorePathNodeIDs[i], want[i])
+		}
+	}
+}
+
+func TestBuildCausalThesis_InfersConditionToMechanismAndConclusionEdges(t *testing.T) {
+	thesis := memory.CandidateThesis{
+		ThesisID: "thesis-1",
+		NodeIDs:  []string{"weibo:S1:n1", "weibo:S1:n2", "weibo:S1:n3", "weibo:S1:n4"},
+	}
+	nodesByID := map[string]memory.AcceptedNode{
+		"weibo:S1:n1": {NodeID: "weibo:S1:n1", NodeKind: string(compile.NodeFact), NodeText: "流动性收紧"},
+		"weibo:S1:n2": {NodeID: "weibo:S1:n2", NodeKind: string(compile.NodeExplicitCondition), NodeText: "若融资环境继续恶化"},
+		"weibo:S1:n3": {NodeID: "weibo:S1:n3", NodeKind: string(compile.NodeImplicitCondition), NodeText: "高杠杆会放大资产价格脆弱性"},
+		"weibo:S1:n4": {NodeID: "weibo:S1:n4", NodeKind: string(compile.NodeConclusion), NodeText: "风险资产承压"},
+	}
+
+	got := buildCausalThesis(thesis, nodesByID)
+	edges := map[string]string{}
+	for _, edge := range got.Edges {
+		edges[edge.From+"->"+edge.To] = edge.Kind
+	}
+
+	if kind := edges["weibo:S1:n2->weibo:S1:n3"]; kind != "supports" {
+		t.Fatalf("condition->mechanism edge kind = %q, want supports", kind)
+	}
+	if kind := edges["weibo:S1:n2->weibo:S1:n4"]; kind != "causes" {
+		t.Fatalf("condition->conclusion edge kind = %q, want causes", kind)
+	}
+	if kind := edges["weibo:S1:n3->weibo:S1:n4"]; kind != "causes" {
+		t.Fatalf("mechanism->conclusion edge kind = %q, want causes", kind)
+	}
+}

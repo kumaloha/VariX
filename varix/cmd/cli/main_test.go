@@ -1307,8 +1307,76 @@ func TestRunMemoryGlobalV2CardRejectsInvalidItemType(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("invalid item-type code = %d, want 2", code)
 	}
-	if !strings.Contains(stderr.String(), "item-type must be one of: conclusion, conflict") {
+	if !strings.Contains(stderr.String(), "item-type must be one of: card, conclusion, conflict") {
 		t.Fatalf("stderr = %q, want explicit item-type guidance", stderr.String())
+	}
+}
+
+func TestRunMemoryGlobalV2CardPrintsStandaloneCardItems(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:CardOnly1",
+			Source:         "weibo",
+			ExternalID:     "CardOnly1",
+			RootExternalID: "CardOnly1",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "s",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						{ID: "n1", Kind: c.NodeFact, Text: "事实A", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+						{ID: "n2", Kind: c.NodeConclusion, Text: "结论B"},
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+			UserID:           "u-v2-card-only",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "CardOnly1",
+			NodeIDs:          []string{"n1"},
+		}); err != nil {
+			return nil, err
+		}
+		if _, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-card-only", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "global-v2-card", "--user", "u-v2-card-only", "--item-type", "card"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("global-v2-card card filter code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Card", "事实A", "Logic", "Why", "Items (1, filter=card)"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q in %q", want, out)
+		}
 	}
 }
 

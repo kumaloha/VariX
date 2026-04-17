@@ -72,11 +72,11 @@ func TestBuildTopMemoryItems_PrioritizesConflict(t *testing.T) {
 		Headline:     "流动性收紧会压制风险资产",
 	}}
 
-	got := buildTopMemoryItems(conflicts, conclusions, now)
+	got := buildTopMemoryItems(conflicts, conclusions, nil, now)
 	if len(got) != 2 {
 		t.Fatalf("len(buildTopMemoryItems) = %d, want 2", len(got))
 	}
-	if got[0].ItemType != "conflict" {
+	if got[0].ItemType != memory.TopMemoryItemConflict {
 		t.Fatalf("first ItemType = %q, want conflict", got[0].ItemType)
 	}
 }
@@ -89,11 +89,11 @@ func TestBuildTopMemoryItems_SetsSignalStrength(t *testing.T) {
 		Subheadline:  "石油美元闭环 → 私募信贷流动性隐患 → 美国资产更脆弱",
 	}}
 
-	got := buildTopMemoryItems(nil, conclusions, now)
+	got := buildTopMemoryItems(nil, conclusions, nil, now)
 	if len(got) != 1 {
 		t.Fatalf("len(buildTopMemoryItems) = %d, want 1", len(got))
 	}
-	if got[0].SignalStrength != "high" {
+	if got[0].SignalStrength != memory.SignalHigh {
 		t.Fatalf("SignalStrength = %q, want high for strong abstract conclusion", got[0].SignalStrength)
 	}
 }
@@ -106,11 +106,11 @@ func TestBuildTopMemoryItems_TreatsJPMResilienceHeadlineAsHighSignal(t *testing.
 		Subheadline:  "创纪录营收 → 资产价格脆弱性 → 复杂宏观环境下的经营韧性",
 	}}
 
-	got := buildTopMemoryItems(nil, conclusions, now)
+	got := buildTopMemoryItems(nil, conclusions, nil, now)
 	if len(got) != 1 {
 		t.Fatalf("len(buildTopMemoryItems) = %d, want 1", len(got))
 	}
-	if got[0].SignalStrength != "high" {
+	if got[0].SignalStrength != memory.SignalHigh {
 		t.Fatalf("SignalStrength = %q, want high for bank-resilience abstraction", got[0].SignalStrength)
 	}
 }
@@ -125,12 +125,33 @@ func TestBuildTopMemoryItems_HumanizesConflictReason(t *testing.T) {
 		UpdatedAt:      now,
 	}}
 
-	got := buildTopMemoryItems(conflicts, nil, now)
+	got := buildTopMemoryItems(conflicts, nil, nil, now)
 	if len(got) != 1 {
 		t.Fatalf("len(buildTopMemoryItems) = %d, want 1", len(got))
 	}
 	if got[0].Subheadline == "antonym contradiction" {
 		t.Fatalf("Subheadline = %q, want human-readable conflict wording", got[0].Subheadline)
+	}
+}
+
+func TestBuildTopMemoryItems_FallsBackToCardWhenNoConclusionOrConflict(t *testing.T) {
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	cards := []memory.CognitiveCard{{
+		CardID:          "card-1",
+		Title:           "风险资产承压",
+		Summary:         "流动性收紧 → 风险资产承压",
+		ConfidenceLabel: memory.ConfidenceMedium,
+	}}
+
+	got := buildTopMemoryItems(nil, nil, cards, now)
+	if len(got) != 1 {
+		t.Fatalf("len(buildTopMemoryItems) = %d, want 1", len(got))
+	}
+	if got[0].ItemType != memory.TopMemoryItemCard {
+		t.Fatalf("ItemType = %q, want card", got[0].ItemType)
+	}
+	if got[0].BackingObjectID != "card-1" {
+		t.Fatalf("BackingObjectID = %q, want card-1", got[0].BackingObjectID)
 	}
 }
 

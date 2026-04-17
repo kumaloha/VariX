@@ -363,6 +363,10 @@ func hierarchyTransitionAllowed(parentKind, childKind string) bool {
 		return true
 	case parentKind == string(compile.NodeFact) && childKind == string(compile.NodeConclusion):
 		return true
+	case parentKind == string(compile.NodeExplicitCondition) && childKind == string(compile.NodeImplicitCondition):
+		return true
+	case parentKind == string(compile.NodeExplicitCondition) && childKind == string(compile.NodeConclusion):
+		return true
 	case parentKind == string(compile.NodeImplicitCondition) && childKind == string(compile.NodeConclusion):
 		return true
 	case parentKind == string(compile.NodeExplicitCondition) && childKind == string(compile.NodePrediction):

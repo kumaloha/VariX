@@ -148,29 +148,42 @@ func abstractHeadlineFromPressureAndVolatility(driver, headline, prediction stri
 	return driver + "正在把" + subject + "推向承压与更高波动"
 }
 
-func buildTopMemoryItems(conflicts []memory.ConflictSet, conclusions []memory.CognitiveConclusion, now time.Time) []memory.TopMemoryItem {
-	items := make([]memory.TopMemoryItem, 0, len(conflicts)+len(conclusions))
+func buildTopMemoryItems(conflicts []memory.ConflictSet, conclusions []memory.CognitiveConclusion, cards []memory.CognitiveCard, now time.Time) []memory.TopMemoryItem {
+	items := make([]memory.TopMemoryItem, 0, len(conflicts)+len(conclusions)+len(cards))
 	for _, conflict := range conflicts {
 		items = append(items, memory.TopMemoryItem{
 			ItemID:          conflict.ConflictID,
-			ItemType:        "conflict",
+			ItemType:        memory.TopMemoryItemConflict,
 			Headline:        firstNonEmpty(conflict.ConflictTopic, "存在认知矛盾"),
 			Subheadline:     humanizeConflictReason(conflict.ConflictReason),
 			BackingObjectID: conflict.ConflictID,
-			SignalStrength:  "high",
+			SignalStrength:  memory.SignalHigh,
 			UpdatedAt:       firstNonZeroTime(conflict.UpdatedAt, now),
 		})
 	}
 	for _, conclusion := range conclusions {
 		items = append(items, memory.TopMemoryItem{
 			ItemID:          conclusion.ConclusionID,
-			ItemType:        "conclusion",
+			ItemType:        memory.TopMemoryItemConclusion,
 			Headline:        conclusion.Headline,
 			Subheadline:     conclusion.Subheadline,
 			BackingObjectID: conclusion.ConclusionID,
 			SignalStrength:  signalStrengthForConclusion(conclusion),
 			UpdatedAt:       now,
 		})
+	}
+	if len(items) == 0 {
+		for _, card := range cards {
+			items = append(items, memory.TopMemoryItem{
+				ItemID:          card.CardID,
+				ItemType:        memory.TopMemoryItemCard,
+				Headline:        card.Title,
+				Subheadline:     card.Summary,
+				BackingObjectID: card.CardID,
+				SignalStrength:  signalStrengthForCard(card),
+				UpdatedAt:       now,
+			})
+		}
 	}
 	return items
 }
@@ -193,16 +206,16 @@ func firstNonZeroTime(values ...time.Time) time.Time {
 	return time.Time{}
 }
 
-func signalStrengthForConclusion(conclusion memory.CognitiveConclusion) string {
+func signalStrengthForConclusion(conclusion memory.CognitiveConclusion) memory.SignalStrength {
 	switch {
 	case (strings.Contains(conclusion.Headline, "推向") || strings.Contains(conclusion.Headline, "推高") || strings.Contains(conclusion.Headline, "侵蚀") || strings.Contains(conclusion.Headline, "放大") || strings.Contains(conclusion.Headline, "展现经营韧性")) && strings.TrimSpace(conclusion.Subheadline) != "":
-		return "high"
+		return memory.SignalHigh
 	case strings.Contains(conclusion.Headline, "并可能导致"):
-		return "high"
+		return memory.SignalHigh
 	case strings.TrimSpace(conclusion.Subheadline) != "":
-		return "medium"
+		return memory.SignalMedium
 	default:
-		return "low"
+		return memory.SignalLow
 	}
 }
 
@@ -223,5 +236,16 @@ func humanizeConflictReason(reason string) string {
 			return "存在认知冲突"
 		}
 		return reason
+	}
+}
+
+func signalStrengthForCard(card memory.CognitiveCard) memory.SignalStrength {
+	switch card.ConfidenceLabel {
+	case memory.ConfidenceStrong:
+		return memory.SignalHigh
+	case memory.ConfidenceMedium:
+		return memory.SignalMedium
+	default:
+		return memory.SignalLow
 	}
 }

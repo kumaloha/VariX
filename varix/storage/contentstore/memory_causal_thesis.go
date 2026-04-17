@@ -113,7 +113,8 @@ func extractCorePath(nodes []memory.AcceptedNode, roles map[string]string) []str
 	}
 	if len(byRole["condition"]) > 0 {
 		path = append(path, byRole["condition"][0])
-	} else if len(byRole["mechanism"]) > 0 {
+	}
+	if len(byRole["mechanism"]) > 0 {
 		path = append(path, byRole["mechanism"][0])
 	}
 	if len(byRole["conclusion"]) > 0 {

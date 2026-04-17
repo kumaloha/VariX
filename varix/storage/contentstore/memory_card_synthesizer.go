@@ -73,14 +73,14 @@ func cardSummary(thesis memory.CausalThesis, nodesByID map[string]memory.Accepte
 	return strings.Join(labels, " → ")
 }
 
-func cardConfidence(thesis memory.CausalThesis) string {
+func cardConfidence(thesis memory.CausalThesis) memory.ConfidenceLabel {
 	switch {
 	case thesis.CompletenessScore >= 0.8:
-		return "strong"
+		return memory.ConfidenceStrong
 	case thesis.CompletenessScore >= 0.6:
-		return "medium"
+		return memory.ConfidenceMedium
 	default:
-		return "weak"
+		return memory.ConfidenceWeak
 	}
 }
 

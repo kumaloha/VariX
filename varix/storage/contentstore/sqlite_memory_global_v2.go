@@ -56,7 +56,7 @@ func (s *SQLiteStore) RunGlobalMemoryOrganizationV2(ctx context.Context, userID 
 			cognitiveConclusions = append(cognitiveConclusions, conclusion)
 		}
 	}
-	topMemoryItems := buildTopMemoryItems(conflicts, cognitiveConclusions, now)
+	topMemoryItems := buildTopMemoryItems(conflicts, cognitiveConclusions, cognitiveCards, now)
 
 	output := memory.GlobalMemoryV2Output{
 		UserID:               strings.TrimSpace(userID),

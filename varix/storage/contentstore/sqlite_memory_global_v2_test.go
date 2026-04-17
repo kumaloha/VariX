@@ -52,6 +52,42 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationV2PersistsOutput(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2IncludesCardTopItemsWhenNoConclusion(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	seedCompiledRecordForMemory(t, store)
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-v2-card-only",
+		SourcePlatform:   "weibo",
+		SourceExternalID: "Q1",
+		NodeIDs:          []string{"n1"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-v2-card-only", time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.CognitiveCards) == 0 {
+		t.Fatalf("CognitiveCards = %#v, want a relation-detail card", out.CognitiveCards)
+	}
+	if len(out.TopMemoryItems) == 0 {
+		t.Fatalf("TopMemoryItems = %#v, want first-layer card item", out.TopMemoryItems)
+	}
+	if got := out.TopMemoryItems[0].ItemType; got != "card" {
+		t.Fatalf("first ItemType = %q, want card when no conclusion is available", got)
+	}
+	if got, want := out.TopMemoryItems[0].BackingObjectID, out.CognitiveCards[0].CardID; got != want {
+		t.Fatalf("BackingObjectID = %q, want %q", got, want)
+	}
+}
+
 func TestSQLiteStore_RunGlobalMemoryOrganizationV2SurfacesConflictSets(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
@@ -541,7 +577,7 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationV2AbstractsBankResilienceOutput(
 	if got, want := out.CognitiveConclusions[0].Headline, "高利率与资产价格脆弱性并存，但头部银行仍展现经营韧性"; got != want {
 		t.Fatalf("Headline = %q, want %q", got, want)
 	}
-	if got, want := out.TopMemoryItems[0].SignalStrength, "high"; got != want {
+	if got, want := out.TopMemoryItems[0].SignalStrength, memory.SignalHigh; got != want {
 		t.Fatalf("SignalStrength = %q, want %q", got, want)
 	}
 }
@@ -600,7 +636,7 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationV2AbstractsDebtPurchasingPowerOu
 	if got, want := out.CognitiveConclusions[0].Headline, "债务与货币贬值压力正在侵蚀现金与债券购买力"; got != want {
 		t.Fatalf("Headline = %q, want %q", got, want)
 	}
-	if got, want := out.TopMemoryItems[0].SignalStrength, "high"; got != want {
+	if got, want := out.TopMemoryItems[0].SignalStrength, memory.SignalHigh; got != want {
 		t.Fatalf("SignalStrength = %q, want %q", got, want)
 	}
 }

@@ -498,7 +498,7 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
 	runNow := fs.Bool("run", false, "recompute v2 output before rendering")
-	itemType := fs.String("item-type", "", "optional filter: conclusion or conflict")
+	itemType := fs.String("item-type", "", "optional filter: card, conclusion, or conflict")
 	limit := fs.Int("limit", 0, "optional max number of top items to render")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -507,8 +507,8 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 		fmt.Fprintln(stderr, "usage: varix memory global-v2-card --user <user_id>")
 		return 2
 	}
-	if trimmed := strings.TrimSpace(*itemType); trimmed != "" && trimmed != "conclusion" && trimmed != "conflict" {
-		fmt.Fprintln(stderr, "item-type must be one of: conclusion, conflict")
+	if trimmed := strings.TrimSpace(*itemType); trimmed != "" && trimmed != "card" && trimmed != "conclusion" && trimmed != "conflict" {
+		fmt.Fprintln(stderr, "item-type must be one of: card, conclusion, conflict")
 		return 2
 	}
 	app, err := buildApp(projectRoot)
@@ -552,7 +552,7 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 	userID := fs.String("user", "", "user id")
 	runNow := fs.Bool("run", false, "recompute both v1 and v2 outputs before comparing")
 	limit := fs.Int("limit", 0, "optional max number of v1 and v2 items to show")
-	itemType := fs.String("item-type", "", "optional filter for v2 side: conclusion or conflict")
+	itemType := fs.String("item-type", "", "optional filter for v2 side: card, conclusion, or conflict")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -560,8 +560,8 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 		fmt.Fprintln(stderr, "usage: varix memory global-compare --user <user_id>")
 		return 2
 	}
-	if trimmed := strings.TrimSpace(*itemType); trimmed != "" && trimmed != "conclusion" && trimmed != "conflict" {
-		fmt.Fprintln(stderr, "item-type must be one of: conclusion, conflict")
+	if trimmed := strings.TrimSpace(*itemType); trimmed != "" && trimmed != "card" && trimmed != "conclusion" && trimmed != "conflict" {
+		fmt.Fprintln(stderr, "item-type must be one of: card, conclusion, conflict")
 		return 2
 	}
 	app, err := buildApp(projectRoot)
@@ -663,14 +663,14 @@ func formatGlobalV2Cards(out memory.GlobalMemoryV2Output, itemType string) strin
 		if i > 0 {
 			b.WriteString("\n---\n\n")
 		}
-		fmt.Fprintf(&b, "%s\n%s\n\n", strings.Title(item.ItemType), item.Headline)
-		if strings.TrimSpace(item.SignalStrength) != "" {
+		fmt.Fprintf(&b, "%s\n%s\n\n", strings.Title(string(item.ItemType)), item.Headline)
+		if strings.TrimSpace(string(item.SignalStrength)) != "" {
 			fmt.Fprintf(&b, "Signal\n%s\n\n", item.SignalStrength)
 		}
 		if strings.TrimSpace(item.Subheadline) != "" {
 			fmt.Fprintf(&b, "Summary\n%s\n\n", item.Subheadline)
 		}
-		if item.ItemType == "conflict" {
+		if item.ItemType == memory.TopMemoryItemConflict {
 			for _, conflict := range out.ConflictSets {
 				if conflict.ConflictID != item.BackingObjectID {
 					continue
@@ -682,6 +682,19 @@ func formatGlobalV2Cards(out memory.GlobalMemoryV2Output, itemType string) strin
 				writeStringSection(&b, "Sources A", conflict.SideASourceRefs)
 				writeStringSection(&b, "Sources B", conflict.SideBSourceRefs)
 			}
+			continue
+		}
+		if item.ItemType == memory.TopMemoryItemCard {
+			card, ok := cardByID[item.BackingObjectID]
+			if !ok {
+				continue
+			}
+			writeLogicSection(&b, card.CausalChain)
+			writeStringSection(&b, "Mechanism", cardMechanismTexts(card))
+			writeStringSection(&b, "Why", card.KeyEvidence)
+			writeStringSection(&b, "Conditions", card.Conditions)
+			writeStringSection(&b, "What next", card.Predictions)
+			writeStringSection(&b, "Sources", card.SourceRefs)
 			continue
 		}
 		for _, conclusion := range out.CognitiveConclusions {
@@ -713,7 +726,7 @@ func filterGlobalV2Items(out memory.GlobalMemoryV2Output, itemType string) memor
 	filtered := out
 	filtered.TopMemoryItems = nil
 	for _, item := range out.TopMemoryItems {
-		if item.ItemType == itemType {
+		if item.ItemType == memory.TopMemoryItemType(itemType) {
 			filtered.TopMemoryItems = append(filtered.TopMemoryItems, item)
 		}
 	}
