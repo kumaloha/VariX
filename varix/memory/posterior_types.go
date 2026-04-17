@@ -7,10 +7,10 @@ type PosteriorState string
 type PosteriorDiagnosisCode string
 
 const (
-	PosteriorStatePending    PosteriorState = "pending"
-	PosteriorStateVerified   PosteriorState = "verified"
-	PosteriorStateFalsified  PosteriorState = "falsified"
-	PosteriorStateBlocked    PosteriorState = "blocked"
+	PosteriorStatePending   PosteriorState = "pending"
+	PosteriorStateVerified  PosteriorState = "verified"
+	PosteriorStateFalsified PosteriorState = "falsified"
+	PosteriorStateBlocked   PosteriorState = "blocked"
 )
 
 const (
@@ -19,16 +19,16 @@ const (
 )
 
 type PosteriorStateRecord struct {
-	MemoryID          int64                   `json:"memory_id"`
-	NodeID            string                  `json:"node_id"`
-	NodeKind          string                  `json:"node_kind"`
-	State             PosteriorState          `json:"state"`
-	DiagnosisCode     PosteriorDiagnosisCode  `json:"diagnosis_code,omitempty"`
-	Reason            string                  `json:"reason,omitempty"`
-	BlockedByNodeIDs  []string                `json:"blocked_by_node_ids,omitempty"`
-	LastEvaluatedAt   time.Time               `json:"last_evaluated_at,omitempty"`
-	LastEvidenceAt    time.Time               `json:"last_evidence_at,omitempty"`
-	UpdatedAt         time.Time               `json:"updated_at"`
+	MemoryID         int64                  `json:"memory_id"`
+	NodeID           string                 `json:"node_id"`
+	NodeKind         string                 `json:"node_kind"`
+	State            PosteriorState         `json:"state"`
+	DiagnosisCode    PosteriorDiagnosisCode `json:"diagnosis_code,omitempty"`
+	Reason           string                 `json:"reason,omitempty"`
+	BlockedByNodeIDs []string               `json:"blocked_by_node_ids,omitempty"`
+	LastEvaluatedAt  time.Time              `json:"last_evaluated_at,omitempty"`
+	LastEvidenceAt   time.Time              `json:"last_evidence_at,omitempty"`
+	UpdatedAt        time.Time              `json:"updated_at"`
 }
 
 type PosteriorRunRequest struct {
@@ -53,8 +53,8 @@ type PosteriorRefreshTrigger struct {
 }
 
 type PosteriorRunResult struct {
-	RanAt      time.Time                `json:"ran_at"`
-	Evaluated  []PosteriorStateRecord   `json:"evaluated,omitempty"`
-	Mutated    []PosteriorStateRecord   `json:"mutated,omitempty"`
-	Refreshes  []PosteriorRefreshTrigger `json:"refreshes,omitempty"`
+	RanAt     time.Time                 `json:"ran_at"`
+	Evaluated []PosteriorStateRecord    `json:"evaluated,omitempty"`
+	Mutated   []PosteriorStateRecord    `json:"mutated,omitempty"`
+	Refreshes []PosteriorRefreshTrigger `json:"refreshes,omitempty"`
 }
