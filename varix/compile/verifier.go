@@ -44,6 +44,9 @@ type factChallenge struct {
 }
 
 func runVerifier(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, output Output) (Verification, error) {
+	if prompts == nil {
+		prompts = newPromptRegistry("")
+	}
 	var passResults []verifierPassResult
 
 	factNodes := make([]GraphNode, 0)
