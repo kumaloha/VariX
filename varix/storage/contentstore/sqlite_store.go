@@ -379,6 +379,21 @@ func (s *SQLiteStore) init() error {
 			accepted_at TEXT NOT NULL,
 			UNIQUE(user_id, source_platform, source_external_id, node_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS memory_posterior_states (
+			memory_id INTEGER PRIMARY KEY,
+			node_id TEXT NOT NULL,
+			node_kind TEXT NOT NULL,
+			state TEXT NOT NULL,
+			diagnosis_code TEXT,
+			reason TEXT,
+			blocked_by_node_ids_json TEXT NOT NULL DEFAULT '[]',
+			last_evaluated_at TEXT,
+			last_evidence_at TEXT,
+			updated_at TEXT NOT NULL,
+			FOREIGN KEY(memory_id) REFERENCES user_memory_nodes(memory_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_memory_posterior_states_state
+			ON memory_posterior_states(state)`,
 		`CREATE TABLE IF NOT EXISTS memory_acceptance_events (
 			event_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id TEXT NOT NULL,
