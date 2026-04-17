@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,11 +12,12 @@ import (
 	"time"
 
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
 func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare> ...")
 		return 2
 	}
 	switch args[0] {
@@ -29,6 +31,8 @@ func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Write
 		return runMemoryShowSource(args[1:], projectRoot, stdout, stderr)
 	case "jobs":
 		return runMemoryJobs(args[1:], projectRoot, stdout, stderr)
+	case "posterior-run":
+		return runMemoryPosteriorRun(args[1:], projectRoot, stdout, stderr)
 	case "organize-run":
 		return runMemoryOrganizeRun(args[1:], projectRoot, stdout, stderr)
 	case "organized":
@@ -48,7 +52,7 @@ func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Write
 	case "global-compare":
 		return runMemoryGlobalCompare(args[1:], projectRoot, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare> ...")
 		return 2
 	}
 }
@@ -240,6 +244,48 @@ func runMemoryJobs(args []string, projectRoot string, stdout, stderr io.Writer) 
 	return 0
 }
 
+func runMemoryPosteriorRun(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory posterior-run", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	platform := fs.String("platform", "", "source platform")
+	externalID := fs.String("id", "", "source external id")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" || (strings.TrimSpace(*externalID) != "" && strings.TrimSpace(*platform) == "") {
+		fmt.Fprintln(stderr, "usage: varix memory posterior-run --user <user_id> [--platform <platform> --id <external_id>]")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	out, err := store.RunPosteriorVerification(context.Background(), memory.PosteriorRunRequest{
+		UserID:           strings.TrimSpace(*userID),
+		SourcePlatform:   strings.TrimSpace(*platform),
+		SourceExternalID: strings.TrimSpace(*externalID),
+	}, time.Now().UTC())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	payload, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
 func runMemoryOrganizeRun(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("memory organize-run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -302,6 +348,14 @@ func runMemoryOrganized(args []string, projectRoot string, stdout, stderr io.Wri
 	defer store.Close()
 	out, err := store.GetLatestMemoryOrganizationOutput(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*platform), strings.TrimSpace(*externalID))
 	if err != nil {
+		if err == sql.ErrNoRows {
+			fmt.Fprintf(stderr, "no memory output yet; run: varix memory organize-run --user %s\n", strings.TrimSpace(*userID))
+			return 1
+		}
+		if errors.Is(err, contentstore.ErrMemoryOrganizationOutputStale) {
+			fmt.Fprintf(stderr, "%v; run: varix memory organize-run --user %s\n", err, strings.TrimSpace(*userID))
+			return 1
+		}
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
