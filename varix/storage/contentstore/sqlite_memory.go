@@ -104,6 +104,9 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 		if err != nil {
 			return memory.AcceptResult{}, err
 		}
+		if _, err := seedPosteriorStateTx(ctx, tx, node, now); err != nil {
+			return memory.AcceptResult{}, err
+		}
 		nodes = append(nodes, node)
 	}
 
