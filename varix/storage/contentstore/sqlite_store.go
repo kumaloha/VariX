@@ -433,13 +433,13 @@ func (s *SQLiteStore) init() error {
 			payload_json TEXT NOT NULL,
 			created_at TEXT NOT NULL
 		)`,
-			`CREATE TABLE IF NOT EXISTS global_memory_v2_outputs (
+		`CREATE TABLE IF NOT EXISTS global_memory_v2_outputs (
 				output_id INTEGER PRIMARY KEY AUTOINCREMENT,
 				user_id TEXT NOT NULL UNIQUE,
 				payload_json TEXT NOT NULL,
 				created_at TEXT NOT NULL
 			)`,
-			`CREATE TABLE IF NOT EXISTS memory_canonical_entities (
+		`CREATE TABLE IF NOT EXISTS memory_canonical_entities (
 				entity_id TEXT PRIMARY KEY,
 				entity_type TEXT NOT NULL,
 				canonical_name TEXT NOT NULL,
@@ -449,18 +449,18 @@ func (s *SQLiteStore) init() error {
 				created_at TEXT NOT NULL,
 				updated_at TEXT NOT NULL
 			)`,
-			`CREATE TABLE IF NOT EXISTS memory_canonical_entity_aliases (
+		`CREATE TABLE IF NOT EXISTS memory_canonical_entity_aliases (
 				alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
 				entity_id TEXT NOT NULL,
 				alias_text TEXT NOT NULL,
 				created_at TEXT NOT NULL,
 				FOREIGN KEY(entity_id) REFERENCES memory_canonical_entities(entity_id)
 			)`,
-			`CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_entity_alias_unique
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_entity_alias_unique
 				ON memory_canonical_entity_aliases(alias_text)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_entity_alias_entity
+		`CREATE INDEX IF NOT EXISTS idx_memory_entity_alias_entity
 				ON memory_canonical_entity_aliases(entity_id)`,
-			`CREATE TABLE IF NOT EXISTS memory_relations (
+		`CREATE TABLE IF NOT EXISTS memory_relations (
 				relation_id TEXT PRIMARY KEY,
 				driver_entity_id TEXT NOT NULL,
 				target_entity_id TEXT NOT NULL,
@@ -473,14 +473,14 @@ func (s *SQLiteStore) init() error {
 				created_at TEXT NOT NULL,
 				updated_at TEXT NOT NULL
 			)`,
-			`CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_relations_driver_target_active
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_relations_driver_target_active
 				ON memory_relations(driver_entity_id, target_entity_id)
 				WHERE status IN ('active','inactive')`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_relations_driver
+		`CREATE INDEX IF NOT EXISTS idx_memory_relations_driver
 				ON memory_relations(driver_entity_id)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_relations_target
+		`CREATE INDEX IF NOT EXISTS idx_memory_relations_target
 				ON memory_relations(target_entity_id)`,
-			`CREATE TABLE IF NOT EXISTS memory_mechanisms (
+		`CREATE TABLE IF NOT EXISTS memory_mechanisms (
 				mechanism_id TEXT PRIMARY KEY,
 				relation_id TEXT NOT NULL,
 				as_of TEXT NOT NULL,
@@ -493,9 +493,9 @@ func (s *SQLiteStore) init() error {
 				created_at TEXT NOT NULL,
 				updated_at TEXT NOT NULL
 			)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_mechanisms_relation_asof
+		`CREATE INDEX IF NOT EXISTS idx_memory_mechanisms_relation_asof
 				ON memory_mechanisms(relation_id, as_of DESC)`,
-			`CREATE TABLE IF NOT EXISTS memory_mechanism_nodes (
+		`CREATE TABLE IF NOT EXISTS memory_mechanism_nodes (
 				mechanism_node_id TEXT PRIMARY KEY,
 				mechanism_id TEXT NOT NULL,
 				node_type TEXT NOT NULL,
@@ -504,9 +504,9 @@ func (s *SQLiteStore) init() error {
 				sort_order INTEGER,
 				created_at TEXT NOT NULL
 			)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_mechanism_nodes_mechanism
+		`CREATE INDEX IF NOT EXISTS idx_memory_mechanism_nodes_mechanism
 				ON memory_mechanism_nodes(mechanism_id)`,
-			`CREATE TABLE IF NOT EXISTS memory_mechanism_edges (
+		`CREATE TABLE IF NOT EXISTS memory_mechanism_edges (
 				mechanism_edge_id TEXT PRIMARY KEY,
 				mechanism_id TEXT NOT NULL,
 				from_node_id TEXT NOT NULL,
@@ -514,9 +514,9 @@ func (s *SQLiteStore) init() error {
 				edge_type TEXT NOT NULL,
 				created_at TEXT NOT NULL
 			)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_mechanism_edges_mechanism
+		`CREATE INDEX IF NOT EXISTS idx_memory_mechanism_edges_mechanism
 				ON memory_mechanism_edges(mechanism_id)`,
-			`CREATE TABLE IF NOT EXISTS memory_path_outcomes (
+		`CREATE TABLE IF NOT EXISTS memory_path_outcomes (
 				path_outcome_id TEXT PRIMARY KEY,
 				mechanism_id TEXT NOT NULL,
 				node_path_json TEXT NOT NULL,
@@ -526,11 +526,11 @@ func (s *SQLiteStore) init() error {
 				confidence REAL NOT NULL,
 				created_at TEXT NOT NULL
 			)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_path_outcomes_mechanism
+		`CREATE INDEX IF NOT EXISTS idx_memory_path_outcomes_mechanism
 				ON memory_path_outcomes(mechanism_id)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_path_outcomes_polarity
+		`CREATE INDEX IF NOT EXISTS idx_memory_path_outcomes_polarity
 				ON memory_path_outcomes(outcome_polarity)`,
-			`CREATE TABLE IF NOT EXISTS memory_driver_aggregates (
+		`CREATE TABLE IF NOT EXISTS memory_driver_aggregates (
 				aggregate_id TEXT PRIMARY KEY,
 				driver_entity_id TEXT NOT NULL,
 				relation_ids_json TEXT NOT NULL,
@@ -543,9 +543,9 @@ func (s *SQLiteStore) init() error {
 				as_of TEXT NOT NULL,
 				created_at TEXT NOT NULL
 			)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_driver_aggregates_driver_asof
+		`CREATE INDEX IF NOT EXISTS idx_memory_driver_aggregates_driver_asof
 				ON memory_driver_aggregates(driver_entity_id, as_of DESC)`,
-			`CREATE TABLE IF NOT EXISTS memory_target_aggregates (
+		`CREATE TABLE IF NOT EXISTS memory_target_aggregates (
 				aggregate_id TEXT PRIMARY KEY,
 				target_entity_id TEXT NOT NULL,
 				relation_ids_json TEXT NOT NULL,
@@ -558,9 +558,9 @@ func (s *SQLiteStore) init() error {
 				as_of TEXT NOT NULL,
 				created_at TEXT NOT NULL
 			)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_target_aggregates_target_asof
+		`CREATE INDEX IF NOT EXISTS idx_memory_target_aggregates_target_asof
 				ON memory_target_aggregates(target_entity_id, as_of DESC)`,
-			`CREATE TABLE IF NOT EXISTS memory_conflict_views (
+		`CREATE TABLE IF NOT EXISTS memory_conflict_views (
 				conflict_id TEXT PRIMARY KEY,
 				scope_type TEXT NOT NULL,
 				scope_id TEXT NOT NULL,
@@ -573,9 +573,9 @@ func (s *SQLiteStore) init() error {
 				traceability_map_json TEXT NOT NULL DEFAULT '{}',
 				created_at TEXT NOT NULL
 			)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_conflict_views_scope_asof
+		`CREATE INDEX IF NOT EXISTS idx_memory_conflict_views_scope_asof
 				ON memory_conflict_views(scope_type, scope_id, as_of DESC)`,
-			`CREATE TABLE IF NOT EXISTS memory_cognitive_cards (
+		`CREATE TABLE IF NOT EXISTS memory_cognitive_cards (
 				card_id TEXT PRIMARY KEY,
 				relation_id TEXT NOT NULL,
 				as_of TEXT NOT NULL,
@@ -590,9 +590,9 @@ func (s *SQLiteStore) init() error {
 				trace_entry_json TEXT NOT NULL DEFAULT '[]',
 				created_at TEXT NOT NULL
 			)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_cognitive_cards_relation_asof
+		`CREATE INDEX IF NOT EXISTS idx_memory_cognitive_cards_relation_asof
 				ON memory_cognitive_cards(relation_id, as_of DESC)`,
-			`CREATE TABLE IF NOT EXISTS memory_cognitive_conclusions (
+		`CREATE TABLE IF NOT EXISTS memory_cognitive_conclusions (
 				conclusion_id TEXT PRIMARY KEY,
 				source_type TEXT NOT NULL,
 				source_id TEXT NOT NULL,
@@ -610,9 +610,9 @@ func (s *SQLiteStore) init() error {
 				judged_at TEXT,
 				created_at TEXT NOT NULL
 			)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_cognitive_conclusions_source_asof
+		`CREATE INDEX IF NOT EXISTS idx_memory_cognitive_conclusions_source_asof
 				ON memory_cognitive_conclusions(source_type, source_id, as_of DESC)`,
-			`CREATE TABLE IF NOT EXISTS memory_top_items (
+		`CREATE TABLE IF NOT EXISTS memory_top_items (
 				item_id TEXT PRIMARY KEY,
 				item_type TEXT NOT NULL,
 				headline TEXT NOT NULL,
@@ -622,9 +622,9 @@ func (s *SQLiteStore) init() error {
 				as_of TEXT NOT NULL,
 				updated_at TEXT NOT NULL
 			)`,
-			`CREATE INDEX IF NOT EXISTS idx_memory_top_items_type_asof
+		`CREATE INDEX IF NOT EXISTS idx_memory_top_items_type_asof
 				ON memory_top_items(item_type, as_of DESC)`,
-		}
+	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
 			return err
