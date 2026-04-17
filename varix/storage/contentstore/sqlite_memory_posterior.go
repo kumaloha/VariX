@@ -29,6 +29,10 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
+type rowsQuerier interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
 func (s *SQLiteStore) GetPosteriorState(ctx context.Context, memoryID int64) (memory.PosteriorStateRecord, error) {
 	return getPosteriorState(ctx, s.db, memoryID)
 }
@@ -278,6 +282,114 @@ func scanPosteriorStates(rows *sql.Rows) ([]memory.PosteriorStateRecord, error) 
 		out = append(out, state)
 	}
 	return out, rows.Err()
+}
+
+func projectPosteriorStatesOntoNodes(ctx context.Context, q rowsQuerier, nodes []memory.AcceptedNode) error {
+	if len(nodes) == 0 {
+		return nil
+	}
+	indexByMemoryID := make(map[int64][]int, len(nodes))
+	memoryIDs := make([]int64, 0, len(nodes))
+	for i, node := range nodes {
+		if node.MemoryID == 0 {
+			continue
+		}
+		if _, ok := indexByMemoryID[node.MemoryID]; !ok {
+			memoryIDs = append(memoryIDs, node.MemoryID)
+		}
+		indexByMemoryID[node.MemoryID] = append(indexByMemoryID[node.MemoryID], i)
+	}
+	if len(memoryIDs) == 0 {
+		return nil
+	}
+	posteriorByMemoryID, err := loadPosteriorStatesByMemoryID(ctx, q, memoryIDs)
+	if err != nil {
+		return err
+	}
+	for memoryID, posterior := range posteriorByMemoryID {
+		indexes := indexByMemoryID[memoryID]
+		for _, idx := range indexes {
+			nodes[idx].PosteriorState = posterior.State
+			nodes[idx].PosteriorDiagnosis = posterior.Diagnosis
+			nodes[idx].PosteriorReason = posterior.Reason
+			nodes[idx].BlockedByNodeIDs = append([]string(nil), posterior.BlockedByNodeIDs...)
+			nodes[idx].PosteriorUpdatedAt = posterior.UpdatedAt
+		}
+	}
+	return nil
+}
+
+func loadPosteriorStatesByMemoryID(ctx context.Context, q rowsQuerier, memoryIDs []int64) (map[int64]posteriorStateRow, error) {
+	placeholders := make([]string, 0, len(memoryIDs))
+	args := make([]any, 0, len(memoryIDs))
+	seen := make(map[int64]struct{}, len(memoryIDs))
+	for _, memoryID := range memoryIDs {
+		if memoryID == 0 {
+			continue
+		}
+		if _, ok := seen[memoryID]; ok {
+			continue
+		}
+		seen[memoryID] = struct{}{}
+		placeholders = append(placeholders, "?")
+		args = append(args, memoryID)
+	}
+	if len(placeholders) == 0 {
+		return map[int64]posteriorStateRow{}, nil
+	}
+	rows, err := q.QueryContext(
+		ctx,
+		fmt.Sprintf(`SELECT memory_id, state, diagnosis_code, reason, blocked_by_node_ids_json, updated_at
+			FROM memory_posterior_states
+			WHERE memory_id IN (%s)`, strings.Join(placeholders, ",")),
+		args...,
+	)
+	if err != nil {
+		if isMissingPosteriorStateTableErr(err) {
+			return map[int64]posteriorStateRow{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[int64]posteriorStateRow)
+	for rows.Next() {
+		var memoryID int64
+		var state sql.NullString
+		var diagnosis sql.NullString
+		var reason sql.NullString
+		var blockedByNodeIDsJSON sql.NullString
+		var updatedAt sql.NullString
+		if err := rows.Scan(&memoryID, &state, &diagnosis, &reason, &blockedByNodeIDsJSON, &updatedAt); err != nil {
+			if isMissingPosteriorStateTableErr(err) {
+				return map[int64]posteriorStateRow{}, nil
+			}
+			return nil, err
+		}
+		row := posteriorStateRow{
+			State:     memory.PosteriorState(strings.TrimSpace(state.String)),
+			Diagnosis: memory.PosteriorDiagnosisCode(strings.TrimSpace(diagnosis.String)),
+			Reason:    strings.TrimSpace(reason.String),
+		}
+		if strings.TrimSpace(blockedByNodeIDsJSON.String) != "" {
+			if err := json.Unmarshal([]byte(blockedByNodeIDsJSON.String), &row.BlockedByNodeIDs); err != nil {
+				return nil, fmt.Errorf("decode posterior blocked_by_node_ids_json for memory_id %d: %w", memoryID, err)
+			}
+			sort.Strings(row.BlockedByNodeIDs)
+		}
+		if updatedAt.Valid && strings.TrimSpace(updatedAt.String) != "" {
+			parsed := parseSQLiteTime(updatedAt.String)
+			row.UpdatedAt = &parsed
+		}
+		out[memoryID] = row
+	}
+	if err := rows.Err(); err != nil {
+		if isMissingPosteriorStateTableErr(err) {
+			return map[int64]posteriorStateRow{}, nil
+		}
+		return nil, err
+	}
+	return out, nil
 }
 
 func upsertPosteriorStateTx(ctx context.Context, tx *sql.Tx, state memory.PosteriorStateRecord) error {

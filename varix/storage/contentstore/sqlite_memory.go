@@ -203,7 +203,14 @@ func (s *SQLiteStore) ListUserMemory(ctx context.Context, userID string) ([]memo
 		return nil, err
 	}
 	defer rows.Close()
-	return scanMemoryNodes(rows)
+	nodes, err := scanMemoryNodes(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := projectPosteriorStatesOntoNodes(ctx, s.db, nodes); err != nil {
+		return nil, err
+	}
+	return nodes, nil
 }
 
 func (s *SQLiteStore) ListUserMemoryBySource(ctx context.Context, userID, sourcePlatform, sourceExternalID string) ([]memory.AcceptedNode, error) {
@@ -221,7 +228,14 @@ func (s *SQLiteStore) ListUserMemoryBySource(ctx context.Context, userID, source
 		return nil, err
 	}
 	defer rows.Close()
-	return scanMemoryNodes(rows)
+	nodes, err := scanMemoryNodes(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := projectPosteriorStatesOntoNodes(ctx, s.db, nodes); err != nil {
+		return nil, err
+	}
+	return nodes, nil
 }
 
 func (s *SQLiteStore) ListMemoryJobs(ctx context.Context, userID string) ([]memory.OrganizationJob, error) {
