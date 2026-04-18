@@ -21,6 +21,23 @@ const (
 	NodePrediction        NodeKind = "预测"
 )
 
+type NodeForm string
+
+const (
+	NodeFormObservation NodeForm = "observation"
+	NodeFormCondition   NodeForm = "condition"
+	NodeFormJudgment    NodeForm = "judgment"
+	NodeFormForecast    NodeForm = "forecast"
+)
+
+type NodeFunction string
+
+const (
+	NodeFunctionSupport      NodeFunction = "support"
+	NodeFunctionTransmission NodeFunction = "transmission"
+	NodeFunctionClaim        NodeFunction = "claim"
+)
+
 type EdgeKind string
 
 const (
@@ -32,6 +49,8 @@ const (
 type GraphNode struct {
 	ID                string    `json:"id"`
 	Kind              NodeKind  `json:"kind"`
+	Form              NodeForm  `json:"form,omitempty"`
+	Function          NodeFunction `json:"function,omitempty"`
 	Text              string    `json:"text"`
 	ValidFrom         time.Time `json:"valid_from,omitempty"`
 	ValidTo           time.Time `json:"valid_to,omitempty"`
@@ -44,6 +63,8 @@ func (n GraphNode) MarshalJSON() ([]byte, error) {
 	type graphNodePayload struct {
 		ID                string     `json:"id"`
 		Kind              NodeKind   `json:"kind"`
+		Form              NodeForm   `json:"form,omitempty"`
+		Function          NodeFunction `json:"function,omitempty"`
 		Text              string     `json:"text"`
 		ValidFrom         *time.Time `json:"valid_from,omitempty"`
 		ValidTo           *time.Time `json:"valid_to,omitempty"`
@@ -51,9 +72,15 @@ func (n GraphNode) MarshalJSON() ([]byte, error) {
 		PredictionStartAt *time.Time `json:"prediction_start_at,omitempty"`
 		PredictionDueAt   *time.Time `json:"prediction_due_at,omitempty"`
 	}
+	normalized, err := n.normalizedSchema()
+	if err == nil {
+		n = normalized
+	}
 	payload := graphNodePayload{
 		ID:   n.ID,
 		Kind: n.Kind,
+		Form: n.Form,
+		Function: n.Function,
 		Text: n.Text,
 	}
 	switch n.Kind {
@@ -132,7 +159,91 @@ func (n *GraphNode) UnmarshalJSON(data []byte) error {
 	if strings.TrimSpace(n.Text) == "" {
 		n.Text = aux.Content
 	}
+	normalized, err := n.normalizedSchema()
+	if err != nil {
+		return err
+	}
+	*n = normalized
 	return nil
+}
+
+func (n GraphNode) normalizedSchema() (GraphNode, error) {
+	normalized := n
+	if shouldNormalizeToExplicitCondition(normalized.Kind, normalized.Text) {
+		normalized.Kind = NodeExplicitCondition
+	}
+	if normalized.Kind == "" {
+		kind, ok := inferNodeKindFromFormFunction(normalized.Form, normalized.Function, normalized.Text)
+		if !ok {
+			return GraphNode{}, fmt.Errorf("unsupported node schema: form=%s function=%s", normalized.Form, normalized.Function)
+		}
+		normalized.Kind = kind
+	}
+	expectedForm, expectedFunction, ok := defaultFormFunctionForKind(normalized.Kind)
+	if !ok {
+		return GraphNode{}, fmt.Errorf("unsupported node kind: %s", normalized.Kind)
+	}
+	if normalized.Form != "" && normalized.Form != expectedForm {
+		return GraphNode{}, fmt.Errorf("node form %q does not match kind %q", normalized.Form, normalized.Kind)
+	}
+	if normalized.Function != "" && normalized.Function != expectedFunction {
+		return GraphNode{}, fmt.Errorf("node function %q does not match kind %q", normalized.Function, normalized.Kind)
+	}
+	normalized.Form = expectedForm
+	normalized.Function = expectedFunction
+	return normalized, nil
+}
+
+func defaultFormFunctionForKind(kind NodeKind) (NodeForm, NodeFunction, bool) {
+	switch kind {
+	case NodeFact:
+		return NodeFormObservation, NodeFunctionSupport, true
+	case NodeExplicitCondition:
+		return NodeFormCondition, NodeFunctionClaim, true
+	case NodeImplicitCondition:
+		return NodeFormCondition, NodeFunctionSupport, true
+	case NodeMechanism:
+		return NodeFormObservation, NodeFunctionTransmission, true
+	case NodeConclusion:
+		return NodeFormJudgment, NodeFunctionClaim, true
+	case NodePrediction:
+		return NodeFormForecast, NodeFunctionClaim, true
+	default:
+		return "", "", false
+	}
+}
+
+func inferNodeKindFromFormFunction(form NodeForm, function NodeFunction, text string) (NodeKind, bool) {
+	switch form {
+	case NodeFormObservation:
+		switch function {
+		case NodeFunctionSupport:
+			return NodeFact, true
+		case NodeFunctionTransmission:
+			return NodeMechanism, true
+		}
+	case NodeFormCondition:
+		switch function {
+		case NodeFunctionClaim:
+			return NodeExplicitCondition, true
+		case NodeFunctionSupport, NodeFunctionTransmission:
+			return NodeImplicitCondition, true
+		case "":
+			if isExplicitConditionText(text) {
+				return NodeExplicitCondition, true
+			}
+			return NodeImplicitCondition, true
+		}
+	case NodeFormJudgment:
+		if function == NodeFunctionClaim || function == "" {
+			return NodeConclusion, true
+		}
+	case NodeFormForecast:
+		if function == NodeFunctionClaim || function == "" {
+			return NodePrediction, true
+		}
+	}
+	return "", false
 }
 
 type GraphEdge struct {
@@ -523,6 +634,11 @@ func validateStringListEntries(field string, values []string) error {
 func validateGraphNodes(nodes []GraphNode) (map[string]struct{}, error) {
 	nodeIDs := map[string]struct{}{}
 	for _, node := range nodes {
+		normalized, err := node.normalizedSchema()
+		if err != nil {
+			return nil, err
+		}
+		node = normalized
 		if strings.TrimSpace(node.ID) == "" {
 			return nil, fmt.Errorf("graph node id is required")
 		}
@@ -545,6 +661,9 @@ func validateGraphNodes(nodes []GraphNode) (map[string]struct{}, error) {
 func graphNodeKinds(nodes []GraphNode) map[string]NodeKind {
 	out := make(map[string]NodeKind, len(nodes))
 	for _, node := range nodes {
+		if normalized, err := node.normalizedSchema(); err == nil {
+			node = normalized
+		}
 		out[node.ID] = node.Kind
 	}
 	return out

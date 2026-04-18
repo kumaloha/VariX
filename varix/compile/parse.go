@@ -294,11 +294,11 @@ func normalizeNodeTaxonomy(graph *ReasoningGraph) {
 	for i := range graph.Nodes {
 		node := &graph.Nodes[i]
 		text := strings.TrimSpace(node.Text)
-		if text == "" {
-			continue
-		}
-		if shouldNormalizeToExplicitCondition(node.Kind, text) {
+		if text != "" && shouldNormalizeToExplicitCondition(node.Kind, text) {
 			node.Kind = NodeExplicitCondition
+		}
+		if normalized, err := node.normalizedSchema(); err == nil {
+			*node = normalized
 		}
 	}
 }

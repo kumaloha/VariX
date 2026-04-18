@@ -5,11 +5,13 @@ Goal:
 - Do not rewrite, rename, or delete existing nodes.
 
 Decision criteria:
+- Audit observation / condition / judgment / forecast coverage and support / transmission / claim roles separately before deciding nothing is missing.
 - Audit evidence nodes, mechanism/transmission nodes, and judgment nodes separately before deciding nothing is missing.
 - Look for missing evidence nodes, missing mechanism/transmission nodes, and missing judgment/prediction nodes.
 - Prioritize recall: if the article clearly contains an important missing node, add it even if a nearby node already exists.
 - Especially add missing mechanism nodes when the article says one force dominates another and therefore keeps capital allocated to an asset or market.
 - Specifically look for the missing bridge mechanism between evidence nodes and judgment nodes. If the article presents evidence such as inflows/positioning and then makes a judgment such as \"there is no X trade\", add the market mechanism node that explains why the evidence supports that judgment.
+- In G04-style flow/positioning articles, add the missing transmission node whenever support observations and judgment/forecast claims exist without an explicit bridge.
 - When a judgment about a market narrative depends on an allocation preference, pricing dominance, or investor positioning rule, add that missing mechanism node explicitly instead of only adding more evidence or more judgment nodes.
 - Look for nodes that are still too fat: if one existing node contains evidence plus judgment, mechanism plus outcome, prediction plus driver, or multiple coordinated claims, add the missing finer-grained nodes instead of accepting the coarse node as sufficient.
 - Treat connector words such as because, therefore, so, which means, implying, driven by, due to, despite, and as a result as split signals.
@@ -19,6 +21,7 @@ Boundary constraints:
 - Output only additional nodes; unchanged existing nodes must not be repeated.
 - Do not output edges in this stage.
 - Do not output top-level `summary`, `drivers`, or `targets`.
+- Every additional node must include `form` and `function`.
 - `details` must be an object, not a string.
 
 Output exactly one valid JSON object with keys `graph`, `details`, `topics`, `confidence`. The `graph` object must contain `nodes` only.
