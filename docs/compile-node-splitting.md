@@ -7,6 +7,10 @@ and memory organization.
 The goal is not maximal fragmentation. The goal is to avoid **fat nodes**
 that hide meaningful internal causal structure.
 
+For the dual-axis rollout note (`form` + `function`) and the focused G04
+regression contract, see
+`docs/compile-node-form-function-review.md`.
+
 ---
 
 ## Core principle
