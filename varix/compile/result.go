@@ -299,6 +299,12 @@ type ReasoningGraph struct {
 	Edges []GraphEdge `json:"edges,omitempty"`
 }
 
+type TransmissionPath struct {
+	Driver string   `json:"driver"`
+	Target string   `json:"target"`
+	Steps  []string `json:"steps,omitempty"`
+}
+
 type HiddenDetails struct {
 	QuoteHighlights     []string         `json:"quote_highlights,omitempty"`
 	ReferenceHighlights []string         `json:"reference_highlights,omitempty"`
@@ -432,14 +438,17 @@ type Verification struct {
 }
 
 type Output struct {
-	Summary      string         `json:"summary,omitempty"`
-	Drivers      []string       `json:"drivers,omitempty"`
-	Targets      []string       `json:"targets,omitempty"`
-	Graph        ReasoningGraph `json:"graph,omitempty"`
-	Details      HiddenDetails  `json:"details,omitempty"`
-	Topics       []string       `json:"topics,omitempty"`
-	Confidence   string         `json:"confidence,omitempty"`
-	Verification Verification   `json:"verification,omitempty"`
+	Summary           string             `json:"summary,omitempty"`
+	Drivers           []string           `json:"drivers,omitempty"`
+	Targets           []string           `json:"targets,omitempty"`
+	TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
+	EvidenceNodes     []string           `json:"evidence_nodes,omitempty"`
+	ExplanationNodes  []string           `json:"explanation_nodes,omitempty"`
+	Graph             ReasoningGraph     `json:"graph,omitempty"`
+	Details           HiddenDetails      `json:"details,omitempty"`
+	Topics            []string           `json:"topics,omitempty"`
+	Confidence        string             `json:"confidence,omitempty"`
+	Verification      Verification       `json:"verification,omitempty"`
 }
 
 type Record struct {
@@ -459,11 +468,34 @@ type NodeExtractionOutput struct {
 	Confidence string         `json:"confidence,omitempty"`
 }
 
+type DriverTargetOutput struct {
+	Drivers    []string      `json:"drivers,omitempty"`
+	Targets    []string      `json:"targets,omitempty"`
+	Details    HiddenDetails `json:"details,omitempty"`
+	Topics     []string      `json:"topics,omitempty"`
+	Confidence string        `json:"confidence,omitempty"`
+}
+
 type FullGraphOutput struct {
 	Graph      ReasoningGraph `json:"graph,omitempty"`
 	Details    HiddenDetails  `json:"details,omitempty"`
 	Topics     []string       `json:"topics,omitempty"`
 	Confidence string         `json:"confidence,omitempty"`
+}
+
+type TransmissionPathOutput struct {
+	TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
+	Details           HiddenDetails      `json:"details,omitempty"`
+	Topics            []string           `json:"topics,omitempty"`
+	Confidence        string             `json:"confidence,omitempty"`
+}
+
+type EvidenceExplanationOutput struct {
+	EvidenceNodes    []string      `json:"evidence_nodes,omitempty"`
+	ExplanationNodes []string      `json:"explanation_nodes,omitempty"`
+	Details          HiddenDetails `json:"details,omitempty"`
+	Topics           []string      `json:"topics,omitempty"`
+	Confidence       string        `json:"confidence,omitempty"`
 }
 
 type ThesisOutput struct {
@@ -487,6 +519,15 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		return err
 	}
 	if err := validateStringListEntries("targets", o.Targets); err != nil {
+		return err
+	}
+	if err := validateTransmissionPaths("transmission_paths", o.TransmissionPaths, false); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("evidence_nodes", o.EvidenceNodes); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
 		return err
 	}
 	if len(o.Graph.Nodes) < minNodes {
@@ -621,11 +662,80 @@ func (o NodeExtractionOutput) ValidateWithThresholds(minNodes int) error {
 	return nil
 }
 
+func (o DriverTargetOutput) ValidateGeneratorOrJudge() error {
+	if len(o.Drivers) == 0 {
+		return fmt.Errorf("drivers must not be empty")
+	}
+	if len(o.Targets) == 0 {
+		return fmt.Errorf("targets must not be empty")
+	}
+	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("targets", o.Targets); err != nil {
+		return err
+	}
+	if o.Details.IsEmpty() {
+		return fmt.Errorf("details must not be empty")
+	}
+	return nil
+}
+
+func (o DriverTargetOutput) ValidateChallenge() error {
+	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("targets", o.Targets); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (o FullGraphOutput) ValidateWithThresholds(minEdges int, nodeIDs map[string]struct{}, nodeKinds map[string]NodeKind) error {
 	if len(o.Graph.Nodes) > 0 {
 		return fmt.Errorf("full graph output must not contain nodes")
 	}
 	return validateGraphEdges(o.Graph.Edges, nodeIDs, nodeKinds, minEdges)
+}
+
+func (o TransmissionPathOutput) ValidateGeneratorOrJudge() error {
+	if err := validateTransmissionPaths("transmission_paths", o.TransmissionPaths, true); err != nil {
+		return err
+	}
+	if o.Details.IsEmpty() {
+		return fmt.Errorf("details must not be empty")
+	}
+	return nil
+}
+
+func (o TransmissionPathOutput) ValidateChallenge() error {
+	return validateTransmissionPaths("transmission_paths", o.TransmissionPaths, false)
+}
+
+func (o EvidenceExplanationOutput) ValidateGeneratorOrJudge() error {
+	if len(o.EvidenceNodes) == 0 && len(o.ExplanationNodes) == 0 {
+		return fmt.Errorf("evidence_nodes and explanation_nodes must not both be empty")
+	}
+	if err := validateStringListEntries("evidence_nodes", o.EvidenceNodes); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
+		return err
+	}
+	if o.Details.IsEmpty() {
+		return fmt.Errorf("details must not be empty")
+	}
+	return nil
+}
+
+func (o EvidenceExplanationOutput) ValidateChallenge() error {
+	if err := validateStringListEntries("evidence_nodes", o.EvidenceNodes); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (o ThesisOutput) Validate() error {
@@ -648,6 +758,27 @@ func validateStringListEntries(field string, values []string) error {
 	for i, value := range values {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s[%d] must not be empty", field, i)
+		}
+	}
+	return nil
+}
+
+func validateTransmissionPaths(field string, paths []TransmissionPath, requireAtLeastOne bool) error {
+	if requireAtLeastOne && len(paths) == 0 {
+		return fmt.Errorf("%s must not be empty", field)
+	}
+	for i, path := range paths {
+		if strings.TrimSpace(path.Driver) == "" {
+			return fmt.Errorf("%s[%d].driver must not be empty", field, i)
+		}
+		if strings.TrimSpace(path.Target) == "" {
+			return fmt.Errorf("%s[%d].target must not be empty", field, i)
+		}
+		if len(path.Steps) == 0 {
+			return fmt.Errorf("%s[%d].steps must not be empty", field, i)
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s[%d].steps", field, i), path.Steps); err != nil {
+			return err
 		}
 	}
 	return nil

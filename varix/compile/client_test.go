@@ -128,6 +128,95 @@ func compileStageResponses(t *testing.T, fullOutputJSON string, model string) []
 	}
 }
 
+func directThreeStepResponses() []llm.ProviderResponse {
+	return []llm.ProviderResponse{
+		{
+			Text:  `{"drivers":["美国增长与回报预期继续压过政治风险定价"],"targets":["海外资金继续流入美国资产"],"details":{"caveats":["generator"]},"topics":["macro"],"confidence":"medium"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"drivers":[],"targets":["没有形成 sell America 交易"],"details":{"caveats":["challenge"]},"topics":["macro"],"confidence":"medium"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"drivers":["美国增长与回报预期继续压过政治风险定价"],"targets":["海外资金继续流入美国资产","没有形成 sell America 交易"],"details":{"caveats":["judge"]},"topics":["macro"],"confidence":"high"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"transmission_paths":[{"driver":"美国增长与回报预期继续压过政治风险定价","target":"海外资金继续流入美国资产","steps":["增长与回报预期继续压过政治风险定价","资本继续配置美国资产"]}],"details":{"caveats":["generator"]},"topics":["macro"],"confidence":"medium"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"transmission_paths":[{"driver":"美国增长与回报预期继续压过政治风险定价","target":"没有形成 sell America 交易","steps":["资本没有撤出美国资产"]}],"details":{"caveats":["challenge"]},"topics":["macro"],"confidence":"medium"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"transmission_paths":[{"driver":"美国增长与回报预期继续压过政治风险定价","target":"海外资金继续流入美国资产","steps":["增长与回报预期继续压过政治风险定价","资本继续配置美国资产"]},{"driver":"美国增长与回报预期继续压过政治风险定价","target":"没有形成 sell America 交易","steps":["资本没有撤出美国资产"]}],"details":{"caveats":["judge"]},"topics":["macro"],"confidence":"high"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"evidence_nodes":["海外资金继续流入美国资产"],"explanation_nodes":["市场仍按美国例外论框架理解风险"],"details":{"caveats":["generator"]},"topics":["macro"],"confidence":"medium"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"evidence_nodes":["美元指数并未出现持续性崩跌"],"explanation_nodes":[],"details":{"caveats":["challenge"]},"topics":["macro"],"confidence":"medium"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"evidence_nodes":["海外资金继续流入美国资产","美元指数并未出现持续性崩跌"],"explanation_nodes":["市场仍按美国例外论框架理解风险"],"details":{"caveats":["judge"]},"topics":["macro"],"confidence":"high"}`,
+			Model: "compile-model",
+		},
+	}
+}
+
+func TestClientCompileUsesDirectThreeStepPipeline(t *testing.T) {
+	provider := &compileMockProvider{responses: directThreeStepResponses()}
+	client := NewClientWithRuntimePromptsAndVerifier(
+		newTestRuntime(provider, "compile-model"),
+		"compile-model",
+		newPromptRegistry(""),
+		noopVerificationService{},
+	)
+
+	record, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "web:three-step",
+		Source:     "web",
+		ExternalID: "three-step",
+		Content:    "root body",
+		PostedAt:   mustClientTime(t, "2026-04-14T09:30:00Z"),
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(provider.requests) != 9 {
+		t.Fatalf("provider calls = %d, want 9 direct-stage calls", len(provider.requests))
+	}
+	if got, want := record.Output.Drivers, []string{"美国增长与回报预期继续压过政治风险定价"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Drivers = %#v, want %#v", got, want)
+	}
+	if got, want := record.Output.Targets, []string{"海外资金继续流入美国资产", "没有形成 sell America 交易"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Targets = %#v, want %#v", got, want)
+	}
+	if len(record.Output.TransmissionPaths) != 2 {
+		t.Fatalf("TransmissionPaths = %#v, want 2 paths", record.Output.TransmissionPaths)
+	}
+	if got, want := record.Output.EvidenceNodes, []string{"海外资金继续流入美国资产", "美元指数并未出现持续性崩跌"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("EvidenceNodes = %#v, want %#v", got, want)
+	}
+	if got, want := record.Output.ExplanationNodes, []string{"市场仍按美国例外论框架理解风险"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ExplanationNodes = %#v, want %#v", got, want)
+	}
+	if len(record.Output.Graph.Nodes) < 6 {
+		t.Fatalf("derived graph nodes = %#v, want compatibility graph from direct pipeline", record.Output.Graph.Nodes)
+	}
+	if len(record.Output.Graph.Edges) < 5 {
+		t.Fatalf("derived graph edges = %#v, want compatibility graph edges", record.Output.Graph.Edges)
+	}
+	if record.Output.Summary == "" {
+		t.Fatalf("Summary = empty, want derived summary")
+	}
+}
+
 func TestParseOutputAcceptsJSONString(t *testing.T) {
 	raw := `{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`
 	out, err := ParseOutput(raw)
