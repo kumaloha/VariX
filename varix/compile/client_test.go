@@ -249,24 +249,79 @@ func TestNoopVerificationServiceSkipsVerificationProjection(t *testing.T) {
 	}
 }
 
-func TestApplyBundleTimingFallbacksUsesPostedAtForFactAndPrediction(t *testing.T) {
+func TestApplyBundleTimingFallbacksUsesPostedAtForFactMechanismAndPrediction(t *testing.T) {
 	postedAt := time.Date(2026, 4, 18, 0, 0, 0, 0, time.UTC)
 	graph := ReasoningGraph{
 		Nodes: []GraphNode{
 			{ID: "n1", Kind: NodeFact, Text: "事实A"},
-			{ID: "n2", Kind: NodePrediction, Text: "预测B"},
-			{ID: "n3", Kind: NodeConclusion, Text: "结论C"},
+			{ID: "n2", Kind: NodeMechanism, Text: "机制B"},
+			{ID: "n3", Kind: NodePrediction, Text: "预测C"},
+			{ID: "n4", Kind: NodeConclusion, Text: "结论D"},
 		},
 	}
 	applyBundleTimingFallbacks(Bundle{PostedAt: postedAt}, &graph)
 	if !graph.Nodes[0].OccurredAt.Equal(postedAt) {
 		t.Fatalf("fact OccurredAt = %v, want %v", graph.Nodes[0].OccurredAt, postedAt)
 	}
-	if !graph.Nodes[1].PredictionStartAt.Equal(postedAt) {
-		t.Fatalf("prediction start = %v, want %v", graph.Nodes[1].PredictionStartAt, postedAt)
+	if !graph.Nodes[1].OccurredAt.Equal(postedAt) {
+		t.Fatalf("mechanism OccurredAt = %v, want %v", graph.Nodes[1].OccurredAt, postedAt)
 	}
-	if !graph.Nodes[2].ValidFrom.IsZero() || !graph.Nodes[2].ValidTo.IsZero() || !graph.Nodes[2].OccurredAt.IsZero() {
-		t.Fatalf("conclusion timing should remain untouched: %#v", graph.Nodes[2])
+	if !graph.Nodes[2].PredictionStartAt.Equal(postedAt) {
+		t.Fatalf("prediction start = %v, want %v", graph.Nodes[2].PredictionStartAt, postedAt)
+	}
+	if !graph.Nodes[3].ValidFrom.IsZero() || !graph.Nodes[3].ValidTo.IsZero() || !graph.Nodes[3].OccurredAt.IsZero() {
+		t.Fatalf("conclusion timing should remain untouched: %#v", graph.Nodes[3])
+	}
+}
+
+func TestClientCompileUsesPostedAtFallbackForTransmissionBridgeNodeTiming(t *testing.T) {
+	provider := &compileMockProvider{responses: []llm.ProviderResponse{
+		{
+			Text:  `{"graph":{"nodes":[{"id":"n1","form":"observation","function":"support","text":"海外资金继续流入美国资产","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","form":"observation","function":"transmission","text":"增长预期仍压过政治风险并维持美国资产配置偏好"},{"id":"n3","form":"judgment","function":"claim","text":"当前不存在 sell America trade"}]},"details":{"caveats":["待确认"]},"topics":["macro"],"confidence":"medium"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"graph":{"nodes":[]},"details":{"caveats":["none"]},"topics":[],"confidence":"medium"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"graph":{"edges":[{"from":"n2","to":"n1","kind":"drives"},{"from":"n1","to":"n3","kind":"substantiates"}]},"details":{"caveats":["待确认"]},"topics":["macro"],"confidence":"medium"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"graph":{"edges":[]},"details":{"caveats":["none"]},"topics":[],"confidence":"medium"}`,
+			Model: "compile-model",
+		},
+		{
+			Text:  `{"summary":"增长预期压过政治风险定价并维持美国资产配置偏好，海外资金继续流入美国资产","drivers":["增长预期压过政治风险定价并维持美国资产配置偏好"],"targets":["海外资金继续流入美国资产"],"details":{"caveats":["待确认"]},"topics":["macro"],"confidence":"medium"}`,
+			Model: "compile-model",
+		},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"clearly_true","reason":"bridge supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"supported"},{"node_id":"n2","assessment":"supported","reason":"bridge supported"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"clearly_true","reason":"bridge supported"}]}`, Model: "fact-judge-model"},
+	}}
+	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
+
+	postedAt := mustClientTime(t, "2026-04-14T09:30:00Z")
+	record, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "web:g04",
+		Source:     "web",
+		ExternalID: "g04",
+		Content:    "root body",
+		PostedAt:   postedAt,
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(record.Output.Graph.Nodes) != 3 {
+		t.Fatalf("len(nodes) = %d, want 3", len(record.Output.Graph.Nodes))
+	}
+	bridge := record.Output.Graph.Nodes[1]
+	if bridge.Kind != NodeMechanism {
+		t.Fatalf("bridge kind = %q, want %q", bridge.Kind, NodeMechanism)
+	}
+	if !bridge.OccurredAt.Equal(postedAt) {
+		t.Fatalf("bridge OccurredAt = %v, want %v", bridge.OccurredAt, postedAt)
 	}
 }
 

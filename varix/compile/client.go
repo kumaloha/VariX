@@ -500,7 +500,7 @@ func applyBundleTimingFallbacks(bundle Bundle, graph *ReasoningGraph) {
 	for i := range graph.Nodes {
 		node := &graph.Nodes[i]
 		switch node.Kind {
-		case NodeFact, NodeImplicitCondition:
+		case NodeFact, NodeImplicitCondition, NodeMechanism:
 			if node.OccurredAt.IsZero() && node.ValidFrom.IsZero() {
 				node.OccurredAt = fallback
 			}
