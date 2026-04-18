@@ -317,6 +317,37 @@ compatibility handling, but they are no longer the canonical edge names.
 G04 should remain the quick-check article for
 `observation -> transmission -> claim` coverage.
 
+### Focused current-branch probe
+
+Focused probe evidence on the current branch comes from the G04 regression
+fixtures exercised by:
+
+- `go test ./compile -run 'TestParseOutputPreservesFormFunctionSchemaForG04|TestClientCompileNodeChallengeCarriesG04BridgeMechanismAudit|TestClientCompileRoutesObservationTransmissionNodesThroughFactVerifier' -count=1`
+- fixture payloads in `varix/compile/result_test.go` and
+  `varix/compile/client_test.go`
+
+Current probe readout:
+
+- node set
+  - `observation + support`: `海外资金继续流入美国资产`
+  - `observation + transmission`: `增长与回报预期仍压过政治风险并维持美国资产配置偏好`
+  - `condition + claim`: `若增长溢价逆转`
+  - `judgment + claim`: `当前并不存在 sell America trade`
+  - `forecast + claim`: `资本流入会放缓`
+- edge set
+  - `transmission -> support`: `drives` (legacy fixture alias: `正向`)
+  - `support -> claim`: `substantiates` (legacy fixture alias: `推出`)
+  - `condition -> forecast`: `gates` (legacy fixture alias: `预设`)
+  - `claim -> forecast`: `substantiates` (legacy fixture alias: `推出`)
+
+Probe verdict:
+
+- the primary transmission bridge **does appear as its own node**
+- the smallest remaining gap is edge-level, not node-level: the focused G04
+  fixtures still do not show a direct `transmission -> claim` edge, so the
+  bridge exists but is not yet explicitly wired into the claim layer in the
+  narrow regression path
+
 ---
 
 ## Implementation checklist
