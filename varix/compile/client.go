@@ -411,6 +411,190 @@ func (c *Client) buildThesisAttempt(ctx context.Context, bundle Bundle, systemPr
 	return out, nil
 }
 
+func (c *Client) buildDriverTargetAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string) (DriverTargetOutput, error) {
+	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	resp, err := c.runtime.Call(ctx, req)
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	return ParseDriverTargetOutput(resp.Text)
+}
+
+func (c *Client) buildTransmissionPathAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string) (TransmissionPathOutput, error) {
+	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	resp, err := c.runtime.Call(ctx, req)
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	return ParseTransmissionPathOutput(resp.Text)
+}
+
+func (c *Client) buildEvidenceExplanationAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string) (EvidenceExplanationOutput, error) {
+	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	resp, err := c.runtime.Call(ctx, req)
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	return ParseEvidenceExplanationOutput(resp.Text)
+}
+
+func mergeDirectCompileOutputs(bundle Bundle, driverTarget DriverTargetOutput, paths TransmissionPathOutput, aux EvidenceExplanationOutput) Output {
+	topics := aux.Topics
+	if len(topics) == 0 {
+		topics = paths.Topics
+	}
+	if len(topics) == 0 {
+		topics = driverTarget.Topics
+	}
+	confidence := strings.TrimSpace(aux.Confidence)
+	if confidence == "" {
+		confidence = strings.TrimSpace(paths.Confidence)
+	}
+	if confidence == "" {
+		confidence = strings.TrimSpace(driverTarget.Confidence)
+	}
+	details := aux.Details
+	if details.IsEmpty() {
+		details = paths.Details
+	}
+	if details.IsEmpty() {
+		details = driverTarget.Details
+	}
+	graph := buildCompatibilityGraph(bundle, driverTarget, paths, aux)
+	return Output{
+		Summary:           summarizeDirectCompileOutput(driverTarget, paths),
+		Drivers:           driverTarget.Drivers,
+		Targets:           driverTarget.Targets,
+		TransmissionPaths: paths.TransmissionPaths,
+		EvidenceNodes:     aux.EvidenceNodes,
+		ExplanationNodes:  aux.ExplanationNodes,
+		Graph:             graph,
+		Details:           details,
+		Topics:            topics,
+		Confidence:        confidence,
+	}
+}
+
+func summarizeDirectCompileOutput(driverTarget DriverTargetOutput, paths TransmissionPathOutput) string {
+	if len(paths.TransmissionPaths) > 0 {
+		path := paths.TransmissionPaths[0]
+		if strings.TrimSpace(path.Driver) != "" && strings.TrimSpace(path.Target) != "" {
+			return strings.TrimSpace(path.Driver) + "，并最终推动" + strings.TrimSpace(path.Target)
+		}
+	}
+	if len(driverTarget.Drivers) > 0 && len(driverTarget.Targets) > 0 {
+		return strings.TrimSpace(driverTarget.Drivers[0]) + "，并推动" + strings.TrimSpace(driverTarget.Targets[0])
+	}
+	if len(driverTarget.Targets) > 0 {
+		return strings.TrimSpace(driverTarget.Targets[0])
+	}
+	return "compile summary unavailable"
+}
+
+func buildCompatibilityGraph(bundle Bundle, driverTarget DriverTargetOutput, paths TransmissionPathOutput, aux EvidenceExplanationOutput) ReasoningGraph {
+	graph := ReasoningGraph{}
+	keyToID := map[string]string{}
+	nextID := 1
+	now := bundle.PostedAt.UTC()
+	if bundle.PostedAt.IsZero() {
+		now = time.Now().UTC()
+	}
+
+	addNode := func(kind NodeKind, text string) string {
+		normalizedText := strings.TrimSpace(text)
+		if normalizedText == "" {
+			return ""
+		}
+		key := string(kind) + "|" + strings.ToLower(strings.Join(strings.Fields(normalizedText), " "))
+		if existing, ok := keyToID[key]; ok {
+			return existing
+		}
+		id := fmt.Sprintf("n%d", nextID)
+		nextID++
+		node := GraphNode{ID: id, Kind: kind, Text: normalizedText}
+		switch kind {
+		case NodeFact, NodeMechanism, NodeImplicitCondition:
+			node.OccurredAt = now
+		case NodePrediction:
+			node.PredictionStartAt = now
+		}
+		graph.Nodes = append(graph.Nodes, node)
+		keyToID[key] = id
+		return id
+	}
+
+	addEdge := func(from, to string, kind EdgeKind) {
+		if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" || from == to {
+			return
+		}
+		candidate := GraphEdge{From: from, To: to, Kind: kind}
+		for _, existing := range graph.Edges {
+			if existing == candidate {
+				return
+			}
+		}
+		graph.Edges = append(graph.Edges, candidate)
+	}
+
+	targetNodeIDs := make([]string, 0, len(driverTarget.Targets))
+	for _, target := range driverTarget.Targets {
+		targetNodeIDs = append(targetNodeIDs, addNode(NodeConclusion, target))
+	}
+	primaryTargetID := ""
+	if len(targetNodeIDs) > 0 {
+		primaryTargetID = targetNodeIDs[0]
+	}
+
+	for _, driver := range driverTarget.Drivers {
+		addNode(NodeMechanism, driver)
+	}
+
+	for _, path := range paths.TransmissionPaths {
+		driverID := addNode(NodeMechanism, path.Driver)
+		lastID := driverID
+		for _, step := range path.Steps {
+			stepID := addNode(NodeMechanism, step)
+			if lastID != "" && stepID != "" && lastID != stepID {
+				addEdge(lastID, stepID, EdgePositive)
+			}
+			if stepID != "" {
+				lastID = stepID
+			}
+		}
+		targetID := addNode(NodeConclusion, path.Target)
+		if lastID == "" {
+			lastID = driverID
+		}
+		addEdge(lastID, targetID, EdgePositive)
+	}
+
+	for _, evidence := range aux.EvidenceNodes {
+		evidenceID := addNode(NodeFact, evidence)
+		if primaryTargetID != "" {
+			addEdge(evidenceID, primaryTargetID, EdgeDerives)
+		}
+	}
+
+	for _, explanation := range aux.ExplanationNodes {
+		explanationID := addNode(NodeConclusion, explanation)
+		if primaryTargetID != "" {
+			addEdge(explanationID, primaryTargetID, EdgeExplains)
+		}
+	}
+
+	applyBundleTimingFallbacks(bundle, &graph)
+	return graph
+}
+
 func mergeCompileOutputs(nodes NodeExtractionOutput, fullGraph FullGraphOutput, thesis ThesisOutput) Output {
 	topics := thesis.Topics
 	if len(topics) == 0 {
