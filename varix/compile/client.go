@@ -585,7 +585,7 @@ func (c *Client) buildDriverTargetAttempt(ctx context.Context, bundle Bundle, sy
 	if err != nil {
 		return DriverTargetOutput{}, err
 	}
-	if len(out.Drivers) == 0 && len(out.Targets) == 0 {
+	if len(out.Drivers) == 0 && len(out.Targets) == 0 && looksLikeLegacyGraphPayload(resp.Text) {
 		legacyNodeOutput, legacyErr := ParseNodeExtractionOutput(resp.Text)
 		if legacyErr == nil {
 			applyBundleTimingFallbacks(bundle, &legacyNodeOutput.Graph)
@@ -608,7 +608,7 @@ func (c *Client) buildTransmissionPathAttempt(ctx context.Context, bundle Bundle
 	if err != nil {
 		return TransmissionPathOutput{}, err
 	}
-	if len(out.TransmissionPaths) == 0 {
+	if len(out.TransmissionPaths) == 0 && looksLikeLegacyGraphPayload(resp.Text) {
 		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
 			out = deriveTransmissionPathOutputFromLegacy(legacy)
 		}
@@ -629,12 +629,22 @@ func (c *Client) buildEvidenceExplanationAttempt(ctx context.Context, bundle Bun
 	if err != nil {
 		return EvidenceExplanationOutput{}, err
 	}
-	if len(out.EvidenceNodes) == 0 && len(out.ExplanationNodes) == 0 {
+	if len(out.EvidenceNodes) == 0 && len(out.ExplanationNodes) == 0 && looksLikeLegacyGraphPayload(resp.Text) {
 		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
 			out = deriveEvidenceExplanationOutputFromLegacy(legacy)
 		}
 	}
 	return out, nil
+}
+
+func looksLikeLegacyGraphPayload(raw string) bool {
+	payload, err := parseCompilePayload(raw)
+	if err != nil {
+		return false
+	}
+	_, hasGraph := payload["graph"]
+	_, hasSummary := payload["summary"]
+	return hasGraph || hasSummary
 }
 
 func mergeDirectCompileOutputs(bundle Bundle, driverTarget DriverTargetOutput, paths TransmissionPathOutput, aux EvidenceExplanationOutput) Output {
@@ -784,8 +794,80 @@ func buildCompatibilityGraph(bundle Bundle, driverTarget DriverTargetOutput, pat
 		}
 	}
 
+	ensureMinimumCompatibilityGraph(&graph, bundle, driverTarget, paths, aux, addNode, addEdge)
 	applyBundleTimingFallbacks(bundle, &graph)
 	return graph
+}
+
+func ensureMinimumCompatibilityGraph(
+	graph *ReasoningGraph,
+	bundle Bundle,
+	driverTarget DriverTargetOutput,
+	paths TransmissionPathOutput,
+	aux EvidenceExplanationOutput,
+	addNode func(kind NodeKind, text string) string,
+	addEdge func(from, to string, kind EdgeKind),
+) {
+	if graph == nil {
+		return
+	}
+	if len(graph.Nodes) >= 2 && len(graph.Edges) >= 1 {
+		return
+	}
+
+	driverText := firstNonEmptyTrimmed(
+		firstString(driverTarget.Drivers),
+		firstPathDriver(paths.TransmissionPaths),
+		firstString(aux.ExplanationNodes),
+		strings.TrimSpace(bundle.Content),
+		"primary driver",
+	)
+	targetText := firstNonEmptyTrimmed(
+		firstString(driverTarget.Targets),
+		firstPathTarget(paths.TransmissionPaths),
+		firstString(aux.EvidenceNodes),
+		strings.TrimSpace(bundle.Content),
+		"primary target",
+	)
+
+	driverID := addNode(NodeMechanism, driverText)
+	targetID := addNode(NodeConclusion, targetText)
+	addEdge(driverID, targetID, EdgePositive)
+
+	if len(graph.Nodes) < 2 {
+		evidenceID := addNode(NodeFact, firstNonEmptyTrimmed(firstString(aux.EvidenceNodes), targetText, "supporting evidence"))
+		addEdge(evidenceID, targetID, EdgeDerives)
+	}
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func firstPathDriver(paths []TransmissionPath) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	return paths[0].Driver
+}
+
+func firstPathTarget(paths []TransmissionPath) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	return paths[0].Target
+}
+
+func firstNonEmptyTrimmed(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func mergeDriverTargetOutputs(outputs ...DriverTargetOutput) DriverTargetOutput {
