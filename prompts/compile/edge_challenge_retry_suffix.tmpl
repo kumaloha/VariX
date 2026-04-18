@@ -3,5 +3,7 @@ The previous edge-challenge output failed validation. Redo it and follow these r
 - include top-level keys: `graph`, `details`, `topics`, `confidence`
 - output only additional or corrected edges; do not repeat unchanged draft edges
 - output edges only; do not output any nodes
-- use only edge kinds `正向`, `推出`, `预设`
+- use only edge kinds `drives`, `substantiates`, `gates`, `explains`
+- every edge must use exactly these keys: `from`, `to`, `kind`
+- do not use alternate keys such as `source`, `target`, or `relation`
 - make `details` an object and place notes under `details.caveats`

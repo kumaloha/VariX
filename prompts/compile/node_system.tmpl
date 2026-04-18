@@ -31,6 +31,10 @@ Decision criteria:
 - If observed flows or positioning are presented as the consequence of an allocation preference or pricing rule, extract both the transmission node and the observed evidence node.
 - Prefer a transmission node such as "capital stays allocated to X because Y dominates Z in market pricing" over a higher-level slogan node when both express the same idea.
 - For flow/positioning articles, prefer a support -> transmission -> claim decomposition: observed evidence, the allocation/transmission mechanism, then the judgment or forecast claim.
+- If evidence nodes support a judgment/claim but the market rule, pricing rule, or allocation rule connecting them is missing, add a transmission node for that bridge.
+- When an observed market outcome is paired with a judgment about that outcome but the intermediate pricing/allocation logic is only implicit, extract the missing transmission node instead of attaching evidence directly to claim.
+- A statement that one force dominates another in pricing, positioning, or allocation should usually be a transmission node, not collapsed into a judgment node.
+- When capital-flow evidence is used to support a market judgment, separate the observed flow node from the transmission node that explains why capital remains allocated that way.
 - Use `occurred_at` for facts / implicit conditions when inferable; use `prediction_start_at` for predictions and `prediction_due_at` only when inferable.
 - Every implicit condition that is presented as already operative in the current article frame must include an `occurred_at` timestamp; default to the article frame timestamp if no narrower time is inferable.
 - Use RFC3339 timestamps for every populated time field.

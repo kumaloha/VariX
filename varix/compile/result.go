@@ -41,9 +41,10 @@ const (
 type EdgeKind string
 
 const (
-	EdgePositive EdgeKind = "正向"
-	EdgeDerives  EdgeKind = "推出"
-	EdgePresets  EdgeKind = "预设"
+	EdgePositive EdgeKind = "drives"
+	EdgeDerives  EdgeKind = "substantiates"
+	EdgePresets  EdgeKind = "gates"
+	EdgeExplains EdgeKind = "explains"
 )
 
 type GraphNode struct {
@@ -213,6 +214,21 @@ func defaultFormFunctionForKind(kind NodeKind) (NodeForm, NodeFunction, bool) {
 	}
 }
 
+func normalizeEdgeKind(kind EdgeKind) EdgeKind {
+	switch strings.TrimSpace(string(kind)) {
+	case "正向", "drives":
+		return EdgePositive
+	case "推出", "substantiates":
+		return EdgeDerives
+	case "预设", "gates":
+		return EdgePresets
+	case "解释", "explains":
+		return EdgeExplains
+	default:
+		return kind
+	}
+}
+
 func inferNodeKindFromFormFunction(form NodeForm, function NodeFunction, text string) (NodeKind, bool) {
 	switch form {
 	case NodeFormObservation:
@@ -258,6 +274,7 @@ func (e *GraphEdge) UnmarshalJSON(data []byte) error {
 		alias
 		Source string `json:"source"`
 		Target string `json:"target"`
+		Relation string `json:"relation"`
 	}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
@@ -268,6 +285,11 @@ func (e *GraphEdge) UnmarshalJSON(data []byte) error {
 	}
 	if strings.TrimSpace(e.To) == "" {
 		e.To = aux.Target
+	}
+	if strings.TrimSpace(string(e.Kind)) == "" && strings.TrimSpace(aux.Relation) != "" {
+		e.Kind = normalizeEdgeKind(EdgeKind(strings.TrimSpace(aux.Relation)))
+	} else {
+		e.Kind = normalizeEdgeKind(e.Kind)
 	}
 	return nil
 }
@@ -674,6 +696,9 @@ func validateGraphEdges(edges []GraphEdge, nodeIDs map[string]struct{}, nodeKind
 		return fmt.Errorf("graph must contain at least %d edges", minEdges)
 	}
 	for _, edge := range edges {
+		if strings.TrimSpace(edge.From) == "" || strings.TrimSpace(edge.To) == "" || strings.TrimSpace(string(edge.Kind)) == "" {
+			return fmt.Errorf("graph edge has empty required field: from=%q to=%q kind=%q", edge.From, edge.To, edge.Kind)
+		}
 		if _, ok := nodeIDs[edge.From]; !ok {
 			return fmt.Errorf("edge from references unknown node: %s", edge.From)
 		}
@@ -681,9 +706,9 @@ func validateGraphEdges(edges []GraphEdge, nodeIDs map[string]struct{}, nodeKind
 			return fmt.Errorf("edge to references unknown node: %s", edge.To)
 		}
 		switch edge.Kind {
-		case EdgePositive, EdgeDerives, EdgePresets:
+		case EdgePositive, EdgeDerives, EdgePresets, EdgeExplains:
 		default:
-			return fmt.Errorf("unsupported edge kind: %s", edge.Kind)
+			return fmt.Errorf("unsupported edge kind for edge %s->%s: %q", edge.From, edge.To, edge.Kind)
 		}
 		if edge.Kind == EdgePresets {
 			sourceKind, ok := nodeKinds[edge.From]

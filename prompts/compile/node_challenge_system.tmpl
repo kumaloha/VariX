@@ -13,6 +13,10 @@ Decision criteria:
 - Specifically look for the missing bridge transmission node between evidence nodes and judgment nodes. If the article presents evidence such as flows or positioning and then makes a market judgment, add the transmission node that explains why the evidence supports that judgment.
 - For flow/positioning articles, add the missing transmission node whenever support observations and judgment/forecast claims exist without an explicit bridge.
 - When a market judgment depends on an allocation preference, pricing dominance, or investor positioning rule, add that missing transmission node explicitly instead of only adding more evidence or more judgment nodes.
+- If evidence nodes support a judgment/claim but the market rule, pricing rule, or allocation rule connecting them is missing, add the missing transmission node.
+- If an observed market outcome is paired with a claim but the intermediate pricing/allocation logic is only implicit, add the missing transmission bridge rather than accepting direct evidence -> claim structure as complete.
+- If a statement about pricing dominance, allocation preference, or positioning rule is currently represented as a judgment, add a transmission node that captures that bridge explicitly.
+- When capital-flow evidence is used to support a market judgment, add the transmission node that explains why capital remains allocated that way if it is missing.
 - Look for nodes that are still too fat: if one existing node contains evidence plus judgment, mechanism plus outcome, prediction plus driver, or multiple coordinated claims, add the missing finer-grained nodes instead of accepting the coarse node as sufficient.
 - Treat connector words such as because, therefore, so, which means, implying, driven by, due to, despite, and as a result as split signals.
 - Treat coordinated claims such as A and B / not X and not Y / both X and Y as likely separate nodes unless they are clearly one proposition restated.

@@ -143,6 +143,10 @@ func TestBuildNodeInstructionAndPrompt(t *testing.T) {
 		"If observed flows or positioning are presented as the consequence of an allocation preference or pricing rule, extract both the transmission node and the observed evidence node.",
 		"Prefer a transmission node such as \"capital stays allocated to X because Y dominates Z in market pricing\" over a higher-level slogan node when both express the same idea.",
 		"For flow/positioning articles, prefer a support -> transmission -> claim decomposition: observed evidence, the allocation/transmission mechanism, then the judgment or forecast claim.",
+		"If evidence nodes support a judgment/claim but the market rule, pricing rule, or allocation rule connecting them is missing, add a transmission node for that bridge.",
+		"When an observed market outcome is paired with a judgment about that outcome but the intermediate pricing/allocation logic is only implicit, extract the missing transmission node instead of attaching evidence directly to claim.",
+		"A statement that one force dominates another in pricing, positioning, or allocation should usually be a transmission node, not collapsed into a judgment node.",
+		"When capital-flow evidence is used to support a market judgment, separate the observed flow node from the transmission node that explains why capital remains allocated that way.",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Fatalf("node instruction missing %q in %q", want, instruction)
@@ -158,15 +162,22 @@ func TestBuildGraphInstructionAndPrompt(t *testing.T) {
 	instruction := BuildGraphInstruction(GraphRequirements{MinNodes: 2, MinEdges: 3})
 	for _, want := range []string{
 		"You are a financial-analysis graph builder connecting extracted nodes into a full reasoning graph.",
-		"Use `正向` for market transmission.",
-		"Use `推出` / `预设` for argument structure or proof scaffolding.",
-		"Treat node `function=transmission` as a default hint for `正向` edges and `function=support` as a default hint for `推出` edges, unless the article clearly implies a different semantic relation.",
+		"Use `drives` for market transmission.",
+		"Use `substantiates` / `gates` / `explains` for non-causal structure.",
+		"Use `drives` for real-world transmission: A changes the state of the world and thereby moves B.",
+		"Use `substantiates` for evidential support: A helps justify B, diagnose B, or explain why B should be believed, but does not itself make B happen.",
+		"Use `gates` for prerequisite structure only: a condition node points to a downstream node that depends on that condition.",
+		"Use `explains` for interpretive framing: A tells you how to understand B or what theory/frame B belongs to, without serving as direct proof or direct causal force.",
+		"Treat node `function=transmission` as a default hint for `drives` edges and `function=support` as a default hint for `substantiates` edges, unless the article clearly implies a different semantic relation.",
 		"Treat `function=claim` nodes as downstream judgments / forecasts that are usually supported or transmitted into, not upstream evidence by themselves.",
-		"Apply the intervention test: if changing A would change B in the world, use `正向`; if A only changes how strongly the author can justify B, use `推出`.",
-		"Apply the evidence test: if A causes B, use `正向`; if A proves, supports, or diagnoses B, use `推出`.",
-		"Treat slogan-like or narrative-judgment nodes as `推出` targets unless they themselves continue the market mechanism into another downstream state.",
-		"Treat `预设` as a condition-to-downstream edge only; do not aim `预设` into a condition node.",
-		"In flow/positioning articles, prefer support -> claim as `推出` and transmission -> claim as `正向` when the transmission node describes the world-state bridge.",
+		"Apply the intervention test: if changing A would change B in the world, use `drives`; if A only changes how strongly the author can justify B, use `substantiates`.",
+		"Apply the evidence test: if A causes B, use `drives`; if A proves, supports, or diagnoses B, use `substantiates`.",
+		"If A mainly reframes B, names the governing theory behind B, or tells the reader how to interpret B without directly proving or causing it, use `explains`.",
+		"Treat slogan-like or narrative-judgment nodes as `substantiates` targets unless they themselves continue the market mechanism into another downstream state.",
+		"Treat `gates` as a condition-to-downstream edge only; do not aim `gates` into a condition node.",
+		"In flow/positioning articles, prefer support -> claim as `substantiates` and transmission -> claim as `drives` when the transmission node describes the world-state bridge.",
+		"Every edge must use exactly these keys: `from`, `to`, `kind`.",
+		"Do not use alternate edge keys such as `source`, `target`, or `relation`.",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Fatalf("graph instruction missing %q in %q", want, instruction)
@@ -189,6 +200,10 @@ func TestBuildChallengePromptBuilders(t *testing.T) {
 		"Specifically look for the missing bridge transmission node between evidence nodes and judgment nodes.",
 		"For flow/positioning articles, add the missing transmission node whenever support observations and judgment/forecast claims exist without an explicit bridge.",
 		"When a market judgment depends on an allocation preference, pricing dominance, or investor positioning rule, add that missing transmission node explicitly instead of only adding more evidence or more judgment nodes.",
+		"If evidence nodes support a judgment/claim but the market rule, pricing rule, or allocation rule connecting them is missing, add the missing transmission node.",
+		"If an observed market outcome is paired with a claim but the intermediate pricing/allocation logic is only implicit, add the missing transmission bridge rather than accepting direct evidence -> claim structure as complete.",
+		"If a statement about pricing dominance, allocation preference, or positioning rule is currently represented as a judgment, add a transmission node that captures that bridge explicitly.",
+		"When capital-flow evidence is used to support a market judgment, add the transmission node that explains why capital remains allocated that way if it is missing.",
 		"Look for nodes that are still too fat: if one existing node contains evidence plus judgment, mechanism plus outcome, prediction plus driver, or multiple coordinated claims, add the missing finer-grained nodes instead of accepting the coarse node as sufficient.",
 		"Treat connector words such as because, therefore, so, which means, implying, driven by, due to, despite, and as a result as split signals.",
 	} {
@@ -205,7 +220,7 @@ func TestBuildChallengePromptBuilders(t *testing.T) {
 		t.Fatalf("edge challenge instruction = %q", edgeInstruction)
 	}
 	edgePrompt := BuildEdgeChallengePrompt(Bundle{UnitID: "web:test", Source: "web", ExternalID: "test", Content: "body"}, nodes, edges)
-	if !strings.Contains(edgePrompt, "Current draft edges:") || !strings.Contains(edgePrompt, `"kind": "推出"`) {
+	if !strings.Contains(edgePrompt, "Current draft edges:") || !strings.Contains(edgePrompt, `"kind": "substantiates"`) {
 		t.Fatalf("edge challenge prompt = %q", edgePrompt)
 	}
 }

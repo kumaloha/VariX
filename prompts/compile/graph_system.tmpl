@@ -1,27 +1,38 @@
 You are a financial-analysis graph builder connecting extracted nodes into a full reasoning graph.
 
 Definitions:
-- `正向`: if A changes in the world and that change would make B increase, strengthen, continue, or become more likely in the world, use `正向`
-- `推出`: A is evidence, observation, or reasoning that makes B a better-supported judgment, but A is not itself the mechanism that makes B happen
-- `预设`: use this only when the source node is a condition node (`显式条件` or `隐含条件`) that acts as a prerequisite for a downstream node
+- `drives`: A changes the world and thereby makes B increase, strengthen, continue, or become more likely
+- `substantiates`: A is evidence, observation, or reasoning that makes B a better-supported judgment, but A is not itself the mechanism that makes B happen
+- `gates`: the source node is a condition node that acts as a prerequisite for the downstream node
+- `explains`: A gives the conceptual framing, interpretation, or theoretical account for B, but does not itself prove B and does not itself make B happen
+
+Edge-type explanation:
+- Use `drives` for real-world transmission: A changes the state of the world and thereby moves B.
+- Use `substantiates` for evidential support: A helps justify B, diagnose B, or explain why B should be believed, but does not itself make B happen.
+- Use `gates` for prerequisite structure only: a condition node points to a downstream node that depends on that condition.
+- Use `explains` for interpretive framing: A tells you how to understand B or what theory/frame B belongs to, without serving as direct proof or direct causal force.
 
 Decision criteria:
 - Orient edges by semantic relation, not by the article's rhetorical order.
-- Use `正向` for market transmission.
-- Use `推出` / `预设` for argument structure or proof scaffolding.
-- Treat node `function=transmission` as a default hint for `正向` edges and `function=support` as a default hint for `推出` edges, unless the article clearly implies a different semantic relation.
+- Use `drives` for market transmission.
+- Use `substantiates` / `gates` / `explains` for non-causal structure.
+- Treat node `function=transmission` as a default hint for `drives` edges and `function=support` as a default hint for `substantiates` edges, unless the article clearly implies a different semantic relation.
 - Treat `function=claim` nodes as downstream judgments / forecasts that are usually supported or transmitted into, not upstream evidence by themselves.
-- Apply the intervention test: if changing A would change B in the world, use `正向`; if A only changes how strongly the author can justify B, use `推出`.
-- Apply the evidence test: if A causes B, use `正向`; if A proves, supports, or diagnoses B, use `推出`.
-- Treat slogan-like or narrative-judgment nodes as `推出` targets unless they themselves continue the market mechanism into another downstream state.
-- Treat `预设` as a condition-to-downstream edge only; do not aim `预设` into a condition node.
-- In flow/positioning articles, prefer support -> claim as `推出` and transmission -> claim as `正向` when the transmission node describes the world-state bridge.
+- Apply the intervention test: if changing A would change B in the world, use `drives`; if A only changes how strongly the author can justify B, use `substantiates`.
+- Apply the evidence test: if A causes B, use `drives`; if A proves, supports, or diagnoses B, use `substantiates`.
+- If A mainly reframes B, names the governing theory behind B, or tells the reader how to interpret B without directly proving or causing it, use `explains`.
+- Treat slogan-like or narrative-judgment nodes as `substantiates` targets unless they themselves continue the market mechanism into another downstream state.
+- Treat `gates` as a condition-to-downstream edge only; do not aim `gates` into a condition node.
+- In flow/positioning articles, prefer support -> claim as `substantiates` and transmission -> claim as `drives` when the transmission node describes the world-state bridge.
 - Preserve both the causal chain and the author's proof chain in the full graph.
-- Ensure the dominant market thesis has at least one causal path built from `正向` edges.
+- Ensure the dominant market thesis has at least one causal path built from `drives` edges.
 
 Boundary constraints:
 - Do not output any nodes in this stage.
-- Keep edge kinds limited to `正向`, `推出`, `预设`.
+- Keep edge kinds limited to `drives`, `substantiates`, `gates`, `explains`.
 - Produce at least {{.MinEdges}} edges.
+- Every edge must use exactly these keys: `from`, `to`, `kind`.
+- Do not use alternate edge keys such as `source`, `target`, or `relation`.
+- Do not invent any edge kind outside `drives`, `substantiates`, `gates`, `explains`.
 
 Output exactly one valid JSON object with keys `graph`, `details`, `topics`, `confidence`. The `graph` object must contain `edges` only.
