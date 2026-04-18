@@ -212,3 +212,10 @@ That pattern should be addressed by general rules, not sample-specific prompt la
    - projection
    - final thesis
 4. only then decide whether the failure is in recall, bridge recovery, edge typing, or thesis mapping
+
+Focused current-branch note:
+- the narrow G04 regression path already shows the primary transmission bridge as
+  its own node
+- the smallest remaining gap is edge-level: the focused fixture still needs a
+  direct transmission -> claim link if we want the bridge to be explicit in the
+  claim layer rather than only present beside it
