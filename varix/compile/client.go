@@ -590,7 +590,7 @@ func (c *Client) buildDriverTargetAttempt(ctx context.Context, bundle Bundle, sy
 			out = mergeDriverTargetOutputs(out, deriveDriverTargetOutputFromLegacy(legacy))
 		}
 	}
-	if len(out.Drivers) == 0 && len(out.Targets) == 0 {
+	if len(out.Drivers) == 0 && len(out.Targets) == 0 && looksLikeLegacyGraphPayload(resp.Text) {
 		legacyNodeOutput, legacyErr := ParseNodeExtractionOutput(resp.Text)
 		if legacyErr == nil && len(legacyNodeOutput.Graph.Nodes) > 0 {
 			applyBundleTimingFallbacks(bundle, &legacyNodeOutput.Graph)
