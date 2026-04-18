@@ -72,60 +72,265 @@ func compileStageResponses(t *testing.T, fullOutputJSON string, model string) []
 	if err != nil {
 		t.Fatalf("ParseOutput(fullOutputJSON) error = %v", err)
 	}
-	nodeRaw, err := json.Marshal(NodeExtractionOutput{
-		Graph:      ReasoningGraph{Nodes: out.Graph.Nodes},
-		Details:    out.Details,
+	driverTarget := deriveDriverTargetOutputForTest(out)
+	driverTargetGeneratorRaw, err := json.Marshal(DriverTargetOutput{
+		Drivers:    takeFirstN(driverTarget.Drivers, 1),
+		Targets:    takeFirstN(driverTarget.Targets, 1),
+		Details:    HiddenDetails{Caveats: []string{"generator"}},
 		Topics:     out.Topics,
 		Confidence: out.Confidence,
 	})
 	if err != nil {
-		t.Fatalf("marshal node stage: %v", err)
+		t.Fatalf("marshal driver-target generator stage: %v", err)
 	}
-	fullGraphRaw, err := json.Marshal(FullGraphOutput{
-		Graph:      ReasoningGraph{Edges: out.Graph.Edges},
-		Details:    out.Details,
+	driverTargetChallengeRaw, err := json.Marshal(DriverTargetOutput{
+		Drivers:    tailFrom(driverTarget.Drivers, 1),
+		Targets:    tailFrom(driverTarget.Targets, 1),
+		Details:    HiddenDetails{Caveats: []string{"challenge"}},
 		Topics:     out.Topics,
 		Confidence: out.Confidence,
 	})
 	if err != nil {
-		t.Fatalf("marshal full graph stage: %v", err)
+		t.Fatalf("marshal driver-target challenge stage: %v", err)
 	}
-	thesisRaw, err := json.Marshal(ThesisOutput{
-		Summary:    out.Summary,
-		Drivers:    out.Drivers,
-		Targets:    out.Targets,
-		Details:    out.Details,
-		Topics:     out.Topics,
-		Confidence: out.Confidence,
+	driverTargetJudgeRaw, err := json.Marshal(driverTarget)
+	if err != nil {
+		t.Fatalf("marshal driver-target judge stage: %v", err)
+	}
+
+	transmissionPaths := deriveTransmissionPathOutputForTest(out, driverTarget)
+	transmissionPathGeneratorRaw, err := json.Marshal(TransmissionPathOutput{
+		TransmissionPaths: takeFirstPathN(transmissionPaths.TransmissionPaths, 1),
+		Details:           HiddenDetails{Caveats: []string{"generator"}},
+		Topics:            out.Topics,
+		Confidence:        out.Confidence,
 	})
 	if err != nil {
-		t.Fatalf("marshal thesis stage: %v", err)
+		t.Fatalf("marshal transmission-path generator stage: %v", err)
 	}
-	emptyNodeChallengeRaw, err := json.Marshal(NodeExtractionOutput{
-		Graph:      ReasoningGraph{Nodes: nil},
-		Details:    HiddenDetails{Caveats: []string{"none"}},
-		Topics:     nil,
-		Confidence: out.Confidence,
+	transmissionPathChallengeRaw, err := json.Marshal(TransmissionPathOutput{
+		TransmissionPaths: tailPathFrom(transmissionPaths.TransmissionPaths, 1),
+		Details:           HiddenDetails{Caveats: []string{"challenge"}},
+		Topics:            out.Topics,
+		Confidence:        out.Confidence,
 	})
 	if err != nil {
-		t.Fatalf("marshal node challenge stage: %v", err)
+		t.Fatalf("marshal transmission-path challenge stage: %v", err)
 	}
-	emptyEdgeChallengeRaw, err := json.Marshal(FullGraphOutput{
-		Graph:      ReasoningGraph{Edges: nil},
-		Details:    HiddenDetails{Caveats: []string{"none"}},
-		Topics:     nil,
-		Confidence: out.Confidence,
+	transmissionPathJudgeRaw, err := json.Marshal(transmissionPaths)
+	if err != nil {
+		t.Fatalf("marshal transmission-path judge stage: %v", err)
+	}
+
+	aux := deriveEvidenceExplanationOutputForTest(out, driverTarget)
+	evidenceExplanationGeneratorRaw, err := json.Marshal(EvidenceExplanationOutput{
+		EvidenceNodes:    takeFirstN(aux.EvidenceNodes, 1),
+		ExplanationNodes: takeFirstN(aux.ExplanationNodes, 1),
+		Details:          HiddenDetails{Caveats: []string{"generator"}},
+		Topics:           out.Topics,
+		Confidence:       out.Confidence,
 	})
 	if err != nil {
-		t.Fatalf("marshal edge challenge stage: %v", err)
+		t.Fatalf("marshal evidence/explanation generator stage: %v", err)
 	}
+	evidenceExplanationChallengeRaw, err := json.Marshal(EvidenceExplanationOutput{
+		EvidenceNodes:    tailFrom(aux.EvidenceNodes, 1),
+		ExplanationNodes: tailFrom(aux.ExplanationNodes, 1),
+		Details:          HiddenDetails{Caveats: []string{"challenge"}},
+		Topics:           out.Topics,
+		Confidence:       out.Confidence,
+	})
+	if err != nil {
+		t.Fatalf("marshal evidence/explanation challenge stage: %v", err)
+	}
+	evidenceExplanationJudgeRaw, err := json.Marshal(aux)
+	if err != nil {
+		t.Fatalf("marshal evidence/explanation judge stage: %v", err)
+	}
+
 	return []llm.ProviderResponse{
-		{Text: string(nodeRaw), Model: model},
-		{Text: string(emptyNodeChallengeRaw), Model: model},
-		{Text: string(fullGraphRaw), Model: model},
-		{Text: string(emptyEdgeChallengeRaw), Model: model},
-		{Text: string(thesisRaw), Model: model},
+		{Text: string(driverTargetGeneratorRaw), Model: model},
+		{Text: string(driverTargetChallengeRaw), Model: model},
+		{Text: string(driverTargetJudgeRaw), Model: model},
+		{Text: string(transmissionPathGeneratorRaw), Model: model},
+		{Text: string(transmissionPathChallengeRaw), Model: model},
+		{Text: string(transmissionPathJudgeRaw), Model: model},
+		{Text: string(evidenceExplanationGeneratorRaw), Model: model},
+		{Text: string(evidenceExplanationChallengeRaw), Model: model},
+		{Text: string(evidenceExplanationJudgeRaw), Model: model},
 	}
+}
+
+func deriveDriverTargetOutputForTest(out Output) DriverTargetOutput {
+	drivers := append([]string(nil), out.Drivers...)
+	targets := append([]string(nil), out.Targets...)
+	if len(drivers) == 0 || len(targets) == 0 {
+		for _, node := range out.Graph.Nodes {
+			switch node.Kind {
+			case NodeMechanism:
+				drivers = appendIfMissing(drivers, node.Text)
+			case NodeConclusion, NodePrediction:
+				targets = appendIfMissing(targets, node.Text)
+			}
+		}
+	}
+	if len(drivers) == 0 {
+		for _, node := range out.Graph.Nodes {
+			if node.Kind == NodeFact {
+				drivers = appendIfMissing(drivers, node.Text)
+				break
+			}
+		}
+	}
+	if len(targets) == 0 {
+		for i := len(out.Graph.Nodes) - 1; i >= 0; i-- {
+			targets = appendIfMissing(targets, out.Graph.Nodes[i].Text)
+			if len(targets) > 0 {
+				break
+			}
+		}
+	}
+	return DriverTargetOutput{
+		Drivers:    drivers,
+		Targets:    targets,
+		Details:    out.Details,
+		Topics:     out.Topics,
+		Confidence: out.Confidence,
+	}
+}
+
+func deriveTransmissionPathOutputForTest(out Output, driverTarget DriverTargetOutput) TransmissionPathOutput {
+	paths := append([]TransmissionPath(nil), out.TransmissionPaths...)
+	if len(paths) == 0 {
+		byID := make(map[string]GraphNode, len(out.Graph.Nodes))
+		for _, node := range out.Graph.Nodes {
+			byID[node.ID] = node
+		}
+		for _, edge := range out.Graph.Edges {
+			if edge.Kind != EdgePositive {
+				continue
+			}
+			fromNode, fromOK := byID[edge.From]
+			toNode, toOK := byID[edge.To]
+			if !fromOK || !toOK {
+				continue
+			}
+			driver := firstOrDefault(driverTarget.Drivers, fromNode.Text)
+			target := toNode.Text
+			paths = append(paths, TransmissionPath{
+				Driver: driver,
+				Target: target,
+				Steps:  []string{fromNode.Text},
+			})
+		}
+	}
+	if len(paths) == 0 && len(driverTarget.Drivers) > 0 && len(driverTarget.Targets) > 0 {
+		paths = append(paths, TransmissionPath{
+			Driver: driverTarget.Drivers[0],
+			Target: driverTarget.Targets[0],
+			Steps:  []string{driverTarget.Drivers[0]},
+		})
+	}
+	return TransmissionPathOutput{
+		TransmissionPaths: paths,
+		Details:           out.Details,
+		Topics:            out.Topics,
+		Confidence:        out.Confidence,
+	}
+}
+
+func deriveEvidenceExplanationOutputForTest(out Output, driverTarget DriverTargetOutput) EvidenceExplanationOutput {
+	evidence := append([]string(nil), out.EvidenceNodes...)
+	explanations := append([]string(nil), out.ExplanationNodes...)
+	targetSet := make(map[string]struct{}, len(driverTarget.Targets))
+	for _, target := range driverTarget.Targets {
+		targetSet[strings.TrimSpace(target)] = struct{}{}
+	}
+	for _, node := range out.Graph.Nodes {
+		switch node.Kind {
+		case NodeFact:
+			evidence = appendIfMissing(evidence, node.Text)
+		case NodeConclusion:
+			if _, ok := targetSet[strings.TrimSpace(node.Text)]; !ok {
+				explanations = appendIfMissing(explanations, node.Text)
+			}
+		}
+	}
+	if len(evidence) == 0 && len(out.Graph.Nodes) > 0 {
+		evidence = appendIfMissing(evidence, out.Graph.Nodes[0].Text)
+	}
+	return EvidenceExplanationOutput{
+		EvidenceNodes:    evidence,
+		ExplanationNodes: explanations,
+		Details:          out.Details,
+		Topics:           out.Topics,
+		Confidence:       out.Confidence,
+	}
+}
+
+func appendIfMissing(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if strings.TrimSpace(existing) == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func takeFirstN(values []string, n int) []string {
+	if n <= 0 || len(values) == 0 {
+		return nil
+	}
+	if len(values) < n {
+		n = len(values)
+	}
+	return append([]string(nil), values[:n]...)
+}
+
+func tailFrom(values []string, start int) []string {
+	if start < 0 || start >= len(values) {
+		return nil
+	}
+	return append([]string(nil), values[start:]...)
+}
+
+func takeFirstPathN(values []TransmissionPath, n int) []TransmissionPath {
+	if n <= 0 || len(values) == 0 {
+		return nil
+	}
+	if len(values) < n {
+		n = len(values)
+	}
+	return append([]TransmissionPath(nil), values[:n]...)
+}
+
+func tailPathFrom(values []TransmissionPath, start int) []TransmissionPath {
+	if start < 0 || start >= len(values) {
+		return nil
+	}
+	return append([]TransmissionPath(nil), values[start:]...)
+}
+
+func firstOrDefault(values []string, fallback string) string {
+	if len(values) == 0 || strings.TrimSpace(values[0]) == "" {
+		return strings.TrimSpace(fallback)
+	}
+	return strings.TrimSpace(values[0])
+}
+
+func mustFindGraphNodeByText(t *testing.T, nodes []GraphNode, want string) GraphNode {
+	t.Helper()
+	for _, node := range nodes {
+		if strings.TrimSpace(node.Text) == strings.TrimSpace(want) {
+			return node
+		}
+	}
+	t.Fatalf("graph node %q not found in %#v", want, nodes)
+	return GraphNode{}
 }
 
 func directThreeStepResponses() []llm.ProviderResponse {
@@ -246,11 +451,11 @@ func TestClientCompileUsesForgeRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if record.Output.Summary != "一句话" {
-		t.Fatalf("Summary = %q", record.Output.Summary)
+	if strings.TrimSpace(record.Output.Summary) == "" {
+		t.Fatalf("Summary = %q, want non-empty", record.Output.Summary)
 	}
-	if len(provider.requests) != 8 {
-		t.Fatalf("provider calls = %d, want 8", len(provider.requests))
+	if len(provider.requests) != 12 {
+		t.Fatalf("provider calls = %d, want 12", len(provider.requests))
 	}
 	if provider.requests[0].Model != "compile-model" {
 		t.Fatalf("request model = %q, want compile-model", provider.requests[0].Model)
@@ -291,8 +496,8 @@ func TestClientCompileProjectsInjectedVerificationServiceIntoCompatibilityOutput
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 5 {
-		t.Fatalf("provider calls = %d, want 5 compile-stage calls when verifier is injected", len(provider.requests))
+	if len(provider.requests) != 9 {
+		t.Fatalf("provider calls = %d, want 9 compile-stage calls when verifier is injected", len(provider.requests))
 	}
 	if verifier.calls != 1 {
 		t.Fatalf("verifier calls = %d, want 1", verifier.calls)
@@ -330,8 +535,8 @@ func TestNoopVerificationServiceSkipsVerificationProjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 5 {
-		t.Fatalf("provider calls = %d, want 5", len(provider.requests))
+	if len(provider.requests) != 9 {
+		t.Fatalf("provider calls = %d, want 9", len(provider.requests))
 	}
 	if !record.Output.Verification.VerifiedAt.IsZero() || record.Output.Verification.Model != "" || len(record.Output.Verification.FactChecks) != 0 {
 		t.Fatalf("verification = %#v, want zero-value verification", record.Output.Verification)
@@ -364,32 +569,13 @@ func TestApplyBundleTimingFallbacksUsesPostedAtForFactMechanismAndPrediction(t *
 }
 
 func TestClientCompileUsesPostedAtFallbackForTransmissionBridgeNodeTiming(t *testing.T) {
-	provider := &compileMockProvider{responses: []llm.ProviderResponse{
-		{
-			Text:  `{"graph":{"nodes":[{"id":"n1","form":"observation","function":"support","text":"海外资金继续流入美国资产","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","form":"observation","function":"transmission","text":"增长预期仍压过政治风险并维持美国资产配置偏好"},{"id":"n3","form":"judgment","function":"claim","text":"当前不存在 sell America trade"}]},"details":{"caveats":["待确认"]},"topics":["macro"],"confidence":"medium"}`,
-			Model: "compile-model",
-		},
-		{
-			Text:  `{"graph":{"nodes":[]},"details":{"caveats":["none"]},"topics":[],"confidence":"medium"}`,
-			Model: "compile-model",
-		},
-		{
-			Text:  `{"graph":{"edges":[{"from":"n2","to":"n1","kind":"drives"},{"from":"n1","to":"n3","kind":"substantiates"}]},"details":{"caveats":["待确认"]},"topics":["macro"],"confidence":"medium"}`,
-			Model: "compile-model",
-		},
-		{
-			Text:  `{"graph":{"edges":[]},"details":{"caveats":["none"]},"topics":[],"confidence":"medium"}`,
-			Model: "compile-model",
-		},
-		{
-			Text:  `{"summary":"增长预期压过政治风险定价并维持美国资产配置偏好，海外资金继续流入美国资产","drivers":["增长预期压过政治风险定价并维持美国资产配置偏好"],"targets":["海外资金继续流入美国资产"],"details":{"caveats":["待确认"]},"topics":["macro"],"confidence":"medium"}`,
-			Model: "compile-model",
-		},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"clearly_true","reason":"bridge supported"}]}`, Model: "fact-claim-model"},
-		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"supported"},{"node_id":"n2","assessment":"supported","reason":"bridge supported"}]}`, Model: "fact-challenge-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"clearly_true","reason":"bridge supported"}]}`, Model: "fact-judge-model"},
-	}}
-	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
+	provider := &compileMockProvider{responses: directThreeStepResponses()}
+	client := NewClientWithRuntimePromptsAndVerifier(
+		newTestRuntime(provider, "compile-model"),
+		"compile-model",
+		newPromptRegistry(""),
+		noopVerificationService{},
+	)
 
 	postedAt := mustClientTime(t, "2026-04-14T09:30:00Z")
 	record, err := client.Compile(context.Background(), Bundle{
@@ -402,13 +588,7 @@ func TestClientCompileUsesPostedAtFallbackForTransmissionBridgeNodeTiming(t *tes
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(record.Output.Graph.Nodes) != 3 {
-		t.Fatalf("len(nodes) = %d, want 3", len(record.Output.Graph.Nodes))
-	}
-	bridge := record.Output.Graph.Nodes[1]
-	if bridge.Kind != NodeMechanism {
-		t.Fatalf("bridge kind = %q, want %q", bridge.Kind, NodeMechanism)
-	}
+	bridge := mustFindGraphNodeByText(t, record.Output.Graph.Nodes, "资本继续配置美国资产")
 	if !bridge.OccurredAt.Equal(postedAt) {
 		t.Fatalf("bridge OccurredAt = %v, want %v", bridge.OccurredAt, postedAt)
 	}
@@ -446,72 +626,7 @@ func TestBuildCausalProjectionKeepsOnlyDrivesEdgesAndConnectedNodes(t *testing.T
 }
 
 func TestClientCompileCarriesPrimaryTransmissionBridgeIntoThesisProjection(t *testing.T) {
-	occurredAt := mustTime(t, "2026-04-14T00:00:00Z")
-
-	nodeStage, err := json.Marshal(NodeExtractionOutput{
-		Graph: ReasoningGraph{Nodes: []GraphNode{
-			{ID: "n1", Form: NodeFormObservation, Function: NodeFunctionSupport, Text: "海外资金继续流入美国资产", OccurredAt: occurredAt},
-			{ID: "n2", Form: NodeFormJudgment, Function: NodeFunctionClaim, Text: "当前并不存在 sell America trade"},
-		}},
-		Details:    HiddenDetails{Caveats: []string{"初始抽取未显式补出桥接机制"}},
-		Topics:     []string{"macro"},
-		Confidence: "medium",
-	})
-	if err != nil {
-		t.Fatalf("marshal node stage: %v", err)
-	}
-	nodeChallengeStage, err := json.Marshal(NodeExtractionOutput{
-		Graph: ReasoningGraph{Nodes: []GraphNode{
-			{ID: "n_bridge", Form: NodeFormObservation, Function: NodeFunctionTransmission, Text: "增长预期压过政治风险定价并维持美国资产配置偏好", OccurredAt: occurredAt},
-		}},
-		Details:    HiddenDetails{Caveats: []string{"节点挑战补出了主传导桥"}},
-		Topics:     []string{"macro"},
-		Confidence: "medium",
-	})
-	if err != nil {
-		t.Fatalf("marshal node challenge stage: %v", err)
-	}
-	fullGraphStage, err := json.Marshal(FullGraphOutput{
-		Graph: ReasoningGraph{Edges: []GraphEdge{
-			{From: "n1", To: "n2", Kind: EdgeDerives},
-		}},
-		Details:    HiddenDetails{Caveats: []string{"流向观察仅作为辅助证据"}},
-		Topics:     []string{"macro"},
-		Confidence: "medium",
-	})
-	if err != nil {
-		t.Fatalf("marshal full graph stage: %v", err)
-	}
-	edgeChallengeStage, err := json.Marshal(FullGraphOutput{
-		Graph: ReasoningGraph{Edges: []GraphEdge{
-			{From: "n_bridge", To: "n2", Kind: EdgePositive},
-		}},
-		Details:    HiddenDetails{Caveats: []string{"边挑战确认主因果链由桥接机制驱动"}},
-		Topics:     []string{"macro"},
-		Confidence: "medium",
-	})
-	if err != nil {
-		t.Fatalf("marshal edge challenge stage: %v", err)
-	}
-	thesisStage, err := json.Marshal(ThesisOutput{
-		Summary:    "增长预期压过政治风险定价，因此当前并不存在 sell America trade。",
-		Drivers:    []string{"增长预期压过政治风险定价并维持美国资产配置偏好"},
-		Targets:    []string{"当前并不存在 sell America trade"},
-		Details:    HiddenDetails{Caveats: []string{"海外资金流向保留为辅助层证据"}},
-		Topics:     []string{"macro"},
-		Confidence: "medium",
-	})
-	if err != nil {
-		t.Fatalf("marshal thesis stage: %v", err)
-	}
-
-	provider := &compileMockProvider{responses: []llm.ProviderResponse{
-		{Text: string(nodeStage), Model: "compile-model"},
-		{Text: string(nodeChallengeStage), Model: "compile-model"},
-		{Text: string(fullGraphStage), Model: "compile-model"},
-		{Text: string(edgeChallengeStage), Model: "compile-model"},
-		{Text: string(thesisStage), Model: "compile-model"},
-	}}
+	provider := &compileMockProvider{responses: directThreeStepResponses()}
 	client := NewClientWithRuntimePromptsAndVerifier(
 		newTestRuntime(provider, "compile-model"),
 		"compile-model",
@@ -528,37 +643,20 @@ func TestClientCompileCarriesPrimaryTransmissionBridgeIntoThesisProjection(t *te
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 5 {
-		t.Fatalf("provider calls = %d, want 5 compile-stage calls", len(provider.requests))
+	if len(provider.requests) != 9 {
+		t.Fatalf("provider calls = %d, want 9 compile-stage calls", len(provider.requests))
 	}
-	if len(record.Output.Graph.Nodes) != 3 {
-		t.Fatalf("merged graph nodes = %#v", record.Output.Graph.Nodes)
-	}
-	if len(record.Output.Graph.Edges) != 2 {
-		t.Fatalf("merged graph edges = %#v", record.Output.Graph.Edges)
-	}
-	if !containsGraphNodeText(record.Output.Graph.Nodes, "增长预期压过政治风险定价并维持美国资产配置偏好") {
+	if !containsGraphNodeText(record.Output.Graph.Nodes, "资本继续配置美国资产") {
 		t.Fatalf("merged graph missing transmission bridge: %#v", record.Output.Graph.Nodes)
 	}
-
-	thesisPrompt := provider.requests[4].UserParts[len(provider.requests[4].UserParts)-1].Text
-	parts := strings.SplitN(thesisPrompt, "Causal projection:", 2)
-	if len(parts) != 2 {
-		t.Fatalf("thesis prompt missing causal projection marker: %q", thesisPrompt)
-	}
-	projectionSection := parts[1]
+	judgePrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
 	for _, want := range []string{
-		"增长预期压过政治风险定价并维持美国资产配置偏好",
-		"当前并不存在 sell America trade",
-		`"kind": "drives"`,
+		"美国增长与回报预期继续压过政治风险定价",
+		"没有形成 sell America 交易",
+		"Challenge draft:",
 	} {
-		if !strings.Contains(projectionSection, want) {
-			t.Fatalf("projection missing %q in %q", want, projectionSection)
-		}
-	}
-	for _, unwanted := range []string{`"kind": "substantiates"`, "海外资金继续流入美国资产"} {
-		if strings.Contains(projectionSection, unwanted) {
-			t.Fatalf("projection should omit %q: %q", unwanted, projectionSection)
+		if !strings.Contains(judgePrompt, want) {
+			t.Fatalf("transmission-path judge prompt missing %q in %q", want, judgePrompt)
 		}
 	}
 }
@@ -567,27 +665,30 @@ func TestClientCompileUsesConfiguredPromptsDir(t *testing.T) {
 	root := t.TempDir()
 	settings := config.DefaultSettings(root)
 	for rel, body := range map[string]string{
-		"compile/node_system.tmpl":                 "node system min={{.MinNodes}}",
-		"compile/node_user.tmpl":                   "node user {{.PayloadJSON}}",
-		"compile/node_retry_suffix.tmpl":           "node retry min={{.MinNodes}}",
-		"compile/node_challenge_system.tmpl":       "node challenge system min={{.MinNodes}}",
-		"compile/node_challenge_user.tmpl":         "node challenge user {{.NodesJSON}} {{.PayloadJSON}}",
-		"compile/node_challenge_retry_suffix.tmpl": "node challenge retry min={{.MinNodes}}",
-		"compile/graph_system.tmpl":                "graph system edges={{.MinEdges}}",
-		"compile/graph_user.tmpl":                  "graph user nodes={{.NodesJSON}} payload={{.PayloadJSON}}",
-		"compile/graph_retry_suffix.tmpl":          "graph retry edges={{.MinEdges}}",
-		"compile/edge_challenge_system.tmpl":       "edge challenge system edges={{.MinEdges}}",
-		"compile/edge_challenge_user.tmpl":         "edge challenge user {{.EdgesJSON}} {{.NodesJSON}} {{.PayloadJSON}}",
-		"compile/edge_challenge_retry_suffix.tmpl": "edge challenge retry edges={{.MinEdges}}",
-		"compile/system.tmpl":                      "compile system min={{.MinNodes}} edges={{.MinEdges}}",
-		"compile/user.tmpl":                        "compile user {{.ProjectionJSON}} {{.PayloadJSON}}",
-		"compile/retry_suffix.tmpl":                "retry requires min={{.MinNodes}} edges={{.MinEdges}}",
-		"compile/verifier/fact_claim.tmpl":         "fact claim prompt",
-		"compile/verifier/fact_challenge.tmpl":     "fact challenge prompt",
-		"compile/verifier/fact_adjudicate.tmpl":    "fact adjudication prompt",
-		"compile/verifier/prediction.tmpl":         "prediction verifier prompt",
-		"compile/verifier/explicit_condition.tmpl": "explicit verifier prompt",
-		"compile/verifier/implicit_condition.tmpl": "implicit verifier prompt",
+		"compile/driver_target_generator_system.tmpl":        "driver-target generator system",
+		"compile/driver_target_generator_user.tmpl":          "driver-target generator user {{.PayloadJSON}}",
+		"compile/driver_target_challenge_system.tmpl":        "driver-target challenge system",
+		"compile/driver_target_challenge_user.tmpl":          "driver-target challenge user {{.GeneratedJSON}} {{.PayloadJSON}}",
+		"compile/driver_target_judge_system.tmpl":            "driver-target judge system",
+		"compile/driver_target_judge_user.tmpl":              "driver-target judge user {{.GeneratedJSON}} {{.ChallengedJSON}} {{.PayloadJSON}}",
+		"compile/transmission_path_generator_system.tmpl":    "transmission-path generator system",
+		"compile/transmission_path_generator_user.tmpl":      "transmission-path generator user {{.DriverTargetJSON}} {{.PayloadJSON}}",
+		"compile/transmission_path_challenge_system.tmpl":    "transmission-path challenge system",
+		"compile/transmission_path_challenge_user.tmpl":      "transmission-path challenge user {{.GeneratedJSON}} {{.DriverTargetJSON}} {{.PayloadJSON}}",
+		"compile/transmission_path_judge_system.tmpl":        "transmission-path judge system",
+		"compile/transmission_path_judge_user.tmpl":          "transmission-path judge user {{.GeneratedJSON}} {{.ChallengedJSON}} {{.DriverTargetJSON}} {{.PayloadJSON}}",
+		"compile/evidence_explanation_generator_system.tmpl": "evidence-explanation generator system",
+		"compile/evidence_explanation_generator_user.tmpl":   "evidence-explanation generator user {{.PathsJSON}} {{.DriverTargetJSON}} {{.PayloadJSON}}",
+		"compile/evidence_explanation_challenge_system.tmpl": "evidence-explanation challenge system",
+		"compile/evidence_explanation_challenge_user.tmpl":   "evidence-explanation challenge user {{.GeneratedJSON}} {{.PathsJSON}} {{.DriverTargetJSON}} {{.PayloadJSON}}",
+		"compile/evidence_explanation_judge_system.tmpl":     "evidence-explanation judge system",
+		"compile/evidence_explanation_judge_user.tmpl":       "evidence-explanation judge user {{.GeneratedJSON}} {{.ChallengedJSON}} {{.PathsJSON}} {{.DriverTargetJSON}} {{.PayloadJSON}}",
+		"compile/verifier/fact_claim.tmpl":                   "fact claim prompt",
+		"compile/verifier/fact_challenge.tmpl":               "fact challenge prompt",
+		"compile/verifier/fact_adjudicate.tmpl":              "fact adjudication prompt",
+		"compile/verifier/prediction.tmpl":                   "prediction verifier prompt",
+		"compile/verifier/explicit_condition.tmpl":           "explicit verifier prompt",
+		"compile/verifier/implicit_condition.tmpl":           "implicit verifier prompt",
 	} {
 		path := filepath.Join(settings.PromptsDir, rel)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -615,22 +716,34 @@ func TestClientCompileUsesConfiguredPromptsDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if got := provider.requests[0].System; got != "node system min=2" {
-		t.Fatalf("node system prompt = %q", got)
+	if got := provider.requests[0].System; got != "driver-target generator system" {
+		t.Fatalf("driver-target generator system prompt = %q", got)
 	}
-	if got := provider.requests[1].System; got != "node challenge system min=2" {
-		t.Fatalf("node challenge system prompt = %q", got)
+	if got := provider.requests[1].System; got != "driver-target challenge system" {
+		t.Fatalf("driver-target challenge system prompt = %q", got)
 	}
-	if got := provider.requests[2].System; got != "graph system edges=1" {
-		t.Fatalf("graph system prompt = %q", got)
+	if got := provider.requests[2].System; got != "driver-target judge system" {
+		t.Fatalf("driver-target judge system prompt = %q", got)
 	}
-	if got := provider.requests[3].System; got != "edge challenge system edges=1" {
-		t.Fatalf("edge challenge system prompt = %q", got)
+	if got := provider.requests[3].System; got != "transmission-path generator system" {
+		t.Fatalf("transmission-path generator system prompt = %q", got)
 	}
-	if got := provider.requests[4].System; got != "compile system min=2 edges=1" {
-		t.Fatalf("thesis system prompt = %q", got)
+	if got := provider.requests[4].System; got != "transmission-path challenge system" {
+		t.Fatalf("transmission-path challenge system prompt = %q", got)
 	}
-	if got := provider.requests[5].System; got != "fact claim prompt" {
+	if got := provider.requests[5].System; got != "transmission-path judge system" {
+		t.Fatalf("transmission-path judge system prompt = %q", got)
+	}
+	if got := provider.requests[6].System; got != "evidence-explanation generator system" {
+		t.Fatalf("evidence-explanation generator system prompt = %q", got)
+	}
+	if got := provider.requests[7].System; got != "evidence-explanation challenge system" {
+		t.Fatalf("evidence-explanation challenge system prompt = %q", got)
+	}
+	if got := provider.requests[8].System; got != "evidence-explanation judge system" {
+		t.Fatalf("evidence-explanation judge system prompt = %q", got)
+	}
+	if got := provider.requests[9].System; got != "fact claim prompt" {
 		t.Fatalf("fact verifier system prompt = %q", got)
 	}
 }
@@ -657,8 +770,8 @@ func TestClientCompileCarriesAttachmentTranscriptIntoForgePrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 8 {
-		t.Fatalf("provider calls = %d, want 8", len(provider.requests))
+	if len(provider.requests) != 12 {
+		t.Fatalf("provider calls = %d, want 12", len(provider.requests))
 	}
 	if len(provider.requests[0].UserParts) == 0 {
 		t.Fatalf("provider request missing user parts: %#v", provider.requests[0])
@@ -670,6 +783,7 @@ func TestClientCompileCarriesAttachmentTranscriptIntoForgePrompt(t *testing.T) {
 }
 
 func TestClientCompileRetriesWhenFirstResponseHasEmptyGraph(t *testing.T) {
+	t.Skip("legacy node/edge retry path removed by direct three-stage compile redesign")
 	validStages := compileStageResponses(t,
 		`{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, "compile-model")
 	provider := &compileMockProvider{responses: append([]llm.ProviderResponse{
@@ -709,6 +823,7 @@ func TestClientCompileRetriesWhenFirstResponseHasEmptyGraph(t *testing.T) {
 }
 
 func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
+	t.Skip("legacy node/edge retry path removed by direct three-stage compile redesign")
 	sparseNode := `{"graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`
 	validStages := compileStageResponses(t,
 		`{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"事实","text":"事实B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n3","kind":"隐含条件","text":"条件C","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n4","kind":"结论","text":"结论D","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n3","kind":"正向"},{"from":"n2","to":"n3","kind":"正向"},{"from":"n3","to":"n4","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, "compile-model")
@@ -748,6 +863,7 @@ func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 }
 
 func TestClientCompileRetriesWhenDetailsEmpty(t *testing.T) {
+	t.Skip("legacy thesis retry path removed by direct three-stage compile redesign")
 	nodeStages := compileStageResponses(t,
 		`{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, "compile-model")
 	emptyDetailsThesis := `{"summary":"一句话","drivers":["d"],"targets":["t"],"details":{},"topics":["topic"],"confidence":"medium"}`
@@ -814,31 +930,21 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 9 {
-		t.Fatalf("provider calls = %d, want 9", len(provider.requests))
+	if len(provider.requests) != 12 {
+		t.Fatalf("provider calls = %d, want 12", len(provider.requests))
 	}
-	if len(record.Output.Verification.FactChecks) != 1 || len(record.Output.Verification.PredictionChecks) != 1 {
+	if len(record.Output.Verification.FactChecks) != 1 {
 		t.Fatalf("verification = %#v", record.Output.Verification)
 	}
 	if record.Output.Verification.FactChecks[0].Status != FactStatusClearlyTrue {
 		t.Fatalf("fact check = %#v", record.Output.Verification.FactChecks[0])
 	}
-	if record.Output.Verification.PredictionChecks[0].Status != PredictionStatusUnresolved {
-		t.Fatalf("prediction check = %#v", record.Output.Verification.PredictionChecks[0])
-	}
-	factPrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
-	if !containsAll(factPrompt, `"kind": "事实"`, `"occurred_at": "2026-04-14T00:00:00Z"`, `"as_of": "`, `"retrieval_context"`, `"https://example.com/fact"`) {
+	factPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
+	if !containsAll(factPrompt, `"kind": "机制"`, `"occurred_at": "`, `"as_of": "`, `"retrieval_context"`, `"https://example.com/fact"`) {
 		t.Fatalf("fact verifier prompt missing occurred_at evidence: %q", factPrompt)
 	}
 	if strings.Contains(factPrompt, `"valid_from"`) {
 		t.Fatalf("fact verifier prompt should prefer occurred_at over legacy valid_from: %q", factPrompt)
-	}
-	predictionPrompt := provider.requests[8].UserParts[len(provider.requests[8].UserParts)-1].Text
-	if !containsAll(predictionPrompt, `"kind": "预测"`, `"prediction_start_at": "2026-04-14T00:00:00Z"`, `"prediction_due_at": "2026-07-14T00:00:00Z"`, `"as_of": "`) {
-		t.Fatalf("prediction verifier prompt missing prediction window evidence: %q", predictionPrompt)
-	}
-	if strings.Contains(predictionPrompt, `"valid_from"`) {
-		t.Fatalf("prediction verifier prompt should prefer prediction_start_at over legacy valid_from: %q", predictionPrompt)
 	}
 }
 
@@ -863,11 +969,11 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 11 {
-		t.Fatalf("provider calls = %d, want 11", len(provider.requests))
+	if len(provider.requests) != 12 {
+		t.Fatalf("provider calls = %d, want 12", len(provider.requests))
 	}
-	factPrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
-	for _, want := range []string{`"kind": "事实"`} {
+	factPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
+	for _, want := range []string{`"kind": "机制"`} {
 		if !strings.Contains(factPrompt, want) {
 			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
 		}
@@ -883,31 +989,17 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	if len(record.Output.Verification.FactChecks) != 1 {
 		t.Fatalf("len(FactChecks) = %d, want 1", len(record.Output.Verification.FactChecks))
 	}
-	if len(record.Output.Verification.ExplicitConditionChecks) != 1 {
-		t.Fatalf("len(ExplicitConditionChecks) = %d, want 1", len(record.Output.Verification.ExplicitConditionChecks))
-	}
-	explicitPrompt := provider.requests[8].UserParts[len(provider.requests[8].UserParts)-1].Text
-	if !strings.Contains(explicitPrompt, `"as_of": "`) {
-		t.Fatalf("explicit condition verifier prompt missing as_of context: %q", explicitPrompt)
-	}
-	if len(record.Output.Verification.ImplicitConditionChecks) != 1 {
-		t.Fatalf("len(ImplicitConditionChecks) = %d, want 1", len(record.Output.Verification.ImplicitConditionChecks))
-	}
-	implicitPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
-	if !strings.Contains(implicitPrompt, `"as_of": "`) {
-		t.Fatalf("implicit condition verifier prompt missing as_of context: %q", implicitPrompt)
-	}
-	if len(record.Output.Verification.PredictionChecks) != 1 {
-		t.Fatalf("len(PredictionChecks) = %d, want 1", len(record.Output.Verification.PredictionChecks))
+	if len(record.Output.Verification.ExplicitConditionChecks) != 0 || len(record.Output.Verification.ImplicitConditionChecks) != 0 || len(record.Output.Verification.PredictionChecks) != 0 {
+		t.Fatalf("compatibility output should not synthesize legacy condition/prediction verifier passes: %#v", record.Output.Verification)
 	}
 }
 
 func TestClientCompileRoutesObservationTransmissionNodesThroughFactVerifier(t *testing.T) {
 	provider := &compileMockProvider{responses: append(compileStageResponses(t,
 		`{"summary":"一句话","graph":{"nodes":[{"id":"n1","form":"observation","function":"support","text":"海外资金继续流入美国资产","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","form":"observation","function":"transmission","text":"增长预期仍压过政治风险并维持美国资产配置偏好","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n3","form":"judgment","function":"claim","text":"当前不存在 sell America trade"}],"edges":[{"from":"n2","to":"n1","kind":"正向"},{"from":"n1","to":"n3","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, "compile-model"), []llm.ProviderResponse{
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
-		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"},{"node_id":"n2","assessment":"supported","reason":"bridge mechanism is grounded"}]}`, Model: "fact-challenge-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n4","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"},{"node_id":"n4","assessment":"supported","reason":"bridge mechanism is grounded"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n4","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
 	}...)}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
@@ -920,10 +1012,10 @@ func TestClientCompileRoutesObservationTransmissionNodesThroughFactVerifier(t *t
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 8 {
-		t.Fatalf("provider calls = %d, want 8", len(provider.requests))
+	if len(provider.requests) != 12 {
+		t.Fatalf("provider calls = %d, want 12", len(provider.requests))
 	}
-	factPrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
+	factPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
 	for _, want := range []string{`"kind": "事实"`, `"kind": "机制"`} {
 		if !strings.Contains(factPrompt, want) {
 			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
@@ -937,7 +1029,7 @@ func TestClientCompileRoutesObservationTransmissionNodesThroughFactVerifier(t *t
 	}
 	if !reflect.DeepEqual(
 		[]string{record.Output.Verification.FactChecks[0].NodeID, record.Output.Verification.FactChecks[1].NodeID},
-		[]string{"n1", "n2"},
+		[]string{"n1", "n4"},
 	) {
 		t.Fatalf("FactChecks = %#v", record.Output.Verification.FactChecks)
 	}
@@ -985,7 +1077,7 @@ func TestClientCompileCarriesStructuredWeiboEvidenceIntoVerifierPrompt(t *testin
 		t.Fatalf("Compile() error = %v", err)
 	}
 
-	factPrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
+	factPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
 	for _, want := range []string{
 		`"root_external_id": "120"`,
 		`"author_name": "alice"`,
@@ -1054,7 +1146,7 @@ func TestClientCompileAppliesVerifyV2FactsMetadataWithoutBreakingLegacyArrays(t 
 	if record.Output.Verification.Model != "fact-judge-model" {
 		t.Fatalf("Verification.Model = %q, want fact-judge-model", record.Output.Verification.Model)
 	}
-	factPrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
+	factPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
 	if !containsAll(factPrompt, `"retrieval_context"`, `"https://example.com/fact"`) {
 		t.Fatalf("fact verifier prompt missing retrieval context: %q", factPrompt)
 	}
@@ -1078,7 +1170,7 @@ func TestClientCompileFailsDeterministicallyOnVerifyV2CoverageMismatch(t *testin
 	if err == nil {
 		t.Fatal("Compile() error = nil, want coverage mismatch failure")
 	}
-	for _, want := range []string{"coverage", "n2"} {
+	for _, want := range []string{"coverage", "n3"} {
 		if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(want)) {
 			t.Fatalf("Compile() error = %q, want substring %q", err.Error(), want)
 		}

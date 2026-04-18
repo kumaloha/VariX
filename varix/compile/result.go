@@ -272,8 +272,8 @@ func (e *GraphEdge) UnmarshalJSON(data []byte) error {
 	type alias GraphEdge
 	var aux struct {
 		alias
-		Source string `json:"source"`
-		Target string `json:"target"`
+		Source   string `json:"source"`
+		Target   string `json:"target"`
 		Relation string `json:"relation"`
 	}
 	if err := json.Unmarshal(data, &aux); err != nil {

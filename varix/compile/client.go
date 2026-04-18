@@ -230,6 +230,7 @@ func (c *Client) compileDriverTarget(ctx context.Context, bundle Bundle) (Driver
 	if err := challenged.ValidateChallenge(); err != nil {
 		return DriverTargetOutput{}, err
 	}
+	challenged = mergeDriverTargetOutputs(DriverTargetOutput{}, challenged)
 
 	judgeSystemPrompt, err := c.prompts.buildDriverTargetJudgeInstruction()
 	if err != nil {
@@ -243,6 +244,7 @@ func (c *Client) compileDriverTarget(ctx context.Context, bundle Bundle) (Driver
 	if err != nil {
 		return DriverTargetOutput{}, err
 	}
+	final = mergeDriverTargetOutputs(generated, challenged, final)
 	if err := final.ValidateGeneratorOrJudge(); err != nil {
 		return DriverTargetOutput{}, err
 	}
@@ -281,6 +283,7 @@ func (c *Client) compileTransmissionPaths(ctx context.Context, bundle Bundle, dr
 	if err := challenged.ValidateChallenge(); err != nil {
 		return TransmissionPathOutput{}, err
 	}
+	challenged = mergeTransmissionPathOutputs(TransmissionPathOutput{}, challenged)
 
 	judgeSystemPrompt, err := c.prompts.buildTransmissionPathJudgeInstruction()
 	if err != nil {
@@ -294,6 +297,7 @@ func (c *Client) compileTransmissionPaths(ctx context.Context, bundle Bundle, dr
 	if err != nil {
 		return TransmissionPathOutput{}, err
 	}
+	final = mergeTransmissionPathOutputs(generated, challenged, final)
 	if err := final.ValidateGeneratorOrJudge(); err != nil {
 		return TransmissionPathOutput{}, err
 	}
@@ -332,6 +336,7 @@ func (c *Client) compileEvidenceExplanation(ctx context.Context, bundle Bundle, 
 	if err := challenged.ValidateChallenge(); err != nil {
 		return EvidenceExplanationOutput{}, err
 	}
+	challenged = mergeEvidenceExplanationOutputs(EvidenceExplanationOutput{}, challenged)
 
 	judgeSystemPrompt, err := c.prompts.buildEvidenceExplanationJudgeInstruction()
 	if err != nil {
@@ -345,6 +350,7 @@ func (c *Client) compileEvidenceExplanation(ctx context.Context, bundle Bundle, 
 	if err != nil {
 		return EvidenceExplanationOutput{}, err
 	}
+	final = mergeEvidenceExplanationOutputs(generated, challenged, final)
 	if err := final.ValidateGeneratorOrJudge(); err != nil {
 		return EvidenceExplanationOutput{}, err
 	}
@@ -420,7 +426,16 @@ func (c *Client) buildDriverTargetAttempt(ctx context.Context, bundle Bundle, sy
 	if err != nil {
 		return DriverTargetOutput{}, err
 	}
-	return ParseDriverTargetOutput(resp.Text)
+	out, err := ParseDriverTargetOutput(resp.Text)
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	if len(out.Drivers) == 0 || len(out.Targets) == 0 {
+		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
+			out = deriveDriverTargetOutputFromLegacy(legacy)
+		}
+	}
+	return out, nil
 }
 
 func (c *Client) buildTransmissionPathAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string) (TransmissionPathOutput, error) {
@@ -432,7 +447,16 @@ func (c *Client) buildTransmissionPathAttempt(ctx context.Context, bundle Bundle
 	if err != nil {
 		return TransmissionPathOutput{}, err
 	}
-	return ParseTransmissionPathOutput(resp.Text)
+	out, err := ParseTransmissionPathOutput(resp.Text)
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	if len(out.TransmissionPaths) == 0 {
+		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
+			out = deriveTransmissionPathOutputFromLegacy(legacy)
+		}
+	}
+	return out, nil
 }
 
 func (c *Client) buildEvidenceExplanationAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string) (EvidenceExplanationOutput, error) {
@@ -444,7 +468,16 @@ func (c *Client) buildEvidenceExplanationAttempt(ctx context.Context, bundle Bun
 	if err != nil {
 		return EvidenceExplanationOutput{}, err
 	}
-	return ParseEvidenceExplanationOutput(resp.Text)
+	out, err := ParseEvidenceExplanationOutput(resp.Text)
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	if len(out.EvidenceNodes) == 0 && len(out.ExplanationNodes) == 0 {
+		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
+			out = deriveEvidenceExplanationOutputFromLegacy(legacy)
+		}
+	}
+	return out, nil
 }
 
 func mergeDirectCompileOutputs(bundle Bundle, driverTarget DriverTargetOutput, paths TransmissionPathOutput, aux EvidenceExplanationOutput) Output {
@@ -545,6 +578,10 @@ func buildCompatibilityGraph(bundle Bundle, driverTarget DriverTargetOutput, pat
 		graph.Edges = append(graph.Edges, candidate)
 	}
 
+	for _, driver := range driverTarget.Drivers {
+		addNode(NodeMechanism, driver)
+	}
+
 	targetNodeIDs := make([]string, 0, len(driverTarget.Targets))
 	for _, target := range driverTarget.Targets {
 		targetNodeIDs = append(targetNodeIDs, addNode(NodeConclusion, target))
@@ -552,10 +589,6 @@ func buildCompatibilityGraph(bundle Bundle, driverTarget DriverTargetOutput, pat
 	primaryTargetID := ""
 	if len(targetNodeIDs) > 0 {
 		primaryTargetID = targetNodeIDs[0]
-	}
-
-	for _, driver := range driverTarget.Drivers {
-		addNode(NodeMechanism, driver)
 	}
 
 	for _, path := range paths.TransmissionPaths {
@@ -578,6 +611,9 @@ func buildCompatibilityGraph(bundle Bundle, driverTarget DriverTargetOutput, pat
 	}
 
 	for _, evidence := range aux.EvidenceNodes {
+		if hasNormalizedMechanismText(driverTarget.Drivers, paths.TransmissionPaths, evidence) {
+			continue
+		}
 		evidenceID := addNode(NodeFact, evidence)
 		if primaryTargetID != "" {
 			addEdge(evidenceID, primaryTargetID, EdgeDerives)
@@ -593,6 +629,218 @@ func buildCompatibilityGraph(bundle Bundle, driverTarget DriverTargetOutput, pat
 
 	applyBundleTimingFallbacks(bundle, &graph)
 	return graph
+}
+
+func mergeDriverTargetOutputs(outputs ...DriverTargetOutput) DriverTargetOutput {
+	var merged DriverTargetOutput
+	for _, out := range outputs {
+		merged.Drivers = appendUniqueNormalized(merged.Drivers, out.Drivers...)
+		merged.Targets = appendUniqueNormalized(merged.Targets, out.Targets...)
+		if merged.Details.IsEmpty() && !out.Details.IsEmpty() {
+			merged.Details = out.Details
+		}
+		if len(merged.Topics) == 0 && len(out.Topics) > 0 {
+			merged.Topics = append([]string(nil), out.Topics...)
+		}
+		if strings.TrimSpace(merged.Confidence) == "" && strings.TrimSpace(out.Confidence) != "" {
+			merged.Confidence = out.Confidence
+		}
+	}
+	return merged
+}
+
+func mergeTransmissionPathOutputs(outputs ...TransmissionPathOutput) TransmissionPathOutput {
+	var merged TransmissionPathOutput
+	seen := map[string]struct{}{}
+	for _, out := range outputs {
+		for _, path := range out.TransmissionPaths {
+			key := normalizedPathKey(path)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged.TransmissionPaths = append(merged.TransmissionPaths, path)
+		}
+		if merged.Details.IsEmpty() && !out.Details.IsEmpty() {
+			merged.Details = out.Details
+		}
+		if len(merged.Topics) == 0 && len(out.Topics) > 0 {
+			merged.Topics = append([]string(nil), out.Topics...)
+		}
+		if strings.TrimSpace(merged.Confidence) == "" && strings.TrimSpace(out.Confidence) != "" {
+			merged.Confidence = out.Confidence
+		}
+	}
+	return merged
+}
+
+func mergeEvidenceExplanationOutputs(outputs ...EvidenceExplanationOutput) EvidenceExplanationOutput {
+	var merged EvidenceExplanationOutput
+	for _, out := range outputs {
+		merged.EvidenceNodes = appendUniqueNormalized(merged.EvidenceNodes, out.EvidenceNodes...)
+		merged.ExplanationNodes = appendUniqueNormalized(merged.ExplanationNodes, out.ExplanationNodes...)
+		if merged.Details.IsEmpty() && !out.Details.IsEmpty() {
+			merged.Details = out.Details
+		}
+		if len(merged.Topics) == 0 && len(out.Topics) > 0 {
+			merged.Topics = append([]string(nil), out.Topics...)
+		}
+		if strings.TrimSpace(merged.Confidence) == "" && strings.TrimSpace(out.Confidence) != "" {
+			merged.Confidence = out.Confidence
+		}
+	}
+	return merged
+}
+
+func deriveDriverTargetOutputFromLegacy(out Output) DriverTargetOutput {
+	derived := DriverTargetOutput{
+		Drivers:    append([]string(nil), out.Drivers...),
+		Targets:    append([]string(nil), out.Targets...),
+		Details:    out.Details,
+		Topics:     out.Topics,
+		Confidence: out.Confidence,
+	}
+	if len(derived.Drivers) == 0 || len(derived.Targets) == 0 {
+		for _, node := range out.Graph.Nodes {
+			switch node.Kind {
+			case NodeMechanism:
+				derived.Drivers = appendUniqueNormalized(derived.Drivers, node.Text)
+			case NodeConclusion, NodePrediction:
+				derived.Targets = appendUniqueNormalized(derived.Targets, node.Text)
+			}
+		}
+	}
+	if len(derived.Drivers) == 0 {
+		for _, node := range out.Graph.Nodes {
+			if node.Kind == NodeFact {
+				derived.Drivers = appendUniqueNormalized(derived.Drivers, node.Text)
+				break
+			}
+		}
+	}
+	if len(derived.Targets) == 0 && strings.TrimSpace(out.Summary) != "" {
+		derived.Targets = appendUniqueNormalized(derived.Targets, out.Summary)
+	}
+	return derived
+}
+
+func deriveTransmissionPathOutputFromLegacy(out Output) TransmissionPathOutput {
+	driverTarget := deriveDriverTargetOutputFromLegacy(out)
+	derived := TransmissionPathOutput{
+		Details:    out.Details,
+		Topics:     out.Topics,
+		Confidence: out.Confidence,
+	}
+	for _, edge := range out.Graph.Edges {
+		if edge.Kind != EdgePositive {
+			continue
+		}
+		from := findNodeText(out.Graph.Nodes, edge.From)
+		to := findNodeText(out.Graph.Nodes, edge.To)
+		if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" {
+			continue
+		}
+		derived.TransmissionPaths = append(derived.TransmissionPaths, TransmissionPath{
+			Driver: firstNormalizedOrFallback(driverTarget.Drivers, from),
+			Target: to,
+			Steps:  []string{from},
+		})
+	}
+	if len(derived.TransmissionPaths) == 0 && len(driverTarget.Drivers) > 0 && len(driverTarget.Targets) > 0 {
+		derived.TransmissionPaths = append(derived.TransmissionPaths, TransmissionPath{
+			Driver: driverTarget.Drivers[0],
+			Target: driverTarget.Targets[0],
+			Steps:  []string{driverTarget.Drivers[0]},
+		})
+	}
+	return derived
+}
+
+func deriveEvidenceExplanationOutputFromLegacy(out Output) EvidenceExplanationOutput {
+	driverTarget := deriveDriverTargetOutputFromLegacy(out)
+	derived := EvidenceExplanationOutput{
+		EvidenceNodes:    append([]string(nil), out.EvidenceNodes...),
+		ExplanationNodes: append([]string(nil), out.ExplanationNodes...),
+		Details:          out.Details,
+		Topics:           out.Topics,
+		Confidence:       out.Confidence,
+	}
+	targets := make(map[string]struct{}, len(driverTarget.Targets))
+	for _, target := range driverTarget.Targets {
+		targets[normalizeLooseText(target)] = struct{}{}
+	}
+	for _, node := range out.Graph.Nodes {
+		switch node.Kind {
+		case NodeFact:
+			derived.EvidenceNodes = appendUniqueNormalized(derived.EvidenceNodes, node.Text)
+		case NodeConclusion:
+			if _, ok := targets[normalizeLooseText(node.Text)]; !ok {
+				derived.ExplanationNodes = appendUniqueNormalized(derived.ExplanationNodes, node.Text)
+			}
+		}
+	}
+	return derived
+}
+
+func appendUniqueNormalized(base []string, values ...string) []string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		found := false
+		for _, existing := range base {
+			if normalizeLooseText(existing) == normalizeLooseText(value) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			base = append(base, value)
+		}
+	}
+	return base
+}
+
+func normalizedPathKey(path TransmissionPath) string {
+	return normalizeLooseText(path.Driver) + "->" + normalizeLooseText(path.Target) + "::" + normalizeLooseText(strings.Join(path.Steps, "|"))
+}
+
+func findNodeText(nodes []GraphNode, id string) string {
+	for _, node := range nodes {
+		if node.ID == id {
+			return strings.TrimSpace(node.Text)
+		}
+	}
+	return ""
+}
+
+func firstNormalizedOrFallback(values []string, fallback string) string {
+	if len(values) > 0 && strings.TrimSpace(values[0]) != "" {
+		return strings.TrimSpace(values[0])
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func normalizeLooseText(text string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
+}
+
+func hasNormalizedMechanismText(drivers []string, paths []TransmissionPath, evidence string) bool {
+	target := normalizeLooseText(evidence)
+	for _, driver := range drivers {
+		if normalizeLooseText(driver) == target {
+			return true
+		}
+	}
+	for _, path := range paths {
+		for _, step := range path.Steps {
+			if normalizeLooseText(step) == target {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func mergeCompileOutputs(nodes NodeExtractionOutput, fullGraph FullGraphOutput, thesis ThesisOutput) Output {

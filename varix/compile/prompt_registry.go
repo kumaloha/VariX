@@ -55,8 +55,8 @@ func (r *promptRegistry) buildDriverTargetChallengePrompt(bundle Bundle, generat
 		return "", err
 	}
 	return r.render("compile/driver_target_challenge_user.tmpl", map[string]any{
-		"PayloadJSON":    payloadJSON,
-		"GeneratedJSON":  generatedJSON,
+		"PayloadJSON":   payloadJSON,
+		"GeneratedJSON": generatedJSON,
 	})
 }
 
@@ -264,8 +264,8 @@ func (r *promptRegistry) buildThesisPrompt(bundle Bundle, projection ReasoningGr
 		return "", err
 	}
 	return r.render("compile/user.tmpl", map[string]any{
-		"PayloadJSON":     payloadJSON,
-		"ProjectionJSON":  projectionJSON,
+		"PayloadJSON":    payloadJSON,
+		"ProjectionJSON": projectionJSON,
 	})
 }
 
