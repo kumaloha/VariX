@@ -126,8 +126,13 @@ func TestBuildNodeInstructionAndPrompt(t *testing.T) {
 	for _, want := range []string{
 		"You are a financial-analysis node extractor",
 		"Produce at least 4 nodes.",
+		"form values:",
+		"function values:",
+		"Use `observation` + `support` for evidence/fact nodes.",
+		"Use `observation` + `transmission` for mechanism nodes instead of inventing a separate mechanism form.",
+		"Use `judgment` + `claim` for current conclusions and `forecast` + `claim` for future outcomes.",
 		"Prefer over-splitting to under-splitting when one sentence mixes evidence, mechanism, judgment, or prediction.",
-		"mechanism: a market transmission relation or pricing/allocation mechanism that explains how one force moves into another outcome in the current article frame",
+		"transmission: a market transmission relation or pricing/allocation mechanism that explains how one force moves into another outcome in the current article frame",
 		"Make sure the extracted node set includes separate evidence nodes, mechanism/transmission nodes, and judgment nodes whenever the article contains those roles.",
 		"Prefer separate nodes for (a) observed evidence, (b) market mechanism/transmission, and (c) author judgment/slogan when the article contains all three roles.",
 		"Do not collapse evidence, mechanism, and judgment into one sentence if they play different roles in the article.",
@@ -137,6 +142,7 @@ func TestBuildNodeInstructionAndPrompt(t *testing.T) {
 		"If the article says growth expectations, return expectations, or risk pricing dominate competing concerns and therefore keep capital allocated to an asset or market, extract that dominance-to-allocation relation as a standalone mechanism node.",
 		"If observed inflows are presented as the consequence of an investor preference or allocation bias, extract both the preference/allocation-bias mechanism node and the observed inflow evidence node.",
 		"Prefer a mechanism node such as \"markets still allocate to X because growth expectations dominate political risk\" over a high-level slogan node when both express the same idea.",
+		"For G04-style flow/positioning articles, prefer a support -> transmission -> claim decomposition: observed inflow/positioning evidence, the allocation/transmission mechanism, then the judgment or forecast claim.",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Fatalf("node instruction missing %q in %q", want, instruction)
@@ -154,10 +160,13 @@ func TestBuildGraphInstructionAndPrompt(t *testing.T) {
 		"You are a financial-analysis graph builder connecting extracted nodes into a full reasoning graph.",
 		"Use `正向` for market transmission.",
 		"Use `推出` / `预设` for argument structure or proof scaffolding.",
+		"Treat node `function=transmission` as a default hint for `正向` edges and `function=support` as a default hint for `推出` edges, unless the article clearly implies a different semantic relation.",
+		"Treat `function=claim` nodes as downstream judgments / forecasts that are usually supported or transmitted into, not upstream evidence by themselves.",
 		"Apply the intervention test: if changing A would change B in the world, use `正向`; if A only changes how strongly the author can justify B, use `推出`.",
 		"Apply the evidence test: if A causes B, use `正向`; if A proves, supports, or diagnoses B, use `推出`.",
 		"Treat slogans or judgment nodes such as \"there is no sell America trade\" as `推出` targets unless they themselves continue the market mechanism into another downstream state.",
 		"Treat `预设` as a condition-to-downstream edge only; do not aim `预设` into a condition node.",
+		"In G04-style flow/positioning articles, prefer support -> claim as `推出` and transmission -> claim as `正向` when the transmission node describes the world-state bridge.",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Fatalf("graph instruction missing %q in %q", want, instruction)
@@ -175,8 +184,10 @@ func TestBuildChallengePromptBuilders(t *testing.T) {
 	nodeInstruction := BuildNodeChallengeInstruction(GraphRequirements{MinNodes: 2, MinEdges: 1})
 	for _, want := range []string{
 		"node challenger reviewing an extracted node set for recall gaps",
+		"Audit observation / condition / judgment / forecast coverage and support / transmission / claim roles separately before deciding nothing is missing.",
 		"Audit evidence nodes, mechanism/transmission nodes, and judgment nodes separately before deciding nothing is missing.",
 		"Specifically look for the missing bridge mechanism between evidence nodes and judgment nodes.",
+		"In G04-style flow/positioning articles, add the missing transmission node whenever support observations and judgment/forecast claims exist without an explicit bridge.",
 		"When a judgment about a market narrative depends on an allocation preference, pricing dominance, or investor positioning rule, add that missing mechanism node explicitly instead of only adding more evidence or more judgment nodes.",
 		"Look for nodes that are still too fat: if one existing node contains evidence plus judgment, mechanism plus outcome, prediction plus driver, or multiple coordinated claims, add the missing finer-grained nodes instead of accepting the coarse node as sufficient.",
 		"Treat connector words such as because, therefore, so, which means, implying, driven by, due to, despite, and as a result as split signals.",

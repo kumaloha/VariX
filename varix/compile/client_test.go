@@ -404,6 +404,8 @@ func TestClientCompileRetriesWhenFirstResponseHasEmptyGraph(t *testing.T) {
 	if !containsAll(
 		retryPrompt,
 		"output nodes only; do not output any edges",
+		"every node must include `form` and `function`",
+		"use only `form` values `observation`, `condition`, `judgment`, `forecast`",
 		"split mixed fact / judgment / prediction statements into separate nodes when possible",
 	) {
 		t.Fatalf("retry prompt missing mixed-clause split guidance: %q", retryPrompt)
@@ -438,6 +440,14 @@ func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 	}
 	if len(provider.requests) != 10 {
 		t.Fatalf("call count = %d, want 10", len(provider.requests))
+	}
+	retryPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
+	if !containsAll(
+		retryPrompt,
+		"for G04-style flow/positioning articles, split support observations, transmission mechanisms, and judgment/forecast claims into separate nodes",
+		"use only `function` values `support`, `transmission`, `claim`",
+	) {
+		t.Fatalf("retry prompt missing G04 form/function guidance: %q", retryPrompt)
 	}
 	if len(record.Output.Graph.Nodes) != 4 || len(record.Output.Graph.Edges) != 3 {
 		t.Fatalf("graph = %#v", record.Output.Graph)

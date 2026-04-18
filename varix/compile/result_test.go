@@ -208,6 +208,44 @@ func TestGraphAliasesDecode(t *testing.T) {
 	}
 }
 
+func TestGraphAliasesDecodeFormFunctionSchema(t *testing.T) {
+	var out Output
+	raw := `{
+	  "summary":"一句话",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","form":"observation","function":"support","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n2","form":"observation","function":"transmission","text":"机制B","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n3","form":"judgment","function":"claim","text":"结论C"},
+	      {"id":"n4","form":"forecast","function":"claim","text":"预测D","prediction_start_at":"2026-04-14T00:00:00Z"}
+	    ],
+	    "edges":[
+	      {"from":"n2","to":"n1","kind":"正向"},
+	      {"from":"n1","to":"n3","kind":"推出"},
+	      {"from":"n3","to":"n4","kind":"推出"}
+	    ]
+	  },
+	  "details":{"caveats":["说明"]},
+	  "confidence":"medium"
+	}`
+	out, err := ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	if out.Graph.Nodes[0].Kind != NodeFact || out.Graph.Nodes[0].Form != NodeFormObservation || out.Graph.Nodes[0].Function != NodeFunctionSupport {
+		t.Fatalf("node[0] = %#v, want observation/support fact", out.Graph.Nodes[0])
+	}
+	if out.Graph.Nodes[1].Kind != NodeMechanism || out.Graph.Nodes[1].Form != NodeFormObservation || out.Graph.Nodes[1].Function != NodeFunctionTransmission {
+		t.Fatalf("node[1] = %#v, want observation/transmission mechanism", out.Graph.Nodes[1])
+	}
+	if out.Graph.Nodes[2].Kind != NodeConclusion || out.Graph.Nodes[2].Form != NodeFormJudgment || out.Graph.Nodes[2].Function != NodeFunctionClaim {
+		t.Fatalf("node[2] = %#v, want judgment/claim conclusion", out.Graph.Nodes[2])
+	}
+	if out.Graph.Nodes[3].Kind != NodePrediction || out.Graph.Nodes[3].Form != NodeFormForecast || out.Graph.Nodes[3].Function != NodeFunctionClaim {
+		t.Fatalf("node[3] = %#v, want forecast/claim prediction", out.Graph.Nodes[3])
+	}
+}
+
 func TestGraphNodeMarshalJSONPrefersSemanticTimeFields(t *testing.T) {
 	node := GraphNode{
 		ID:                "n1",
@@ -226,6 +264,11 @@ func TestGraphNodeMarshalJSONPrefersSemanticTimeFields(t *testing.T) {
 	got := string(raw)
 	if !strings.Contains(got, `"occurred_at":"1974-01-01T00:00:00Z"`) {
 		t.Fatalf("marshal output missing occurred_at: %s", got)
+	}
+	for _, want := range []string{`"kind":"事实"`, `"form":"observation"`, `"function":"support"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("marshal output missing %s: %s", want, got)
+		}
 	}
 	for _, unwanted := range []string{`"valid_from"`, `"valid_to"`, `"prediction_start_at"`, `"prediction_due_at"`} {
 		if strings.Contains(got, unwanted) {
@@ -251,6 +294,11 @@ func TestGraphNodeMarshalJSONPrefersPredictionWindowFields(t *testing.T) {
 	got := string(raw)
 	if !strings.Contains(got, `"prediction_start_at":"2026-05-01T00:00:00Z"`) || !strings.Contains(got, `"prediction_due_at":"2026-09-01T00:00:00Z"`) {
 		t.Fatalf("marshal output missing prediction window: %s", got)
+	}
+	for _, want := range []string{`"kind":"预测"`, `"form":"forecast"`, `"function":"claim"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("marshal output missing %s: %s", want, got)
+		}
 	}
 	for _, unwanted := range []string{`"valid_from"`, `"valid_to"`, `"occurred_at"`} {
 		if strings.Contains(got, unwanted) {
@@ -354,6 +402,66 @@ func TestParseOutputPreservesPredictionKindForConditionalFutureClause(t *testing
 	}
 	if out.Graph.Nodes[1].Kind != NodePrediction {
 		t.Fatalf("node kind = %q, want prediction preserved", out.Graph.Nodes[1].Kind)
+	}
+}
+
+func TestParseOutputPreservesFormFunctionSchemaForG04(t *testing.T) {
+	raw := `{
+	  "summary":"一句话",
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","form":"observation","function":"support","text":"海外资金继续流入美国资产","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n2","form":"observation","function":"transmission","text":"增长与回报预期仍压过政治风险并维持美国资产配置偏好","occurred_at":"2026-04-14T00:00:00Z"},
+	      {"id":"n3","form":"condition","function":"claim","text":"若增长溢价逆转"},
+	      {"id":"n4","form":"judgment","function":"claim","text":"当前并不存在 sell America trade"},
+	      {"id":"n5","form":"forecast","function":"claim","text":"资本流入会放缓","prediction_start_at":"2026-04-14T00:00:00Z"}
+	    ],
+	    "edges":[
+	      {"from":"n2","to":"n1","kind":"正向"},
+	      {"from":"n1","to":"n4","kind":"推出"},
+	      {"from":"n3","to":"n5","kind":"预设"},
+	      {"from":"n4","to":"n5","kind":"推出"}
+	    ]
+	  },
+	  "details":{"caveats":["G04 regression"]},
+	  "confidence":"medium"
+	}`
+	out, err := ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	gotKinds := []NodeKind{
+		out.Graph.Nodes[0].Kind,
+		out.Graph.Nodes[1].Kind,
+		out.Graph.Nodes[2].Kind,
+		out.Graph.Nodes[3].Kind,
+		out.Graph.Nodes[4].Kind,
+	}
+	wantKinds := []NodeKind{NodeFact, NodeMechanism, NodeExplicitCondition, NodeConclusion, NodePrediction}
+	if !reflect.DeepEqual(gotKinds, wantKinds) {
+		t.Fatalf("node kinds = %#v, want %#v", gotKinds, wantKinds)
+	}
+	gotForms := []NodeForm{
+		out.Graph.Nodes[0].Form,
+		out.Graph.Nodes[1].Form,
+		out.Graph.Nodes[2].Form,
+		out.Graph.Nodes[3].Form,
+		out.Graph.Nodes[4].Form,
+	}
+	wantForms := []NodeForm{NodeFormObservation, NodeFormObservation, NodeFormCondition, NodeFormJudgment, NodeFormForecast}
+	if !reflect.DeepEqual(gotForms, wantForms) {
+		t.Fatalf("node forms = %#v, want %#v", gotForms, wantForms)
+	}
+	gotFunctions := []NodeFunction{
+		out.Graph.Nodes[0].Function,
+		out.Graph.Nodes[1].Function,
+		out.Graph.Nodes[2].Function,
+		out.Graph.Nodes[3].Function,
+		out.Graph.Nodes[4].Function,
+	}
+	wantFunctions := []NodeFunction{NodeFunctionSupport, NodeFunctionTransmission, NodeFunctionClaim, NodeFunctionClaim, NodeFunctionClaim}
+	if !reflect.DeepEqual(gotFunctions, wantFunctions) {
+		t.Fatalf("node functions = %#v, want %#v", gotFunctions, wantFunctions)
 	}
 }
 
@@ -489,6 +597,23 @@ func TestOutputValidateRejectsMissingFactTime(t *testing.T) {
 	}
 	if err := out.Validate(); err == nil {
 		t.Fatal("Validate() error = nil, want fact timing rejection")
+	}
+}
+
+func TestOutputValidateRejectsMismatchedFormFunctionAndKind(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Form: NodeFormJudgment, Function: NodeFunctionClaim, Text: "事实A", OccurredAt: mustTime(t, "2026-04-14T00:00:00Z")},
+				{ID: "n2", Kind: NodeConclusion, Text: "结论B"},
+			},
+			Edges: []GraphEdge{{From: "n1", To: "n2", Kind: EdgeDerives}},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+	}
+	if err := out.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want form/function mismatch rejection")
 	}
 }
 

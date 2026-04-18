@@ -47,41 +47,41 @@ const (
 )
 
 type GraphNode struct {
-	ID                string    `json:"id"`
-	Kind              NodeKind  `json:"kind"`
-	Form              NodeForm  `json:"form,omitempty"`
+	ID                string       `json:"id"`
+	Kind              NodeKind     `json:"kind"`
+	Form              NodeForm     `json:"form,omitempty"`
 	Function          NodeFunction `json:"function,omitempty"`
-	Text              string    `json:"text"`
-	ValidFrom         time.Time `json:"valid_from,omitempty"`
-	ValidTo           time.Time `json:"valid_to,omitempty"`
-	OccurredAt        time.Time `json:"occurred_at,omitempty"`
-	PredictionStartAt time.Time `json:"prediction_start_at,omitempty"`
-	PredictionDueAt   time.Time `json:"prediction_due_at,omitempty"`
+	Text              string       `json:"text"`
+	ValidFrom         time.Time    `json:"valid_from,omitempty"`
+	ValidTo           time.Time    `json:"valid_to,omitempty"`
+	OccurredAt        time.Time    `json:"occurred_at,omitempty"`
+	PredictionStartAt time.Time    `json:"prediction_start_at,omitempty"`
+	PredictionDueAt   time.Time    `json:"prediction_due_at,omitempty"`
 }
 
 func (n GraphNode) MarshalJSON() ([]byte, error) {
 	type graphNodePayload struct {
-		ID                string     `json:"id"`
-		Kind              NodeKind   `json:"kind"`
-		Form              NodeForm   `json:"form,omitempty"`
+		ID                string       `json:"id"`
+		Kind              NodeKind     `json:"kind"`
+		Form              NodeForm     `json:"form,omitempty"`
 		Function          NodeFunction `json:"function,omitempty"`
-		Text              string     `json:"text"`
-		ValidFrom         *time.Time `json:"valid_from,omitempty"`
-		ValidTo           *time.Time `json:"valid_to,omitempty"`
-		OccurredAt        *time.Time `json:"occurred_at,omitempty"`
-		PredictionStartAt *time.Time `json:"prediction_start_at,omitempty"`
-		PredictionDueAt   *time.Time `json:"prediction_due_at,omitempty"`
+		Text              string       `json:"text"`
+		ValidFrom         *time.Time   `json:"valid_from,omitempty"`
+		ValidTo           *time.Time   `json:"valid_to,omitempty"`
+		OccurredAt        *time.Time   `json:"occurred_at,omitempty"`
+		PredictionStartAt *time.Time   `json:"prediction_start_at,omitempty"`
+		PredictionDueAt   *time.Time   `json:"prediction_due_at,omitempty"`
 	}
 	normalized, err := n.normalizedSchema()
 	if err == nil {
 		n = normalized
 	}
 	payload := graphNodePayload{
-		ID:   n.ID,
-		Kind: n.Kind,
-		Form: n.Form,
+		ID:       n.ID,
+		Kind:     n.Kind,
+		Form:     n.Form,
 		Function: n.Function,
-		Text: n.Text,
+		Text:     n.Text,
 	}
 	switch n.Kind {
 	case NodeFact, NodeImplicitCondition, NodeMechanism:
@@ -445,12 +445,12 @@ type FullGraphOutput struct {
 }
 
 type ThesisOutput struct {
-	Summary    string         `json:"summary,omitempty"`
-	Drivers    []string       `json:"drivers,omitempty"`
-	Targets    []string       `json:"targets,omitempty"`
-	Details    HiddenDetails  `json:"details,omitempty"`
-	Topics     []string       `json:"topics,omitempty"`
-	Confidence string         `json:"confidence,omitempty"`
+	Summary    string        `json:"summary,omitempty"`
+	Drivers    []string      `json:"drivers,omitempty"`
+	Targets    []string      `json:"targets,omitempty"`
+	Details    HiddenDetails `json:"details,omitempty"`
+	Topics     []string      `json:"topics,omitempty"`
+	Confidence string        `json:"confidence,omitempty"`
 }
 
 func (o Output) Validate() error {
