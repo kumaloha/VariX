@@ -123,8 +123,24 @@ func TestBuildPromptIncludesNegatedTradeNormalizationExample(t *testing.T) {
 
 func TestBuildNodeInstructionAndPrompt(t *testing.T) {
 	instruction := BuildNodeInstruction(GraphRequirements{MinNodes: 4, MinEdges: 3})
-	if !strings.Contains(instruction, "You are a financial-analysis node extractor") || !strings.Contains(instruction, "Produce at least 4 nodes.") {
-		t.Fatalf("node instruction missing expected guidance: %q", instruction)
+	for _, want := range []string{
+		"You are a financial-analysis node extractor",
+		"Produce at least 4 nodes.",
+		"Prefer over-splitting to under-splitting when one sentence mixes evidence, mechanism, judgment, or prediction.",
+		"mechanism: a market transmission relation or pricing/allocation mechanism that explains how one force moves into another outcome in the current article frame",
+		"Make sure the extracted node set includes separate evidence nodes, mechanism/transmission nodes, and judgment nodes whenever the article contains those roles.",
+		"Prefer separate nodes for (a) observed evidence, (b) market mechanism/transmission, and (c) author judgment/slogan when the article contains all three roles.",
+		"Do not collapse evidence, mechanism, and judgment into one sentence if they play different roles in the article.",
+		"If a sentence contains explicit connectors such as because, therefore, so, which means, implying, driven by, due to, despite, or as a result, default to splitting the linked ideas into separate nodes.",
+		"If a sentence contains coordinated claims such as A and B / not X and not Y / both X and Y, default to separate nodes unless they are truly the same proposition restated.",
+		"If a statement says markets prefer or avoid an asset because one force dominates another, capture that preference relation as its own mechanism node.",
+		"If the article says growth expectations, return expectations, or risk pricing dominate competing concerns and therefore keep capital allocated to an asset or market, extract that dominance-to-allocation relation as a standalone mechanism node.",
+		"If observed inflows are presented as the consequence of an investor preference or allocation bias, extract both the preference/allocation-bias mechanism node and the observed inflow evidence node.",
+		"Prefer a mechanism node such as \"markets still allocate to X because growth expectations dominate political risk\" over a high-level slogan node when both express the same idea.",
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Fatalf("node instruction missing %q in %q", want, instruction)
+		}
 	}
 	prompt := BuildNodePrompt(Bundle{UnitID: "web:test", Source: "web", ExternalID: "test", Content: "body"})
 	if !strings.Contains(prompt, "Node extraction payload:") || !strings.Contains(prompt, "[ROOT CONTENT]") {
@@ -150,5 +166,35 @@ func TestBuildGraphInstructionAndPrompt(t *testing.T) {
 	prompt := BuildGraphPrompt(Bundle{UnitID: "web:test", Source: "web", ExternalID: "test", Content: "body"}, []GraphNode{{ID: "n1", Kind: NodeFact, Text: "事实A"}})
 	if !strings.Contains(prompt, "Extracted nodes:") || !strings.Contains(prompt, `"id": "n1"`) {
 		t.Fatalf("graph prompt missing nodes json: %q", prompt)
+	}
+}
+
+func TestBuildChallengePromptBuilders(t *testing.T) {
+	nodes := []GraphNode{{ID: "n1", Kind: NodeFact, Text: "事实A"}}
+	edges := []GraphEdge{{From: "n1", To: "n1", Kind: EdgeDerives}}
+	nodeInstruction := BuildNodeChallengeInstruction(GraphRequirements{MinNodes: 2, MinEdges: 1})
+	for _, want := range []string{
+		"node challenger reviewing an extracted node set for recall gaps",
+		"Audit evidence nodes, mechanism/transmission nodes, and judgment nodes separately before deciding nothing is missing.",
+		"Specifically look for the missing bridge mechanism between evidence nodes and judgment nodes.",
+		"When a judgment about a market narrative depends on an allocation preference, pricing dominance, or investor positioning rule, add that missing mechanism node explicitly instead of only adding more evidence or more judgment nodes.",
+		"Look for nodes that are still too fat: if one existing node contains evidence plus judgment, mechanism plus outcome, prediction plus driver, or multiple coordinated claims, add the missing finer-grained nodes instead of accepting the coarse node as sufficient.",
+		"Treat connector words such as because, therefore, so, which means, implying, driven by, due to, despite, and as a result as split signals.",
+	} {
+		if !strings.Contains(nodeInstruction, want) {
+			t.Fatalf("node challenge instruction = %q", nodeInstruction)
+		}
+	}
+	nodePrompt := BuildNodeChallengePrompt(Bundle{UnitID: "web:test", Source: "web", ExternalID: "test", Content: "body"}, nodes)
+	if !strings.Contains(nodePrompt, "Current extracted nodes:") || !strings.Contains(nodePrompt, `"id": "n1"`) {
+		t.Fatalf("node challenge prompt = %q", nodePrompt)
+	}
+	edgeInstruction := BuildEdgeChallengeInstruction(GraphRequirements{MinNodes: 2, MinEdges: 1})
+	if !strings.Contains(edgeInstruction, "edge challenger reviewing a draft full graph for edge accuracy") {
+		t.Fatalf("edge challenge instruction = %q", edgeInstruction)
+	}
+	edgePrompt := BuildEdgeChallengePrompt(Bundle{UnitID: "web:test", Source: "web", ExternalID: "test", Content: "body"}, nodes, edges)
+	if !strings.Contains(edgePrompt, "Current draft edges:") || !strings.Contains(edgePrompt, `"kind": "推出"`) {
+		t.Fatalf("edge challenge prompt = %q", edgePrompt)
 	}
 }

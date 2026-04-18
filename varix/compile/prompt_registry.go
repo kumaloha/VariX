@@ -107,6 +107,41 @@ func (r *promptRegistry) buildGraphRetryPrompt(bundle Bundle, nodes []GraphNode,
 	return strings.TrimSpace(basePrompt + "\n\n" + suffix), nil
 }
 
+func (r *promptRegistry) buildNodeChallengeInstruction(req GraphRequirements) (string, error) {
+	return r.render("compile/node_challenge_system.tmpl", map[string]any{
+		"MinNodes": req.MinNodes,
+	})
+}
+
+func (r *promptRegistry) buildNodeChallengePrompt(bundle Bundle, nodes []GraphNode) (string, error) {
+	payloadJSON, err := marshalCompilePayload(bundle)
+	if err != nil {
+		return "", err
+	}
+	nodesJSON, err := marshalGraphNodes(nodes)
+	if err != nil {
+		return "", err
+	}
+	return r.render("compile/node_challenge_user.tmpl", map[string]any{
+		"PayloadJSON": payloadJSON,
+		"NodesJSON":   nodesJSON,
+	})
+}
+
+func (r *promptRegistry) buildNodeChallengeRetryPrompt(bundle Bundle, nodes []GraphNode, req GraphRequirements) (string, error) {
+	basePrompt, err := r.buildNodeChallengePrompt(bundle, nodes)
+	if err != nil {
+		return "", err
+	}
+	suffix, err := r.render("compile/node_challenge_retry_suffix.tmpl", map[string]any{
+		"MinNodes": req.MinNodes,
+	})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(basePrompt + "\n\n" + suffix), nil
+}
+
 func (r *promptRegistry) buildNodeInstruction(req GraphRequirements) (string, error) {
 	return r.render("compile/node_system.tmpl", map[string]any{
 		"MinNodes": req.MinNodes,
@@ -130,6 +165,46 @@ func (r *promptRegistry) buildNodeRetryPrompt(bundle Bundle, req GraphRequiremen
 	}
 	suffix, err := r.render("compile/node_retry_suffix.tmpl", map[string]any{
 		"MinNodes": req.MinNodes,
+	})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(basePrompt + "\n\n" + suffix), nil
+}
+
+func (r *promptRegistry) buildEdgeChallengeInstruction(req GraphRequirements) (string, error) {
+	return r.render("compile/edge_challenge_system.tmpl", map[string]any{
+		"MinEdges": req.MinEdges,
+	})
+}
+
+func (r *promptRegistry) buildEdgeChallengePrompt(bundle Bundle, nodes []GraphNode, edges []GraphEdge) (string, error) {
+	payloadJSON, err := marshalCompilePayload(bundle)
+	if err != nil {
+		return "", err
+	}
+	nodesJSON, err := marshalGraphNodes(nodes)
+	if err != nil {
+		return "", err
+	}
+	edgesJSON, err := marshalGraphEdges(edges)
+	if err != nil {
+		return "", err
+	}
+	return r.render("compile/edge_challenge_user.tmpl", map[string]any{
+		"PayloadJSON": payloadJSON,
+		"NodesJSON":   nodesJSON,
+		"EdgesJSON":   edgesJSON,
+	})
+}
+
+func (r *promptRegistry) buildEdgeChallengeRetryPrompt(bundle Bundle, nodes []GraphNode, edges []GraphEdge, req GraphRequirements) (string, error) {
+	basePrompt, err := r.buildEdgeChallengePrompt(bundle, nodes, edges)
+	if err != nil {
+		return "", err
+	}
+	suffix, err := r.render("compile/edge_challenge_retry_suffix.tmpl", map[string]any{
+		"MinEdges": req.MinEdges,
 	})
 	if err != nil {
 		return "", err
@@ -198,6 +273,17 @@ func marshalGraphNodes(nodes []GraphNode) (string, error) {
 
 func marshalReasoningGraph(graph ReasoningGraph) (string, error) {
 	encoded, err := json.MarshalIndent(graph, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+func marshalGraphEdges(edges []GraphEdge) (string, error) {
+	if len(edges) == 0 {
+		return "[]", nil
+	}
+	encoded, err := json.MarshalIndent(edges, "", "  ")
 	if err != nil {
 		return "", err
 	}

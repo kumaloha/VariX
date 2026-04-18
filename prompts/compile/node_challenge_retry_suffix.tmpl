@@ -1,0 +1,8 @@
+The previous node-challenge output failed validation. Redo it and follow these rules:
+- output exactly one valid JSON object, no markdown code fence, no commentary
+- include top-level keys: `graph`, `details`, `topics`, `confidence`
+- output additional nodes only; do not repeat unchanged existing nodes
+- output nodes only; do not output any edges
+- add finer-grained nodes when an existing node still mixes evidence, mechanism, judgment, prediction, or coordinated claims
+- add the missing bridge mechanism node when evidence nodes and judgment nodes are present but the mechanism connecting them is missing
+- make `details` an object and place notes under `details.caveats`

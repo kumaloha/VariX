@@ -15,6 +15,7 @@ const (
 	NodeFact              NodeKind = "事实"
 	NodeExplicitCondition NodeKind = "显式条件"
 	NodeImplicitCondition NodeKind = "隐含条件"
+	NodeMechanism         NodeKind = "机制"
 	NodeAssumption        NodeKind = NodeImplicitCondition // backward-compatible alias
 	NodeConclusion        NodeKind = "结论"
 	NodePrediction        NodeKind = "预测"
@@ -56,7 +57,7 @@ func (n GraphNode) MarshalJSON() ([]byte, error) {
 		Text: n.Text,
 	}
 	switch n.Kind {
-	case NodeFact, NodeImplicitCondition:
+	case NodeFact, NodeImplicitCondition, NodeMechanism:
 		if !n.OccurredAt.IsZero() {
 			t := n.OccurredAt
 			payload.OccurredAt = &t
@@ -103,7 +104,7 @@ func (n GraphNode) LegacyValidityWindow() (time.Time, time.Time) {
 		return n.ValidFrom, n.ValidTo
 	}
 	switch n.Kind {
-	case NodeFact, NodeImplicitCondition:
+	case NodeFact, NodeImplicitCondition, NodeMechanism:
 		if !n.OccurredAt.IsZero() {
 			return n.OccurredAt, openEndedNodeTime
 		}
@@ -529,7 +530,7 @@ func validateGraphNodes(nodes []GraphNode) (map[string]struct{}, error) {
 			return nil, fmt.Errorf("graph node text is required")
 		}
 		switch node.Kind {
-		case NodeFact, NodeExplicitCondition, NodeImplicitCondition, NodeConclusion, NodePrediction:
+		case NodeFact, NodeExplicitCondition, NodeImplicitCondition, NodeMechanism, NodeConclusion, NodePrediction:
 		default:
 			return nil, fmt.Errorf("unsupported node kind: %s", node.Kind)
 		}
@@ -588,7 +589,7 @@ func validateNodeTiming(node GraphNode) error {
 		}
 	}
 	switch node.Kind {
-	case NodeFact, NodeImplicitCondition:
+	case NodeFact, NodeImplicitCondition, NodeMechanism:
 		if node.OccurredAt.IsZero() && node.ValidFrom.IsZero() {
 			return fmt.Errorf("graph node fact timing is required: %s", node.ID)
 		}

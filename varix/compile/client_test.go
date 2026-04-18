@@ -101,9 +101,29 @@ func compileStageResponses(t *testing.T, fullOutputJSON string, model string) []
 	if err != nil {
 		t.Fatalf("marshal thesis stage: %v", err)
 	}
+	emptyNodeChallengeRaw, err := json.Marshal(NodeExtractionOutput{
+		Graph:      ReasoningGraph{Nodes: nil},
+		Details:    HiddenDetails{Caveats: []string{"none"}},
+		Topics:     nil,
+		Confidence: out.Confidence,
+	})
+	if err != nil {
+		t.Fatalf("marshal node challenge stage: %v", err)
+	}
+	emptyEdgeChallengeRaw, err := json.Marshal(FullGraphOutput{
+		Graph:      ReasoningGraph{Edges: nil},
+		Details:    HiddenDetails{Caveats: []string{"none"}},
+		Topics:     nil,
+		Confidence: out.Confidence,
+	})
+	if err != nil {
+		t.Fatalf("marshal edge challenge stage: %v", err)
+	}
 	return []llm.ProviderResponse{
 		{Text: string(nodeRaw), Model: model},
+		{Text: string(emptyNodeChallengeRaw), Model: model},
 		{Text: string(fullGraphRaw), Model: model},
+		{Text: string(emptyEdgeChallengeRaw), Model: model},
 		{Text: string(thesisRaw), Model: model},
 	}
 }
@@ -140,8 +160,8 @@ func TestClientCompileUsesForgeRuntime(t *testing.T) {
 	if record.Output.Summary != "一句话" {
 		t.Fatalf("Summary = %q", record.Output.Summary)
 	}
-	if len(provider.requests) != 6 {
-		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
+	if len(provider.requests) != 8 {
+		t.Fatalf("provider calls = %d, want 8", len(provider.requests))
 	}
 	if provider.requests[0].Model != "compile-model" {
 		t.Fatalf("request model = %q, want compile-model", provider.requests[0].Model)
@@ -182,8 +202,8 @@ func TestClientCompileProjectsInjectedVerificationServiceIntoCompatibilityOutput
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 3 {
-		t.Fatalf("provider calls = %d, want 3 compile-stage calls when verifier is injected", len(provider.requests))
+	if len(provider.requests) != 5 {
+		t.Fatalf("provider calls = %d, want 5 compile-stage calls when verifier is injected", len(provider.requests))
 	}
 	if verifier.calls != 1 {
 		t.Fatalf("verifier calls = %d, want 1", verifier.calls)
@@ -221,8 +241,8 @@ func TestNoopVerificationServiceSkipsVerificationProjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 3 {
-		t.Fatalf("provider calls = %d, want 3", len(provider.requests))
+	if len(provider.requests) != 5 {
+		t.Fatalf("provider calls = %d, want 5", len(provider.requests))
 	}
 	if !record.Output.Verification.VerifiedAt.IsZero() || record.Output.Verification.Model != "" || len(record.Output.Verification.FactChecks) != 0 {
 		t.Fatalf("verification = %#v, want zero-value verification", record.Output.Verification)
@@ -257,9 +277,15 @@ func TestClientCompileUsesConfiguredPromptsDir(t *testing.T) {
 		"compile/node_system.tmpl":                 "node system min={{.MinNodes}}",
 		"compile/node_user.tmpl":                   "node user {{.PayloadJSON}}",
 		"compile/node_retry_suffix.tmpl":           "node retry min={{.MinNodes}}",
+		"compile/node_challenge_system.tmpl":       "node challenge system min={{.MinNodes}}",
+		"compile/node_challenge_user.tmpl":         "node challenge user {{.NodesJSON}} {{.PayloadJSON}}",
+		"compile/node_challenge_retry_suffix.tmpl": "node challenge retry min={{.MinNodes}}",
 		"compile/graph_system.tmpl":                "graph system edges={{.MinEdges}}",
 		"compile/graph_user.tmpl":                  "graph user nodes={{.NodesJSON}} payload={{.PayloadJSON}}",
 		"compile/graph_retry_suffix.tmpl":          "graph retry edges={{.MinEdges}}",
+		"compile/edge_challenge_system.tmpl":       "edge challenge system edges={{.MinEdges}}",
+		"compile/edge_challenge_user.tmpl":         "edge challenge user {{.EdgesJSON}} {{.NodesJSON}} {{.PayloadJSON}}",
+		"compile/edge_challenge_retry_suffix.tmpl": "edge challenge retry edges={{.MinEdges}}",
 		"compile/system.tmpl":                      "compile system min={{.MinNodes}} edges={{.MinEdges}}",
 		"compile/user.tmpl":                        "compile user {{.ProjectionJSON}} {{.PayloadJSON}}",
 		"compile/retry_suffix.tmpl":                "retry requires min={{.MinNodes}} edges={{.MinEdges}}",
@@ -299,13 +325,19 @@ func TestClientCompileUsesConfiguredPromptsDir(t *testing.T) {
 	if got := provider.requests[0].System; got != "node system min=2" {
 		t.Fatalf("node system prompt = %q", got)
 	}
-	if got := provider.requests[1].System; got != "graph system edges=1" {
+	if got := provider.requests[1].System; got != "node challenge system min=2" {
+		t.Fatalf("node challenge system prompt = %q", got)
+	}
+	if got := provider.requests[2].System; got != "graph system edges=1" {
 		t.Fatalf("graph system prompt = %q", got)
 	}
-	if got := provider.requests[2].System; got != "compile system min=2 edges=1" {
+	if got := provider.requests[3].System; got != "edge challenge system edges=1" {
+		t.Fatalf("edge challenge system prompt = %q", got)
+	}
+	if got := provider.requests[4].System; got != "compile system min=2 edges=1" {
 		t.Fatalf("thesis system prompt = %q", got)
 	}
-	if got := provider.requests[3].System; got != "fact claim prompt" {
+	if got := provider.requests[5].System; got != "fact claim prompt" {
 		t.Fatalf("fact verifier system prompt = %q", got)
 	}
 }
@@ -332,8 +364,8 @@ func TestClientCompileCarriesAttachmentTranscriptIntoForgePrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 6 {
-		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
+	if len(provider.requests) != 8 {
+		t.Fatalf("provider calls = %d, want 8", len(provider.requests))
 	}
 	if len(provider.requests[0].UserParts) == 0 {
 		t.Fatalf("provider request missing user parts: %#v", provider.requests[0])
@@ -365,8 +397,8 @@ func TestClientCompileRetriesWhenFirstResponseHasEmptyGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 7 {
-		t.Fatalf("call count = %d, want 7", len(provider.requests))
+	if len(provider.requests) != 9 {
+		t.Fatalf("call count = %d, want 9", len(provider.requests))
 	}
 	retryPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
 	if !containsAll(
@@ -404,8 +436,8 @@ func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 8 {
-		t.Fatalf("call count = %d, want 8", len(provider.requests))
+	if len(provider.requests) != 10 {
+		t.Fatalf("call count = %d, want 10", len(provider.requests))
 	}
 	if len(record.Output.Graph.Nodes) != 4 || len(record.Output.Graph.Edges) != 3 {
 		t.Fatalf("graph = %#v", record.Output.Graph)
@@ -419,8 +451,10 @@ func TestClientCompileRetriesWhenDetailsEmpty(t *testing.T) {
 	provider := &compileMockProvider{responses: append([]llm.ProviderResponse{
 		nodeStages[0],
 		nodeStages[1],
-		{Text: emptyDetailsThesis, Model: "compile-model"},
 		nodeStages[2],
+		nodeStages[3],
+		{Text: emptyDetailsThesis, Model: "compile-model"},
+		nodeStages[4],
 	}, []llm.ProviderResponse{
 		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
 		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"}]}`, Model: "fact-challenge-model"},
@@ -437,8 +471,8 @@ func TestClientCompileRetriesWhenDetailsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 7 {
-		t.Fatalf("call count = %d, want 7", len(provider.requests))
+	if len(provider.requests) != 9 {
+		t.Fatalf("call count = %d, want 9", len(provider.requests))
 	}
 	if len(record.Output.Details.Caveats) != 1 {
 		t.Fatalf("details = %#v", record.Output.Details)
@@ -477,8 +511,8 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 7 {
-		t.Fatalf("provider calls = %d, want 7", len(provider.requests))
+	if len(provider.requests) != 9 {
+		t.Fatalf("provider calls = %d, want 9", len(provider.requests))
 	}
 	if len(record.Output.Verification.FactChecks) != 1 || len(record.Output.Verification.PredictionChecks) != 1 {
 		t.Fatalf("verification = %#v", record.Output.Verification)
@@ -489,14 +523,14 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 	if record.Output.Verification.PredictionChecks[0].Status != PredictionStatusUnresolved {
 		t.Fatalf("prediction check = %#v", record.Output.Verification.PredictionChecks[0])
 	}
-	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
+	factPrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
 	if !containsAll(factPrompt, `"kind": "事实"`, `"occurred_at": "2026-04-14T00:00:00Z"`, `"as_of": "`, `"retrieval_context"`, `"https://example.com/fact"`) {
 		t.Fatalf("fact verifier prompt missing occurred_at evidence: %q", factPrompt)
 	}
 	if strings.Contains(factPrompt, `"valid_from"`) {
 		t.Fatalf("fact verifier prompt should prefer occurred_at over legacy valid_from: %q", factPrompt)
 	}
-	predictionPrompt := provider.requests[6].UserParts[len(provider.requests[6].UserParts)-1].Text
+	predictionPrompt := provider.requests[8].UserParts[len(provider.requests[8].UserParts)-1].Text
 	if !containsAll(predictionPrompt, `"kind": "预测"`, `"prediction_start_at": "2026-04-14T00:00:00Z"`, `"prediction_due_at": "2026-07-14T00:00:00Z"`, `"as_of": "`) {
 		t.Fatalf("prediction verifier prompt missing prediction window evidence: %q", predictionPrompt)
 	}
@@ -526,10 +560,10 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 9 {
-		t.Fatalf("provider calls = %d, want 9", len(provider.requests))
+	if len(provider.requests) != 11 {
+		t.Fatalf("provider calls = %d, want 11", len(provider.requests))
 	}
-	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
+	factPrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
 	for _, want := range []string{`"kind": "事实"`} {
 		if !strings.Contains(factPrompt, want) {
 			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
@@ -549,14 +583,14 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	if len(record.Output.Verification.ExplicitConditionChecks) != 1 {
 		t.Fatalf("len(ExplicitConditionChecks) = %d, want 1", len(record.Output.Verification.ExplicitConditionChecks))
 	}
-	explicitPrompt := provider.requests[6].UserParts[len(provider.requests[6].UserParts)-1].Text
+	explicitPrompt := provider.requests[8].UserParts[len(provider.requests[8].UserParts)-1].Text
 	if !strings.Contains(explicitPrompt, `"as_of": "`) {
 		t.Fatalf("explicit condition verifier prompt missing as_of context: %q", explicitPrompt)
 	}
 	if len(record.Output.Verification.ImplicitConditionChecks) != 1 {
 		t.Fatalf("len(ImplicitConditionChecks) = %d, want 1", len(record.Output.Verification.ImplicitConditionChecks))
 	}
-	implicitPrompt := provider.requests[7].UserParts[len(provider.requests[7].UserParts)-1].Text
+	implicitPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
 	if !strings.Contains(implicitPrompt, `"as_of": "`) {
 		t.Fatalf("implicit condition verifier prompt missing as_of context: %q", implicitPrompt)
 	}
@@ -604,7 +638,7 @@ func TestClientCompileCarriesStructuredWeiboEvidenceIntoVerifierPrompt(t *testin
 		t.Fatalf("Compile() error = %v", err)
 	}
 
-	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
+	factPrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
 	for _, want := range []string{
 		`"root_external_id": "120"`,
 		`"author_name": "alice"`,
@@ -673,7 +707,7 @@ func TestClientCompileAppliesVerifyV2FactsMetadataWithoutBreakingLegacyArrays(t 
 	if record.Output.Verification.Model != "fact-judge-model" {
 		t.Fatalf("Verification.Model = %q, want fact-judge-model", record.Output.Verification.Model)
 	}
-	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
+	factPrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
 	if !containsAll(factPrompt, `"retrieval_context"`, `"https://example.com/fact"`) {
 		t.Fatalf("fact verifier prompt missing retrieval context: %q", factPrompt)
 	}

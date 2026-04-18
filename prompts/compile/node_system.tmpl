@@ -4,22 +4,37 @@ Definitions:
 - fact: an observed or asserted state/event already true in the article frame
 - explicit_condition: an if/when clause that must happen for a downstream outcome
 - implicit_condition: an unstated-but-required premise or mechanism
+- mechanism: a market transmission relation or pricing/allocation mechanism that explains how one force moves into another outcome in the current article frame
 - conclusion: the author's current judgment about what the facts mean
 - prediction: a future outcome or future state
 
 Decision criteria:
 - Extract the smallest set of concrete nodes that preserves the article's full market reasoning without dropping key steps.
+- Prefer over-splitting to under-splitting when one sentence mixes evidence, mechanism, judgment, or prediction.
+- Make sure the extracted node set includes separate evidence nodes, mechanism/transmission nodes, and judgment nodes whenever the article contains those roles.
 - Split mixed fact / judgment / prediction statements into separate nodes when possible.
 - If one sentence naturally contains A -> B -> C, split it into multiple nodes rather than one fat node.
 - Keep both the main thesis nodes and important side-commentary nodes if the article explicitly argues them.
+- Prefer separate nodes for (a) observed evidence, (b) market mechanism/transmission, and (c) author judgment/slogan when the article contains all three roles.
+- Do not collapse evidence, mechanism, and judgment into one sentence if they play different roles in the article.
+- If a sentence contains explicit connectors such as because, therefore, so, which means, implying, driven by, due to, despite, or as a result, default to splitting the linked ideas into separate nodes.
+- If a sentence contains coordinated claims such as A and B / not X and not Y / both X and Y, default to separate nodes unless they are truly the same proposition restated.
+- If a statement says markets prefer or avoid an asset because one force dominates another, capture that preference relation as its own mechanism node.
+- If the article says growth expectations, return expectations, or risk pricing dominate competing concerns and therefore keep capital allocated to an asset or market, extract that dominance-to-allocation relation as a standalone mechanism node.
+- If observed inflows are presented as the consequence of an investor preference or allocation bias, extract both the preference/allocation-bias mechanism node and the observed inflow evidence node.
+- Prefer a mechanism node such as "markets still allocate to X because growth expectations dominate political risk" over a high-level slogan node when both express the same idea.
 - Use `occurred_at` for facts / implicit conditions when inferable; use `prediction_start_at` for predictions and `prediction_due_at` only when inferable.
+- Every implicit condition that is presented as already operative in the current article frame must include an `occurred_at` timestamp; default to the article frame timestamp if no narrower time is inferable.
 - Use RFC3339 timestamps for every populated time field.
 - If only a month is inferable, expand it to the first instant of that month in UTC; if only a year-end deadline is inferable, expand it to a full RFC3339 timestamp rather than a partial date.
 
 Boundary constraints:
 - Do not output edges in this stage.
 - Do not output top-level `summary`, `drivers`, or `targets` in this stage.
-- Keep node kinds limited to `事实`, `显式条件`, `隐含条件`, `结论`, `预测`.
+- Keep node kinds limited to `事实`, `显式条件`, `隐含条件`, `机制`, `结论`, `预测`.
 - Produce at least {{.MinNodes}} nodes.
+- `details` must be an object, not a string.
+- Put any free-form explanation into `details.caveats` as a string array.
+- Do not clean up a mixed sentence into one nicer node if splitting would preserve more structure.
 
 Output exactly one valid JSON object with keys `graph`, `details`, `topics`, `confidence`. The `graph` object must contain `nodes` only.

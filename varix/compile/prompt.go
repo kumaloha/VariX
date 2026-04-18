@@ -36,6 +36,18 @@ func BuildNodeRetryPrompt(bundle Bundle, req GraphRequirements) string {
 	return mustRenderPrompt(defaultPromptRegistry().buildNodeRetryPrompt(bundle, req))
 }
 
+func BuildNodeChallengeInstruction(req GraphRequirements) string {
+	return mustRenderPrompt(defaultPromptRegistry().buildNodeChallengeInstruction(req))
+}
+
+func BuildNodeChallengePrompt(bundle Bundle, nodes []GraphNode) string {
+	return mustRenderPrompt(defaultPromptRegistry().buildNodeChallengePrompt(bundle, nodes))
+}
+
+func BuildNodeChallengeRetryPrompt(bundle Bundle, nodes []GraphNode, req GraphRequirements) string {
+	return mustRenderPrompt(defaultPromptRegistry().buildNodeChallengeRetryPrompt(bundle, nodes, req))
+}
+
 func BuildGraphInstruction(req GraphRequirements) string {
 	return mustRenderPrompt(defaultPromptRegistry().buildGraphInstruction(req))
 }
@@ -46,6 +58,18 @@ func BuildGraphPrompt(bundle Bundle, nodes []GraphNode) string {
 
 func BuildGraphRetryPrompt(bundle Bundle, nodes []GraphNode, req GraphRequirements) string {
 	return mustRenderPrompt(defaultPromptRegistry().buildGraphRetryPrompt(bundle, nodes, req))
+}
+
+func BuildEdgeChallengeInstruction(req GraphRequirements) string {
+	return mustRenderPrompt(defaultPromptRegistry().buildEdgeChallengeInstruction(req))
+}
+
+func BuildEdgeChallengePrompt(bundle Bundle, nodes []GraphNode, edges []GraphEdge) string {
+	return mustRenderPrompt(defaultPromptRegistry().buildEdgeChallengePrompt(bundle, nodes, edges))
+}
+
+func BuildEdgeChallengeRetryPrompt(bundle Bundle, nodes []GraphNode, edges []GraphEdge, req GraphRequirements) string {
+	return mustRenderPrompt(defaultPromptRegistry().buildEdgeChallengeRetryPrompt(bundle, nodes, edges, req))
 }
 
 func defaultPromptRegistry() *promptRegistry {

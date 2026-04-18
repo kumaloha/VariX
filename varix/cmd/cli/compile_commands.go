@@ -56,6 +56,8 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	platform := fs.String("platform", "", "content platform")
 	externalID := fs.String("id", "", "content external id")
 	force := fs.Bool("force", false, "force recompilation even if compiled output already exists")
+	noVerify := fs.Bool("no-verify", false, "skip compile-time verification and retrieval")
+	noValidate := fs.Bool("no-validate", false, "skip compile output validation (evaluation/debug only)")
 	timeout := fs.Duration("timeout", 10*time.Minute, "compile timeout")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -73,8 +75,15 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	c.EnableFactWebVerification()
+	if !*noVerify {
+		c.EnableFactWebVerification()
+	}
 	client := buildCompileClient(projectRoot)
+	if *noVerify && *noValidate {
+		client = c.NewClientFromConfigNoVerifyNoValidate(projectRoot, nil)
+	} else if *noVerify {
+		client = c.NewClientFromConfigNoVerify(projectRoot, nil)
+	}
 	if client == nil {
 		fmt.Fprintln(stderr, "compile client config missing")
 		return 1

@@ -3,6 +3,13 @@ The previous node extraction output failed validation. Redo it and follow these 
 - include top-level keys: `graph`, `details`, `topics`, `confidence`
 - produce at least {{.MinNodes}} nodes
 - output nodes only; do not output any edges
+- prefer over-splitting to under-splitting
 - split mixed fact / judgment / prediction statements into separate nodes when possible
 - if a sentence contains a multi-step causal chain, split it into multiple nodes instead of one fat node
+- if a sentence contains because / therefore / so / which means / implying / driven by / due to / despite / as a result, split the linked ideas into separate nodes
+- if a sentence contains coordinated claims such as A and B or not X and not Y, split them unless they are the same proposition restated
+- extract preference/allocation-bias mechanism nodes separately from observed inflow evidence when the article distinguishes them
+- give every current-frame implicit condition an `occurred_at` timestamp; use the article frame timestamp if needed
+- prefer mechanism nodes over slogan nodes when the mechanism explains continued allocation or positioning
 - use RFC3339 timestamps for populated time fields
+- make `details` an object and place notes under `details.caveats`

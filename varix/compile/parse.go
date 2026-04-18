@@ -59,9 +59,6 @@ func ParseNodeExtractionOutput(raw string) (NodeExtractionOutput, error) {
 		}
 		out.Details = details
 	}
-	if err := out.ValidateWithThresholds(1); err != nil {
-		return NodeExtractionOutput{}, err
-	}
 	return out, nil
 }
 
@@ -80,9 +77,6 @@ func ParseFullGraphOutput(raw string, nodeIDs map[string]struct{}, nodeKinds map
 			return FullGraphOutput{}, err
 		}
 		out.Details = details
-	}
-	if err := out.ValidateWithThresholds(1, nodeIDs, nodeKinds); err != nil {
-		return FullGraphOutput{}, err
 	}
 	return out, nil
 }
@@ -136,7 +130,7 @@ func normalizeNodeTiming(graph *ReasoningGraph) {
 	for i := range graph.Nodes {
 		node := &graph.Nodes[i]
 		switch node.Kind {
-		case NodeFact, NodeImplicitCondition:
+		case NodeFact, NodeImplicitCondition, NodeMechanism:
 			if node.OccurredAt.IsZero() && !node.ValidFrom.IsZero() {
 				node.OccurredAt = node.ValidFrom
 			}

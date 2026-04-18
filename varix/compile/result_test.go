@@ -89,6 +89,25 @@ func TestOutputValidateAcceptsExplicitAndImplicitConditions(t *testing.T) {
 	}
 }
 
+func TestOutputValidateAcceptsMechanismNode(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeMechanism, Text: "增长预期压过政治风险定价并维持美国资产配置偏好", OccurredAt: mustTime(t, "2026-04-14T00:00:00Z")},
+				{ID: "n2", Kind: NodeFact, Text: "海外资金继续流入美国资产", OccurredAt: mustTime(t, "2026-04-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{
+				{From: "n1", To: "n2", Kind: EdgePositive},
+			},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+	}
+	if err := out.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestOutputValidateRejectsPresetEdgeStartingFromNonConditionNode(t *testing.T) {
 	out := Output{
 		Summary: "一句话总结",
