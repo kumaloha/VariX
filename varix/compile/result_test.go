@@ -246,6 +246,34 @@ func TestGraphAliasesDecodeFormFunctionSchema(t *testing.T) {
 	}
 }
 
+func TestOutputValidateAcceptsFormFunctionSchemaWithAllSupportedEdgeKinds(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Drivers: []string{"增长预期压过政治风险定价并维持美国资产配置偏好"},
+		Targets: []string{"当前并不存在 sell America trade"},
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Form: NodeFormObservation, Function: NodeFunctionSupport, Text: "海外资金继续流入美国资产", OccurredAt: mustTime(t, "2026-04-14T00:00:00Z")},
+				{ID: "n2", Form: NodeFormObservation, Function: NodeFunctionTransmission, Text: "增长预期压过政治风险定价并维持美国资产配置偏好", OccurredAt: mustTime(t, "2026-04-14T00:00:00Z")},
+				{ID: "n3", Form: NodeFormCondition, Function: NodeFunctionClaim, Text: "若增长溢价逆转"},
+				{ID: "n4", Form: NodeFormJudgment, Function: NodeFunctionClaim, Text: "当前并不存在 sell America trade"},
+				{ID: "n5", Form: NodeFormObservation, Function: NodeFunctionSupport, Text: "市场仍按美国例外论框架理解风险", OccurredAt: mustTime(t, "2026-04-14T00:00:00Z")},
+				{ID: "n6", Form: NodeFormForecast, Function: NodeFunctionClaim, Text: "资本流入会放缓", PredictionStartAt: mustTime(t, "2026-04-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{
+				{From: "n2", To: "n4", Kind: EdgePositive},
+				{From: "n1", To: "n4", Kind: EdgeDerives},
+				{From: "n3", To: "n6", Kind: EdgePresets},
+				{From: "n5", To: "n4", Kind: EdgeExplains},
+			},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+	}
+	if err := out.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestGraphNodeMarshalJSONPrefersSemanticTimeFields(t *testing.T) {
 	node := GraphNode{
 		ID:                "n1",
