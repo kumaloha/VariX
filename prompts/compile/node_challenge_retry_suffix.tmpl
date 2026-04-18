@@ -3,6 +3,8 @@ The previous node-challenge output failed validation. Redo it and follow these r
 - include top-level keys: `graph`, `details`, `topics`, `confidence`
 - output additional nodes only; do not repeat unchanged existing nodes
 - output nodes only; do not output any edges
+- every additional node must include `form` and `function`
 - add finer-grained nodes when an existing node still mixes evidence, mechanism, judgment, prediction, or coordinated claims
 - add the missing bridge mechanism node when evidence nodes and judgment nodes are present but the mechanism connecting them is missing
+- for G04-style flow/positioning articles, add the missing transmission bridge when support observations and claim nodes are present without it
 - make `details` an object and place notes under `details.caveats`

@@ -4,6 +4,8 @@ The previous graph output failed validation. Redo it and follow these rules:
 - output edges only; do not output any nodes
 - produce at least {{.MinEdges}} edges
 - use only edge kinds `正向`, `推出`, `预设`
+- if a source node is `function=transmission`, default to `正向`; if a source node is `function=support`, default to `推出`
 - if A changes B in the world, use `正向`; if A only supports or proves B, use `推出`
 - use `预设` only when the source node is a condition node
+- for G04-style flow/positioning articles, keep support -> claim evidential and transmission -> claim causal when the mechanism is the bridge
 - ensure the dominant market thesis has at least one causal path built from `正向` edges

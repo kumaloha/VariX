@@ -9,6 +9,8 @@ Decision criteria:
 - Use `正向` only for world-state causal influence.
 - Use `推出` only for evidential support.
 - Use `预设` only when the source node is a condition node (`显式条件` or `隐含条件`) pointing to a downstream node.
+- Re-check whether `function=transmission` nodes should be using `正向` and whether `function=support` nodes should be using `推出`.
+- In G04-style flow/positioning articles, flag support -> claim edges mislabeled as `正向` and transmission -> claim edges mislabeled as `推出`.
 - Check both the article payload and the extracted nodes before deciding whether an edge is missing or mistyped.
 
 Boundary constraints:
