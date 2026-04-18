@@ -2,6 +2,7 @@ package compile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -169,19 +170,19 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	if c.prompts == nil {
 		c.prompts = newPromptRegistry("")
 	}
-	driverTargetOutput, err := c.compileDriverTarget(ctx, bundle)
+	output, err := c.compileDirect(ctx, bundle)
+	if err != nil {
+		var legacyStageErr legacyNodeStageError
+		switch {
+		case errors.As(err, &legacyStageErr):
+			output, err = c.compileLegacyFromInitialNodeOutput(ctx, bundle, legacyStageErr.nodeOutput)
+		case shouldFallbackToLegacyCompile(err):
+			output, err = c.compileLegacy(ctx, bundle)
+		}
+	}
 	if err != nil {
 		return Record{}, err
 	}
-	transmissionPathOutput, err := c.compileTransmissionPaths(ctx, bundle, driverTargetOutput)
-	if err != nil {
-		return Record{}, err
-	}
-	evidenceExplanationOutput, err := c.compileEvidenceExplanation(ctx, bundle, driverTargetOutput, transmissionPathOutput)
-	if err != nil {
-		return Record{}, err
-	}
-	output := mergeDirectCompileOutputs(bundle, driverTargetOutput, transmissionPathOutput, evidenceExplanationOutput)
 	verification, err := c.verifier.Verify(ctx, bundle, output)
 	if err != nil {
 		return Record{}, err
@@ -196,6 +197,160 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 		Output:         output,
 		CompiledAt:     time.Now().UTC(),
 	}, nil
+}
+
+type legacyNodeStageError struct {
+	nodeOutput NodeExtractionOutput
+}
+
+func (e legacyNodeStageError) Error() string {
+	return "direct pipeline received legacy node stage output"
+}
+
+func shouldFallbackToLegacyCompile(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "drivers must not be empty") ||
+		strings.Contains(msg, "targets must not be empty") ||
+		strings.Contains(msg, "load prompt compile/driver_target_")
+}
+
+func (c *Client) compileDirect(ctx context.Context, bundle Bundle) (Output, error) {
+	driverTargetOutput, err := c.compileDriverTarget(ctx, bundle)
+	if err != nil {
+		return Output{}, err
+	}
+	transmissionPathOutput, err := c.compileTransmissionPaths(ctx, bundle, driverTargetOutput)
+	if err != nil {
+		return Output{}, err
+	}
+	evidenceExplanationOutput, err := c.compileEvidenceExplanation(ctx, bundle, driverTargetOutput, transmissionPathOutput)
+	if err != nil {
+		return Output{}, err
+	}
+	return mergeDirectCompileOutputs(bundle, driverTargetOutput, transmissionPathOutput, evidenceExplanationOutput), nil
+}
+
+func (c *Client) compileLegacy(ctx context.Context, bundle Bundle) (Output, error) {
+	reqs := InferGraphRequirements(bundle)
+	nodeSystemPrompt, err := c.prompts.buildNodeInstruction(reqs)
+	if err != nil {
+		return Output{}, err
+	}
+	nodeUserPrompt, err := c.prompts.buildNodePrompt(bundle)
+	if err != nil {
+		return Output{}, err
+	}
+	nodeOutput, err := c.extractNodesAttempt(ctx, bundle, nodeSystemPrompt, nodeUserPrompt, reqs)
+	if err != nil {
+		return Output{}, err
+	}
+	return c.compileLegacyFromInitialNodeOutput(ctx, bundle, nodeOutput)
+}
+
+func (c *Client) compileLegacyFromInitialNodeOutput(ctx context.Context, bundle Bundle, nodeOutput NodeExtractionOutput) (Output, error) {
+	reqs := InferGraphRequirements(bundle)
+	nodeSystemPrompt, err := c.prompts.buildNodeInstruction(reqs)
+	if err != nil {
+		return Output{}, err
+	}
+	if err := nodeOutput.ValidateWithThresholds(reqs.MinNodes); err != nil {
+		retryPrompt, retryErr := c.prompts.buildNodeRetryPrompt(bundle, reqs)
+		if retryErr != nil {
+			return Output{}, retryErr
+		}
+		nodeOutput, err = c.extractNodesAttempt(ctx, bundle, nodeSystemPrompt, retryPrompt, reqs)
+		if err != nil {
+			return Output{}, err
+		}
+	}
+
+	nodeChallengeSystemPrompt, err := c.prompts.buildNodeChallengeInstruction(reqs)
+	if err != nil {
+		return Output{}, err
+	}
+	nodeChallengeUserPrompt, err := c.prompts.buildNodeChallengePrompt(bundle, nodeOutput.Graph.Nodes)
+	if err != nil {
+		return Output{}, err
+	}
+	nodeChallengeOutput, err := c.extractNodesAttempt(ctx, bundle, nodeChallengeSystemPrompt, nodeChallengeUserPrompt, GraphRequirements{})
+	if err != nil {
+		retryPrompt, retryErr := c.prompts.buildNodeChallengeRetryPrompt(bundle, nodeOutput.Graph.Nodes, reqs)
+		if retryErr != nil {
+			return Output{}, retryErr
+		}
+		nodeChallengeOutput, err = c.extractNodesAttempt(ctx, bundle, nodeChallengeSystemPrompt, retryPrompt, GraphRequirements{})
+		if err != nil {
+			nodeChallengeOutput = NodeExtractionOutput{}
+		}
+	}
+	nodeOutput = mergeNodeOutputs(nodeOutput, nodeChallengeOutput)
+
+	fullGraphSystemPrompt, err := c.prompts.buildGraphInstruction(reqs)
+	if err != nil {
+		return Output{}, err
+	}
+	fullGraphUserPrompt, err := c.prompts.buildGraphPrompt(bundle, nodeOutput.Graph.Nodes)
+	if err != nil {
+		return Output{}, err
+	}
+	fullGraphOutput, err := c.buildFullGraphAttempt(ctx, bundle, fullGraphSystemPrompt, fullGraphUserPrompt, reqs, nodeOutput.Graph.Nodes)
+	if err != nil {
+		retryPrompt, retryErr := c.prompts.buildGraphRetryPrompt(bundle, nodeOutput.Graph.Nodes, reqs)
+		if retryErr != nil {
+			return Output{}, retryErr
+		}
+		fullGraphOutput, err = c.buildFullGraphAttempt(ctx, bundle, fullGraphSystemPrompt, retryPrompt, reqs, nodeOutput.Graph.Nodes)
+		if err != nil {
+			return Output{}, err
+		}
+	}
+
+	edgeChallengeSystemPrompt, err := c.prompts.buildEdgeChallengeInstruction(reqs)
+	if err != nil {
+		return Output{}, err
+	}
+	edgeChallengeUserPrompt, err := c.prompts.buildEdgeChallengePrompt(bundle, nodeOutput.Graph.Nodes, fullGraphOutput.Graph.Edges)
+	if err != nil {
+		return Output{}, err
+	}
+	edgeChallengeOutput, err := c.buildFullGraphAttempt(ctx, bundle, edgeChallengeSystemPrompt, edgeChallengeUserPrompt, GraphRequirements{}, nodeOutput.Graph.Nodes)
+	if err != nil {
+		retryPrompt, retryErr := c.prompts.buildEdgeChallengeRetryPrompt(bundle, nodeOutput.Graph.Nodes, fullGraphOutput.Graph.Edges, reqs)
+		if retryErr != nil {
+			return Output{}, retryErr
+		}
+		edgeChallengeOutput, err = c.buildFullGraphAttempt(ctx, bundle, edgeChallengeSystemPrompt, retryPrompt, GraphRequirements{}, nodeOutput.Graph.Nodes)
+		if err != nil {
+			edgeChallengeOutput = FullGraphOutput{}
+		}
+	}
+	fullGraphOutput = mergeFullGraphOutputs(fullGraphOutput, edgeChallengeOutput)
+
+	causalProjection := buildCausalProjection(nodeOutput.Graph.Nodes, fullGraphOutput.Graph.Edges)
+	thesisSystemPrompt, err := c.prompts.buildThesisInstruction(reqs)
+	if err != nil {
+		return Output{}, err
+	}
+	thesisUserPrompt, err := c.prompts.buildThesisPrompt(bundle, causalProjection)
+	if err != nil {
+		return Output{}, err
+	}
+	thesisOutput, err := c.buildThesisAttempt(ctx, bundle, thesisSystemPrompt, thesisUserPrompt)
+	if err != nil {
+		retryPrompt, retryErr := c.prompts.buildThesisRetryPrompt(bundle, causalProjection, reqs)
+		if retryErr != nil {
+			return Output{}, retryErr
+		}
+		thesisOutput, err = c.buildThesisAttempt(ctx, bundle, thesisSystemPrompt, retryPrompt)
+		if err != nil {
+			return Output{}, err
+		}
+	}
+
+	return mergeCompileOutputs(nodeOutput, fullGraphOutput, thesisOutput), nil
 }
 
 func (c *Client) compileDriverTarget(ctx context.Context, bundle Bundle) (DriverTargetOutput, error) {
@@ -430,9 +585,11 @@ func (c *Client) buildDriverTargetAttempt(ctx context.Context, bundle Bundle, sy
 	if err != nil {
 		return DriverTargetOutput{}, err
 	}
-	if len(out.Drivers) == 0 || len(out.Targets) == 0 {
-		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
-			out = deriveDriverTargetOutputFromLegacy(legacy)
+	if len(out.Drivers) == 0 && len(out.Targets) == 0 {
+		legacyNodeOutput, legacyErr := ParseNodeExtractionOutput(resp.Text)
+		if legacyErr == nil {
+			applyBundleTimingFallbacks(bundle, &legacyNodeOutput.Graph)
+			return DriverTargetOutput{}, legacyNodeStageError{nodeOutput: legacyNodeOutput}
 		}
 	}
 	return out, nil
