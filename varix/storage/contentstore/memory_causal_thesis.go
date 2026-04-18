@@ -47,6 +47,8 @@ func assignNodeRoles(nodes []memory.AcceptedNode) map[string]string {
 			out[node.NodeID] = "fact"
 		case string(compile.NodeExplicitCondition):
 			out[node.NodeID] = "condition"
+		case string(compile.NodeMechanism):
+			out[node.NodeID] = "mechanism"
 		case string(compile.NodeImplicitCondition):
 			out[node.NodeID] = "mechanism"
 		case string(compile.NodeConclusion):
