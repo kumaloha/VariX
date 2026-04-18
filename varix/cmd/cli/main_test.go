@@ -3241,7 +3241,7 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Logic chain", "事实A --推出--> 结论B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Logic chain", "事实A --substantiates--> 结论B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -3299,7 +3299,7 @@ func TestRunCompileCardCompactPrintsCompactView(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- [预|unresolved] 预测C", "Main logic", "事实A --推出--> 结论B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- [预|unresolved] 预测C", "Main logic", "事实A --substantiates--> 结论B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -3365,7 +3365,7 @@ func TestRunCompileCardCompactReadsByURL(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- [预|unresolved] 预测C", "Main logic", "事实A --推出--> 结论B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- [预|unresolved] 预测C", "Main logic", "事实A --substantiates--> 结论B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -3427,7 +3427,7 @@ func TestRunCompileCardCollapsesLinearChain(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "事实A --正向--> 事实B --推出--> 结论C") {
+	if !strings.Contains(out, "事实A --drives--> 事实B --substantiates--> 结论C") {
 		t.Fatalf("stdout missing collapsed chain in %q", out)
 	}
 }
