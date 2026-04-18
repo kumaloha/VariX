@@ -1,221 +1,240 @@
-# Compile Form+Function Implementation Plan
+# Compile Redesign Plan
 
 ## Status
 
-This document now serves as the implementation baseline for the landed
-form+function rollout. The focused post-landing review lives in
-`docs/compile-node-form-function-review.md`.
+This document replaces the earlier compatibility-oriented redesign notes.
+The target design is no longer "keep the old node kinds and layer new axes on top".
+The target design is now a direct extraction pipeline centered on:
 
-Current review conclusion:
-- the additive schema migration is landed
-- the primary transmission-bridge recovery path is now explicit in prompts and
-  regression tests
-- follow-up work should stay focused on bridge recovery and edge correctness,
-  not on broad taxonomy churn
+1. driver / target
+2. transmission path
+3. evidence / explanation
 
-## Goal
+No code changes should proceed beyond this direction unless they align with this document.
 
-Improve compile so that graph construction is not just locally coherent but also globally complete enough to recover the primary transmission node in cases like G04.
+---
 
-## Core design
+## Core decision
 
-### 1. Node schema
+The old node-first / edge-first design has become too indirect.
+It encourages the system to overfit local node relations before it has identified the main market structure.
 
-Each node has two axes:
+The new design starts from the main structure first, then fills in the middle and supporting layers.
 
-- `form`
-  - `observation`
-  - `condition`
-  - `judgment`
-  - `forecast`
+---
 
-- `function`
-  - `support`
-  - `transmission`
-  - `claim`
+## New pipeline
 
-Interpretation:
+## Step 1 — Driver/Target extraction
 
-- `form` answers: what kind of statement is this?
-- `function` answers: what role does this statement play in the reasoning chain?
+### Objective
+Identify the article's main drivers and main targets directly.
+Do not begin from generic node extraction.
 
-### 2. Node generation workflow
+### Workflow
+- generator
+- challenge
+- judge
 
-#### Generator
-
-Purpose:
-- maximize recall
-- prefer semantic splitting over sentence-level compression
-
-Rules:
-- split when one sentence mixes evidence, transmission, and claim
-- split when one sentence contains multiple independently evaluable claims
-- split when connectors imply multiple semantic steps (`because`, `therefore`, `due to`, `implying`, etc.)
-- if evidence supports a claim but the pricing / allocation / positioning rule is missing, generate a transmission node for that bridge
-
-#### Challenge
-
-Purpose:
-- catch missing nodes
-- catch under-split nodes
-- explicitly look for missing transmission bridges
-
-Challenge checks:
-- missing evidence nodes
-- missing transmission nodes
-- missing claim nodes
-- evidence and claim present but no transmission bridge present
-- a transmission rule collapsed into a judgment node
-- multiple claim-level propositions packed into one node
-
-### 3. Edge schema
-
-Allowed edge kinds only:
-
-- `drives`
-- `substantiates`
-- `gates`
-- `explains`
-
-Required shape:
-
+### Output
 ```json
-{"from":"...","to":"...","kind":"drives|substantiates|gates|explains"}
+{
+  "drivers": ["..."],
+  "targets": ["..."]
+}
 ```
 
-No alternate keys:
-- no `source`
-- no `target`
-- no `relation`
+### Generator responsibilities
+- propose the main drivers
+- propose the main targets
+- normalize to driver -> target regardless of article writing order
 
-### 4. Edge semantics
+### Challenge responsibilities
+- check whether generator missed a driver
+- check whether generator missed a target
+- check whether one driver/target entry improperly merges multiple independent items
+- challenge analytical center drift (for example, latching onto a side thesis instead of the main thesis)
 
-#### `drives`
-World-state transmission.
-A changes the world and thereby moves B.
-This is the only edge type that belongs to the main causal spine.
+### Judge responsibilities
+- select the final driver set
+- select the final target set
+- reject unsupported side-thesis promotion
 
-#### `substantiates`
-Evidential support.
-A makes B more justified or more believable, but does not itself make B happen.
+### Acceptance criterion
+At the end of step 1, the system should already know:
+- what is driving
+- what is being driven
 
-#### `gates`
-Prerequisite / gate.
-The source node must be a condition node, and the downstream node depends on it.
+without relying on a generic node graph to infer that later.
 
-#### `explains`
-Interpretive framing.
-A tells the reader how to understand B or what theory / frame B belongs to, but does not directly prove or cause B.
+---
 
-### 5. Main chain vs auxiliary layer
+## Step 2 — Transmission path extraction
 
-#### Main chain
-- only `drives`
+### Objective
+Given the final driver/target pair(s), extract the middle transmission path directly.
+This step owns the causal spine.
 
-#### Auxiliary layer
-- `substantiates`
-- `gates`
-- `explains`
+### Workflow
+- generator
+- challenge
+- judge
 
-### 6. Causal projection
+### Output
+```json
+{
+  "transmission_paths": [
+    {
+      "driver": "...",
+      "target": "...",
+      "steps": ["...", "...", "..."]
+    }
+  ]
+}
+```
 
-Causal projection is code-only, not prompt-based.
+### Generator responsibilities
+- propose the shortest sufficient path from driver to target
+- include bridge mechanisms that are necessary to make the relation intelligible
+- avoid padding the path with proof-only material
 
-Rules:
-- keep only `drives`
-- discard `substantiates`
-- discard `gates`
-- discard `explains`
-- drop isolated nodes that are not attached to any `drives` edge
+### Challenge responsibilities
+- detect missing bridge steps
+- detect over-compressed steps
+- detect when a path step is actually two or more separate transmission steps
+- detect when a proposed step is not transmission but merely support or explanation
 
-### 7. Thesis mapping
+### Judge responsibilities
+- finalize the path
+- keep only the transmission chain needed to connect driver to target
+- reject side chains that do not belong to the main causal spine
 
-Input:
-- causal projection only
+### Acceptance criterion
+At the end of step 2, the system should have a causal spine that can stand on its own.
+This is the main chain.
 
-Output:
-- `drivers`
-- `targets`
-- `summary`
+---
 
-Rules:
-- do not invent new middle nodes
-- do not re-read discarded auxiliary edges as if they were main-chain evidence
-- treat `summary` as the natural-language organization of the final driver/target relation
+## Step 3 — Evidence / explanation extraction
 
-## What is still failing today
+### Objective
+Only after driver/target and transmission path are fixed, extract the auxiliary layer.
+This step owns proof and framing.
 
-### Main recurring gap
+### Workflow
+- generator
+- challenge
+- judge
 
-The system still struggles when a case requires a **primary transmission bridge** between:
-- support observations
-- and claim-level judgments
+### Output
+```json
+{
+  "evidence_nodes": ["..."],
+  "explanation_nodes": ["..."]
+}
+```
 
-Typical missing bridge shape:
-- one pricing force dominates another
-- one allocation preference dominates another
-- one positioning rule keeps capital allocated a certain way
+### Generator responsibilities
+- extract supporting evidence for the chosen driver/target/path
+- extract explanation/framework material that helps interpret the path
 
-The system often captures:
-- evidence
-- claim
+### Challenge responsibilities
+- detect missing evidence
+- detect missing explanation/context
+- detect evidence that actually belongs in the main transmission path instead of the auxiliary layer
+- detect explanations that are really just repeated judgments
 
-but misses the bridge transmission node that explains why the evidence leads to the claim.
+### Judge responsibilities
+- finalize support layer vs explanation layer
+- keep evidence and explanation outside the main causal spine
 
-## General debugging rule
+### Acceptance criterion
+At the end of step 3, the system has:
+- main chain = driver / target / transmission path
+- auxiliary layer = evidence / explanation
 
-When a case fails, first ask:
-1. Are the support nodes present?
-2. Are the claim nodes present?
-3. Is the transmission bridge missing?
-4. If the bridge exists, is it incorrectly typed as judgment instead of transmission?
-5. Are edges correct once the bridge exists?
+---
 
-## G04-specific diagnostic pattern (abstracted)
+## Resulting structure
 
-This plan intentionally avoids case-specific wording in prompts.
-But the recurring abstract pattern is:
-- support observations about continued flow / positioning
-- a missing transmission rule about pricing / allocation dominance
-- a claim about a market narrative not truly being present
-
-That pattern should be addressed by general rules, not sample-specific prompt language.
-
-## Acceptance criteria
-
-### Nodes
-- support / transmission / claim layers can be separated in the same article
-- multiple independent claims are split
-- bridge transmission nodes are generated when needed
-
-### Edges
-- all edges use exactly `from` / `to` / `kind`
-- all edge kinds are one of the four allowed values
-- no blank edge kind
-- no alternate edge schema keys
+The final compile product should conceptually separate:
 
 ### Main chain
-- causal projection contains only `drives`
-- auxiliary edges do not leak into the main causal spine
+- drivers
+- targets
+- transmission paths
 
-### Thesis
-- driver and target come from the projected main chain
-- summary matches that same chain
+### Auxiliary layer
+- evidence
+- explanation
 
-## Validation workflow
+The main chain should not be reconstructed later from generic nodes and edges.
+It should be extracted directly.
 
-1. run focused compile tests
-2. run targeted case probes (especially G04-like failures)
-3. inspect:
-   - nodes
-   - edges
-   - projection
-   - final thesis
-4. only then decide whether the failure is in recall, bridge recovery, edge typing, or thesis mapping
+---
 
-Focused current-branch note:
-- the narrow G04 regression path already shows the primary transmission bridge as
-  its own node
-- the smallest remaining gap is edge-level: the focused fixture still needs a
-  direct transmission -> claim link if we want the bridge to be explicit in the
-  claim layer rather than only present beside it
+## Why this replaces the old design
+
+The old design tried to:
+- extract generic nodes first
+- add edges next
+- derive the main thesis afterward
+
+That approach is too indirect.
+It often succeeds on local relations but misses the article's true main structure.
+
+The new design does the opposite:
+- identify the main thesis first
+- identify the main path second
+- attach support and explanation last
+
+This better matches the actual review goal.
+
+---
+
+## What is explicitly removed
+
+The target design no longer treats the old node kinds as the primary abstraction:
+- `事实`
+- `显式条件`
+- `隐含条件`
+- `机制`
+- `结论`
+- `预测`
+
+Those may still exist temporarily in code during migration, but they are **not** the intended design target.
+The intended design target is the three-step extraction pipeline above.
+
+---
+
+## Practical implementation order
+
+1. implement step 1 prompts + outputs
+2. implement step 2 prompts + outputs
+3. implement step 3 prompts + outputs
+4. only then decide whether any generic node/edge compatibility layer is still needed
+
+---
+
+## Evaluation order
+
+### First evaluate
+- driver correctness
+- target correctness
+
+### Then evaluate
+- transmission path completeness and correctness
+
+### Then evaluate
+- evidence quality
+- explanation quality
+
+This order is intentional.
+The main thesis must be right before the support layer is judged.
+
+---
+
+## Constraint
+
+Do not drift back into bottom-up node-graph design during implementation.
+If a proposed change starts from generic node taxonomy instead of the three-step extraction flow, it is off-plan.
