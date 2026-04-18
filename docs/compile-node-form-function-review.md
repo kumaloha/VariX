@@ -128,6 +128,56 @@ Additional parser rules worth remembering:
   from generic `事实` into the explicit-condition lane.
 - legacy validity windows are still normalized into the newer timing fields.
 
+### Code-quality review findings
+
+The current implementation is disciplined in the places that matter for this
+rollout:
+
+- `varix/compile/result.go` keeps the migration additive instead of forcing a
+  flag day; legacy `kind` payloads and dual-axis payloads both normalize through
+  one compatibility layer.
+- `varix/compile/parse.go` keeps the rollout focused on taxonomy and timing
+  normalization instead of mixing in broader graph or verifier redesign.
+- `varix/compile/verifier.go` routes by normalized statement lane, which means
+  transmission-bridge recovery improves node recall without requiring a full
+  verification-taxonomy rewrite in the same change set.
+- `varix/compile/prompt_test.go`, `varix/compile/result_test.go`, and
+  `varix/compile/form_function_regression_test.go` lock the main regression
+  target: preserve the support -> transmission -> claim separation for G04-style
+  flow theses.
+
+### Scope discipline: what shipped vs what stayed intentionally small
+
+The valuable part of this rollout is not a general ontology expansion. The
+valuable part is recovering the missing primary transmission bridge in
+flow/positioning cases.
+
+That means the current implementation made the right tradeoffs:
+
+- it upgraded node semantics without rewriting the verifier architecture
+- it tightened prompt guidance around bridge recovery instead of adding broad
+  case-specific prompt hacks
+- it preserved backward compatibility for legacy node and edge payloads while
+  moving the canonical contract forward
+
+Future edits should keep that same bias: improve bridge recovery, edge typing,
+and focused regression coverage first; defer lower-value taxonomy polish unless
+there is concrete failure evidence.
+
+### Edge-schema compatibility note
+
+The canonical full-graph edge contract is now:
+
+- `drives`
+- `substantiates`
+- `gates`
+- `explains`
+
+`varix/compile/result.go` still accepts legacy aliases such as `正向`, `推出`,
+`预设`, and `解释` during parsing, but those aliases are migration
+compatibility only. Documentation and future prompt work should treat the
+English edge kinds above as the source-of-truth schema.
+
 ---
 
 ## Proposed contract
@@ -244,12 +294,15 @@ The current implementation should preserve at least this separation:
 
 The accompanying graph contract is just as important as the node contract:
 
-1. `support -> claim` should usually stay `推出`
+1. `support -> claim` should usually stay `substantiates`
    - observed inflow evidence supports the judgment
-2. `transmission -> claim` should usually stay `正向`
+2. `transmission -> claim` should usually stay `drives`
    - the allocation/pricing bridge is the world-state mechanism
-3. conditional downside branches should use `预设`
+3. conditional downside branches should use `gates`
    - only when the source node is a condition
+
+Legacy aliases (`推出`, `正向`, `预设`) may still parse successfully during
+compatibility handling, but they are no longer the canonical edge names.
 
 ### What must not regress
 

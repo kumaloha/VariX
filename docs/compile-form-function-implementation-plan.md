@@ -2,8 +2,16 @@
 
 ## Status
 
-This document is the current implementation plan for the compile redesign.
-No further code changes should be made until this document is reviewed.
+This document now serves as the implementation baseline for the landed
+form+function rollout. The focused post-landing review lives in
+`docs/compile-node-form-function-review.md`.
+
+Current review conclusion:
+- the additive schema migration is landed
+- the primary transmission-bridge recovery path is now explicit in prompts and
+  regression tests
+- follow-up work should stay focused on bridge recovery and edge correctness,
+  not on broad taxonomy churn
 
 ## Goal
 
