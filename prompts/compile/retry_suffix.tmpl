@@ -1,6 +1,8 @@
-上一次输出不满足要求，请严格重做：
-- 至少 {{.MinNodes}} 个节点、{{.MinEdges}} 条边
-- 显式条件 + 预测 要拆开
-- 不能整句都标成显式条件
-- 如果一句话内部能自然改写成两步或以上因果链（A→B→C），优先拆成多个节点和边
-- 不要把整条宏观链压成一个“胖事实”节点
+The previous output failed validation. Redo it and follow these rules:
+- output exactly one valid JSON object, no markdown code fence, no commentary
+- include all required top-level keys: `summary`, `drivers`, `targets`, `details`, `topics`, `confidence`
+- normalize to article-level `driver -> target` using the provided causal projection
+- make `drivers` concrete mechanisms
+- make `targets` market changes, not bare asset nouns
+- do not leave `drivers` or `targets` empty if the causal projection contains a market thesis
+- do not output graph nodes or graph edges in this stage

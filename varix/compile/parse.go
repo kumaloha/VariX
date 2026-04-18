@@ -10,20 +10,18 @@ import (
 )
 
 func ParseOutput(raw string) (Output, error) {
-	clean := strings.TrimSpace(raw)
-	clean = strings.TrimPrefix(clean, "```json")
-	clean = strings.TrimPrefix(clean, "```")
-	clean = strings.TrimSuffix(clean, "```")
-	clean = strings.TrimSpace(clean)
-
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(clean), &payload); err != nil {
-		return Output{}, fmt.Errorf("parse compile output: %w", err)
+	payload, err := parseCompilePayload(raw)
+	if err != nil {
+		return Output{}, err
 	}
 	var out Output
 	if err := json.Unmarshal(payload["summary"], &out.Summary); err != nil {
 		return Output{}, fmt.Errorf("parse compile summary: %w", err)
 	}
+	_ = json.Unmarshal(payload["drivers"], &out.Drivers)
+	_ = json.Unmarshal(payload["targets"], &out.Targets)
+	out.Drivers = normalizeStringList(out.Drivers)
+	out.Targets = normalizeStringList(out.Targets)
 	_ = json.Unmarshal(payload["topics"], &out.Topics)
 	_ = json.Unmarshal(payload["confidence"], &out.Confidence)
 	_ = json.Unmarshal(payload["graph"], &out.Graph)
@@ -41,6 +39,94 @@ func ParseOutput(raw string) (Output, error) {
 		return Output{}, err
 	}
 	return out, nil
+}
+
+func ParseNodeExtractionOutput(raw string) (NodeExtractionOutput, error) {
+	payload, err := parseCompilePayload(raw)
+	if err != nil {
+		return NodeExtractionOutput{}, err
+	}
+	var out NodeExtractionOutput
+	_ = json.Unmarshal(payload["topics"], &out.Topics)
+	_ = json.Unmarshal(payload["confidence"], &out.Confidence)
+	_ = json.Unmarshal(payload["graph"], &out.Graph)
+	normalizeNodeTaxonomy(&out.Graph)
+	normalizeNodeTiming(&out.Graph)
+	if rawDetails, ok := payload["details"]; ok {
+		details, err := parseHiddenDetails(rawDetails)
+		if err != nil {
+			return NodeExtractionOutput{}, err
+		}
+		out.Details = details
+	}
+	if err := out.ValidateWithThresholds(1); err != nil {
+		return NodeExtractionOutput{}, err
+	}
+	return out, nil
+}
+
+func ParseFullGraphOutput(raw string, nodeIDs map[string]struct{}, nodeKinds map[string]NodeKind) (FullGraphOutput, error) {
+	payload, err := parseCompilePayload(raw)
+	if err != nil {
+		return FullGraphOutput{}, err
+	}
+	var out FullGraphOutput
+	_ = json.Unmarshal(payload["topics"], &out.Topics)
+	_ = json.Unmarshal(payload["confidence"], &out.Confidence)
+	_ = json.Unmarshal(payload["graph"], &out.Graph)
+	if rawDetails, ok := payload["details"]; ok {
+		details, err := parseHiddenDetails(rawDetails)
+		if err != nil {
+			return FullGraphOutput{}, err
+		}
+		out.Details = details
+	}
+	if err := out.ValidateWithThresholds(1, nodeIDs, nodeKinds); err != nil {
+		return FullGraphOutput{}, err
+	}
+	return out, nil
+}
+
+func ParseThesisOutput(raw string) (ThesisOutput, error) {
+	payload, err := parseCompilePayload(raw)
+	if err != nil {
+		return ThesisOutput{}, err
+	}
+	var out ThesisOutput
+	if err := json.Unmarshal(payload["summary"], &out.Summary); err != nil {
+		return ThesisOutput{}, fmt.Errorf("parse compile summary: %w", err)
+	}
+	_ = json.Unmarshal(payload["drivers"], &out.Drivers)
+	_ = json.Unmarshal(payload["targets"], &out.Targets)
+	out.Drivers = normalizeStringList(out.Drivers)
+	out.Targets = normalizeStringList(out.Targets)
+	_ = json.Unmarshal(payload["topics"], &out.Topics)
+	_ = json.Unmarshal(payload["confidence"], &out.Confidence)
+	if rawDetails, ok := payload["details"]; ok {
+		details, err := parseHiddenDetails(rawDetails)
+		if err != nil {
+			return ThesisOutput{}, err
+		}
+		out.Details = details
+	}
+	if err := out.Validate(); err != nil {
+		return ThesisOutput{}, err
+	}
+	return out, nil
+}
+
+func parseCompilePayload(raw string) (map[string]json.RawMessage, error) {
+	clean := strings.TrimSpace(raw)
+	clean = strings.TrimPrefix(clean, "```json")
+	clean = strings.TrimPrefix(clean, "```")
+	clean = strings.TrimSuffix(clean, "```")
+	clean = strings.TrimSpace(clean)
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(clean), &payload); err != nil {
+		return nil, fmt.Errorf("parse compile output: %w", err)
+	}
+	return payload, nil
 }
 
 func normalizeNodeTiming(graph *ReasoningGraph) {
@@ -194,6 +280,17 @@ func parseChineseOrArabicInt(raw string) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func normalizeStringList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized = append(normalized, strings.TrimSpace(value))
+	}
+	return normalized
 }
 
 func normalizeNodeTaxonomy(graph *ReasoningGraph) {

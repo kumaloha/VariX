@@ -12,6 +12,8 @@ import (
 func TestOutputValidateAcceptsSupportedGraphSchema(t *testing.T) {
 	out := Output{
 		Summary: "一句话总结",
+		Drivers: []string{"美国增长叙事仍然吸引全球资金"},
+		Targets: []string{"海外资金继续流入美国资产"},
 		Graph: ReasoningGraph{
 			Nodes: []GraphNode{
 				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
@@ -25,6 +27,42 @@ func TestOutputValidateAcceptsSupportedGraphSchema(t *testing.T) {
 	}
 	if err := out.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestOutputValidateRejectsEmptyDriverEntry(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Drivers: []string{"  "},
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n2", Kind: NodeConclusion, Text: "结论B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{{From: "n1", To: "n2", Kind: EdgePositive}},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+	}
+	if err := out.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want empty driver rejection")
+	}
+}
+
+func TestOutputValidateRejectsEmptyTargetEntry(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Targets: []string{"\t"},
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n2", Kind: NodeConclusion, Text: "结论B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{{From: "n1", To: "n2", Kind: EdgePositive}},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+	}
+	if err := out.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want empty target rejection")
 	}
 }
 
@@ -48,6 +86,25 @@ func TestOutputValidateAcceptsExplicitAndImplicitConditions(t *testing.T) {
 	}
 	if err := out.ValidateWithThresholds(4, 3); err != nil {
 		t.Fatalf("ValidateWithThresholds() error = %v", err)
+	}
+}
+
+func TestOutputValidateRejectsPresetEdgeStartingFromNonConditionNode(t *testing.T) {
+	out := Output{
+		Summary: "一句话总结",
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n2", Kind: NodePrediction, Text: "预测B", ValidFrom: mustTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustTime(t, "2026-07-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{
+				{From: "n1", To: "n2", Kind: EdgePresets},
+			},
+		},
+		Details: HiddenDetails{Caveats: []string{"说明"}},
+	}
+	if err := out.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want preset source-kind rejection")
 	}
 }
 
@@ -202,6 +259,60 @@ func TestParseOutputNormalizesExplicitConditionText(t *testing.T) {
 	}
 	if out.Graph.Nodes[0].Kind != NodeExplicitCondition {
 		t.Fatalf("node kind = %q, want explicit condition", out.Graph.Nodes[0].Kind)
+	}
+}
+
+func TestParseOutputPreservesDriversAndTargets(t *testing.T) {
+	raw := `{
+	  "summary":"一句话",
+	  "drivers":["美国增长叙事仍然吸引全球资金"],
+	  "targets":["海外资金继续流入美国资产"],
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},
+	      {"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}
+	    ],
+	    "edges":[{"from":"n1","to":"n2","kind":"推出"}]
+	  },
+	  "details":{"caveats":["说明"]},
+	  "confidence":"medium"
+	}`
+	out, err := ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	if !reflect.DeepEqual(out.Drivers, []string{"美国增长叙事仍然吸引全球资金"}) {
+		t.Fatalf("Drivers = %#v", out.Drivers)
+	}
+	if !reflect.DeepEqual(out.Targets, []string{"海外资金继续流入美国资产"}) {
+		t.Fatalf("Targets = %#v", out.Targets)
+	}
+}
+
+func TestParseOutputTrimsDriversAndTargets(t *testing.T) {
+	raw := `{
+	  "summary":"一句话",
+	  "drivers":["  美国增长叙事仍然吸引全球资金  "],
+	  "targets":["  海外资金继续流入美国资产  "],
+	  "graph":{
+	    "nodes":[
+	      {"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},
+	      {"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}
+	    ],
+	    "edges":[{"from":"n1","to":"n2","kind":"推出"}]
+	  },
+	  "details":{"caveats":["说明"]},
+	  "confidence":"medium"
+	}`
+	out, err := ParseOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseOutput() error = %v", err)
+	}
+	if !reflect.DeepEqual(out.Drivers, []string{"美国增长叙事仍然吸引全球资金"}) {
+		t.Fatalf("Drivers = %#v", out.Drivers)
+	}
+	if !reflect.DeepEqual(out.Targets, []string{"海外资金继续流入美国资产"}) {
+		t.Fatalf("Targets = %#v", out.Targets)
 	}
 }
 

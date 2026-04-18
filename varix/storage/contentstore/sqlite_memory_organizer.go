@@ -1215,8 +1215,6 @@ func graphHierarchyHint(kind compile.EdgeKind) string {
 		return "compiled-derives"
 	case compile.EdgePositive:
 		return "compiled-supports"
-	case compile.EdgeNegative:
-		return "compiled-challenges"
 	case compile.EdgePresets:
 		return "compiled-presets"
 	default:

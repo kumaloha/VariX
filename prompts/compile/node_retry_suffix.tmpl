@@ -1,0 +1,8 @@
+The previous node extraction output failed validation. Redo it and follow these rules:
+- output exactly one valid JSON object, no markdown code fence, no commentary
+- include top-level keys: `graph`, `details`, `topics`, `confidence`
+- produce at least {{.MinNodes}} nodes
+- output nodes only; do not output any edges
+- split mixed fact / judgment / prediction statements into separate nodes when possible
+- if a sentence contains a multi-step causal chain, split it into multiple nodes instead of one fat node
+- use RFC3339 timestamps for populated time fields

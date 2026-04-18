@@ -19,10 +19,17 @@ type runtimeChat interface {
 }
 
 type Client struct {
-	runtime  runtimeChat
-	model    string
-	prompts  *promptRegistry
-	verifier VerificationService
+	runtime        runtimeChat
+	model          string
+	prompts        *promptRegistry
+	verifier       VerificationService
+	skipValidation bool
+}
+
+type noopVerificationService struct{}
+
+func (noopVerificationService) Verify(ctx context.Context, bundle Bundle, output Output) (Verification, error) {
+	return Verification{}, nil
 }
 
 func NewClient(httpClient *http.Client, baseURL, apiKey, model string) *Client {
@@ -65,6 +72,10 @@ func NewClientWithRuntimeAndPrompts(rt runtimeChat, model string, prompts *promp
 }
 
 func NewClientWithRuntimePromptsAndVerifier(rt runtimeChat, model string, prompts *promptRegistry, verifier VerificationService) *Client {
+	return NewClientWithRuntimePromptsAndVerifierOptions(rt, model, prompts, verifier, false)
+}
+
+func NewClientWithRuntimePromptsAndVerifierOptions(rt runtimeChat, model string, prompts *promptRegistry, verifier VerificationService, skipValidation bool) *Client {
 	if rt == nil {
 		return nil
 	}
@@ -75,14 +86,27 @@ func NewClientWithRuntimePromptsAndVerifier(rt runtimeChat, model string, prompt
 		verifier = NewVerificationService(rt, model, prompts)
 	}
 	return &Client{
-		runtime:  rt,
-		model:    strings.TrimSpace(model),
-		prompts:  prompts,
-		verifier: verifier,
+		runtime:        rt,
+		model:          strings.TrimSpace(model),
+		prompts:        prompts,
+		verifier:       verifier,
+		skipValidation: skipValidation,
 	}
 }
 
 func NewClientFromConfig(projectRoot string, httpClient *http.Client) *Client {
+	return newClientFromConfig(projectRoot, httpClient, nil, false)
+}
+
+func NewClientFromConfigNoVerify(projectRoot string, httpClient *http.Client) *Client {
+	return newClientFromConfig(projectRoot, httpClient, noopVerificationService{}, false)
+}
+
+func NewClientFromConfigNoVerifyNoValidate(projectRoot string, httpClient *http.Client) *Client {
+	return newClientFromConfig(projectRoot, httpClient, noopVerificationService{}, true)
+}
+
+func newClientFromConfig(projectRoot string, httpClient *http.Client, verifier VerificationService, skipValidation bool) *Client {
 	settings := config.DefaultSettings(projectRoot)
 	apiKey := firstConfiguredValue(projectRoot, "DASHSCOPE_API_KEY", "OPENAI_API_KEY")
 	if strings.TrimSpace(apiKey) == "" {
@@ -105,7 +129,32 @@ func NewClientFromConfig(projectRoot string, httpClient *http.Client) *Client {
 		}
 		httpClient = &http.Client{Timeout: timeout}
 	}
-	client := NewClient(httpClient, baseURL, apiKey, model)
+	opts := []llm.DashscopeOption{
+		llm.WithAPIKey(apiKey),
+	}
+	if strings.TrimSpace(baseURL) != "" {
+		opts = append(opts, llm.WithAPIBase(baseURL))
+	}
+	if httpClient != nil && httpClient.Timeout > 0 {
+		opts = append(opts, llm.WithTimeout(httpClient.Timeout))
+	}
+	provider, err := llm.NewDashscope(opts...)
+	if err != nil {
+		return nil
+	}
+	runtime := llm.NewRuntime(llm.RuntimeConfig{
+		Provider: provider,
+		LLMConfig: llm.LLMConfig{
+			Default: llm.DefaultConfig{
+				Model:       strings.TrimSpace(model),
+				Search:      false,
+				Temperature: 0,
+				Thinking:    false,
+			},
+		},
+		MaxAttempts: 3,
+	})
+	client := NewClientWithRuntimePromptsAndVerifierOptions(runtime, strings.TrimSpace(model), newPromptRegistry(settings.PromptsDir), verifier, skipValidation)
 	if client == nil {
 		return nil
 	}
@@ -121,31 +170,71 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 		c.prompts = newPromptRegistry("")
 	}
 	reqs := InferGraphRequirements(bundle)
-	systemPrompt, err := c.prompts.buildInstruction(reqs)
+	nodeSystemPrompt, err := c.prompts.buildNodeInstruction(reqs)
 	if err != nil {
 		return Record{}, err
 	}
-	userPrompt, err := c.prompts.buildPrompt(bundle)
+	nodeUserPrompt, err := c.prompts.buildNodePrompt(bundle)
 	if err != nil {
 		return Record{}, err
 	}
-	output, err := c.compileAttempt(ctx, bundle, systemPrompt, userPrompt, reqs)
+	nodeOutput, err := c.extractNodesAttempt(ctx, bundle, nodeSystemPrompt, nodeUserPrompt, reqs)
 	if err != nil {
-		retryPrompt, retryErr := c.prompts.buildRetryPrompt(bundle, reqs)
+		retryPrompt, retryErr := c.prompts.buildNodeRetryPrompt(bundle, reqs)
 		if retryErr != nil {
 			return Record{}, retryErr
 		}
-		output, err = c.compileAttempt(
+		nodeOutput, err = c.extractNodesAttempt(
 			ctx,
 			bundle,
-			systemPrompt,
+			nodeSystemPrompt,
 			retryPrompt,
 			reqs,
 		)
+	if err != nil {
+			return Record{}, err
+		}
+	}
+	fullGraphSystemPrompt, err := c.prompts.buildGraphInstruction(reqs)
+	if err != nil {
+		return Record{}, err
+	}
+	fullGraphUserPrompt, err := c.prompts.buildGraphPrompt(bundle, nodeOutput.Graph.Nodes)
+	if err != nil {
+		return Record{}, err
+	}
+	fullGraphOutput, err := c.buildFullGraphAttempt(ctx, bundle, fullGraphSystemPrompt, fullGraphUserPrompt, reqs, nodeOutput.Graph.Nodes)
+	if err != nil {
+		retryPrompt, retryErr := c.prompts.buildGraphRetryPrompt(bundle, nodeOutput.Graph.Nodes, reqs)
+		if retryErr != nil {
+			return Record{}, retryErr
+		}
+		fullGraphOutput, err = c.buildFullGraphAttempt(ctx, bundle, fullGraphSystemPrompt, retryPrompt, reqs, nodeOutput.Graph.Nodes)
 		if err != nil {
 			return Record{}, err
 		}
 	}
+	causalProjection := buildCausalProjection(nodeOutput.Graph.Nodes, fullGraphOutput.Graph.Edges)
+	thesisSystemPrompt, err := c.prompts.buildThesisInstruction(reqs)
+	if err != nil {
+		return Record{}, err
+	}
+	thesisUserPrompt, err := c.prompts.buildThesisPrompt(bundle, causalProjection)
+	if err != nil {
+		return Record{}, err
+	}
+	thesisOutput, err := c.buildThesisAttempt(ctx, bundle, thesisSystemPrompt, thesisUserPrompt)
+	if err != nil {
+		retryPrompt, retryErr := c.prompts.buildThesisRetryPrompt(bundle, causalProjection, reqs)
+		if retryErr != nil {
+			return Record{}, retryErr
+		}
+		thesisOutput, err = c.buildThesisAttempt(ctx, bundle, thesisSystemPrompt, retryPrompt)
+		if err != nil {
+			return Record{}, err
+		}
+	}
+	output := mergeCompileOutputs(nodeOutput, fullGraphOutput, thesisOutput)
 	verification, err := c.verifier.Verify(ctx, bundle, output)
 	if err != nil {
 		return Record{}, err
@@ -162,23 +251,143 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	}, nil
 }
 
-func (c *Client) compileAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string, reqs GraphRequirements) (Output, error) {
+func (c *Client) extractNodesAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string, reqs GraphRequirements) (NodeExtractionOutput, error) {
 	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
 	if err != nil {
-		return Output{}, err
+		return NodeExtractionOutput{}, err
 	}
 	resp, err := c.runtime.Call(ctx, req)
 	if err != nil {
-		return Output{}, err
+		return NodeExtractionOutput{}, err
 	}
-	out, err := ParseOutput(resp.Text)
+	out, err := ParseNodeExtractionOutput(resp.Text)
 	if err != nil {
-		return Output{}, err
+		return NodeExtractionOutput{}, err
 	}
-	if err := out.ValidateWithThresholds(reqs.MinNodes, reqs.MinEdges); err != nil {
-		return Output{}, err
+	applyBundleTimingFallbacks(bundle, &out.Graph)
+	if err := out.ValidateWithThresholds(reqs.MinNodes); err != nil {
+		return NodeExtractionOutput{}, err
 	}
 	return out, nil
+}
+
+func (c *Client) buildFullGraphAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string, reqs GraphRequirements, nodes []GraphNode) (FullGraphOutput, error) {
+	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
+	if err != nil {
+		return FullGraphOutput{}, err
+	}
+	resp, err := c.runtime.Call(ctx, req)
+	if err != nil {
+		return FullGraphOutput{}, err
+	}
+	nodeIDs, err := validateGraphNodes(nodes)
+	if err != nil {
+		return FullGraphOutput{}, err
+	}
+	nodeKinds := graphNodeKinds(nodes)
+	out, err := ParseFullGraphOutput(resp.Text, nodeIDs, nodeKinds)
+	if err != nil {
+		return FullGraphOutput{}, err
+	}
+	if err := out.ValidateWithThresholds(reqs.MinEdges, nodeIDs, nodeKinds); err != nil {
+		return FullGraphOutput{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) buildThesisAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string) (ThesisOutput, error) {
+	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
+	if err != nil {
+		return ThesisOutput{}, err
+	}
+	resp, err := c.runtime.Call(ctx, req)
+	if err != nil {
+		return ThesisOutput{}, err
+	}
+	out, err := ParseThesisOutput(resp.Text)
+	if err != nil {
+		return ThesisOutput{}, err
+	}
+	return out, nil
+}
+
+func mergeCompileOutputs(nodes NodeExtractionOutput, fullGraph FullGraphOutput, thesis ThesisOutput) Output {
+	topics := thesis.Topics
+	if len(topics) == 0 {
+		topics = fullGraph.Topics
+	}
+	if len(topics) == 0 {
+		topics = nodes.Topics
+	}
+	confidence := strings.TrimSpace(thesis.Confidence)
+	if confidence == "" {
+		confidence = strings.TrimSpace(fullGraph.Confidence)
+	}
+	if confidence == "" {
+		confidence = strings.TrimSpace(nodes.Confidence)
+	}
+	details := thesis.Details
+	if details.IsEmpty() {
+		details = fullGraph.Details
+	}
+	if details.IsEmpty() {
+		details = nodes.Details
+	}
+	return Output{
+		Summary:    thesis.Summary,
+		Drivers:    thesis.Drivers,
+		Targets:    thesis.Targets,
+		Graph:      ReasoningGraph{Nodes: nodes.Graph.Nodes, Edges: fullGraph.Graph.Edges},
+		Details:    details,
+		Topics:     topics,
+		Confidence: confidence,
+	}
+}
+
+func buildCausalProjection(nodes []GraphNode, edges []GraphEdge) ReasoningGraph {
+	if len(nodes) == 0 || len(edges) == 0 {
+		return ReasoningGraph{}
+	}
+	selectedEdges := make([]GraphEdge, 0, len(edges))
+	selectedIDs := map[string]struct{}{}
+	for _, edge := range edges {
+		if edge.Kind != EdgePositive {
+			continue
+		}
+		selectedEdges = append(selectedEdges, edge)
+		selectedIDs[edge.From] = struct{}{}
+		selectedIDs[edge.To] = struct{}{}
+	}
+	if len(selectedEdges) == 0 {
+		return ReasoningGraph{}
+	}
+	selectedNodes := make([]GraphNode, 0, len(selectedIDs))
+	for _, node := range nodes {
+		if _, ok := selectedIDs[node.ID]; ok {
+			selectedNodes = append(selectedNodes, node)
+		}
+	}
+	return ReasoningGraph{Nodes: selectedNodes, Edges: selectedEdges}
+}
+
+func applyBundleTimingFallbacks(bundle Bundle, graph *ReasoningGraph) {
+	if graph == nil || bundle.PostedAt.IsZero() {
+		return
+	}
+	fallback := bundle.PostedAt.UTC()
+	for i := range graph.Nodes {
+		node := &graph.Nodes[i]
+		switch node.Kind {
+		case NodeFact, NodeImplicitCondition:
+			if node.OccurredAt.IsZero() && node.ValidFrom.IsZero() {
+				node.OccurredAt = fallback
+			}
+		case NodePrediction:
+			if node.PredictionStartAt.IsZero() && node.ValidFrom.IsZero() {
+				node.PredictionStartAt = fallback
+			}
+		}
+	}
 }
 
 func firstConfiguredValue(projectRoot string, keys ...string) string {

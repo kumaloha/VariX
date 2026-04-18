@@ -1,0 +1,9 @@
+The previous graph output failed validation. Redo it and follow these rules:
+- output exactly one valid JSON object, no markdown code fence, no commentary
+- include top-level keys: `graph`, `details`, `topics`, `confidence`
+- output edges only; do not output any nodes
+- produce at least {{.MinEdges}} edges
+- use only edge kinds `正向`, `推出`, `预设`
+- if A changes B in the world, use `正向`; if A only supports or proves B, use `推出`
+- use `预设` only when the source node is a condition node
+- ensure the dominant market thesis has at least one causal path built from `正向` edges

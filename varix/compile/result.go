@@ -24,7 +24,6 @@ type EdgeKind string
 
 const (
 	EdgePositive EdgeKind = "正向"
-	EdgeNegative EdgeKind = "负向"
 	EdgeDerives  EdgeKind = "推出"
 	EdgePresets  EdgeKind = "预设"
 )
@@ -300,6 +299,8 @@ type Verification struct {
 
 type Output struct {
 	Summary      string         `json:"summary,omitempty"`
+	Drivers      []string       `json:"drivers,omitempty"`
+	Targets      []string       `json:"targets,omitempty"`
 	Graph        ReasoningGraph `json:"graph,omitempty"`
 	Details      HiddenDetails  `json:"details,omitempty"`
 	Topics       []string       `json:"topics,omitempty"`
@@ -317,6 +318,29 @@ type Record struct {
 	CompiledAt     time.Time `json:"compiled_at"`
 }
 
+type NodeExtractionOutput struct {
+	Graph      ReasoningGraph `json:"graph,omitempty"`
+	Details    HiddenDetails  `json:"details,omitempty"`
+	Topics     []string       `json:"topics,omitempty"`
+	Confidence string         `json:"confidence,omitempty"`
+}
+
+type FullGraphOutput struct {
+	Graph      ReasoningGraph `json:"graph,omitempty"`
+	Details    HiddenDetails  `json:"details,omitempty"`
+	Topics     []string       `json:"topics,omitempty"`
+	Confidence string         `json:"confidence,omitempty"`
+}
+
+type ThesisOutput struct {
+	Summary    string         `json:"summary,omitempty"`
+	Drivers    []string       `json:"drivers,omitempty"`
+	Targets    []string       `json:"targets,omitempty"`
+	Details    HiddenDetails  `json:"details,omitempty"`
+	Topics     []string       `json:"topics,omitempty"`
+	Confidence string         `json:"confidence,omitempty"`
+}
+
 func (o Output) Validate() error {
 	return o.ValidateWithThresholds(2, 1)
 }
@@ -324,6 +348,12 @@ func (o Output) Validate() error {
 func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 	if strings.TrimSpace(o.Summary) == "" {
 		return fmt.Errorf("summary is required")
+	}
+	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("targets", o.Targets); err != nil {
+		return err
 	}
 	if len(o.Graph.Nodes) < minNodes {
 		return fmt.Errorf("graph must contain at least %d nodes", minNodes)
@@ -334,36 +364,12 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 	if o.Details.IsEmpty() {
 		return fmt.Errorf("details must not be empty")
 	}
-	nodeIDs := map[string]struct{}{}
-	for _, node := range o.Graph.Nodes {
-		if strings.TrimSpace(node.ID) == "" {
-			return fmt.Errorf("graph node id is required")
-		}
-		if strings.TrimSpace(node.Text) == "" {
-			return fmt.Errorf("graph node text is required")
-		}
-		switch node.Kind {
-		case NodeFact, NodeExplicitCondition, NodeImplicitCondition, NodeConclusion, NodePrediction:
-		default:
-			return fmt.Errorf("unsupported node kind: %s", node.Kind)
-		}
-		if err := validateNodeTiming(node); err != nil {
-			return err
-		}
-		nodeIDs[node.ID] = struct{}{}
+	nodeIDs, err := validateGraphNodes(o.Graph.Nodes)
+	if err != nil {
+		return err
 	}
-	for _, edge := range o.Graph.Edges {
-		if _, ok := nodeIDs[edge.From]; !ok {
-			return fmt.Errorf("edge from references unknown node: %s", edge.From)
-		}
-		if _, ok := nodeIDs[edge.To]; !ok {
-			return fmt.Errorf("edge to references unknown node: %s", edge.To)
-		}
-		switch edge.Kind {
-		case EdgePositive, EdgeNegative, EdgeDerives, EdgePresets:
-		default:
-			return fmt.Errorf("unsupported edge kind: %s", edge.Kind)
-		}
+	if err := validateGraphEdges(o.Graph.Edges, nodeIDs, graphNodeKinds(o.Graph.Nodes), minEdges); err != nil {
+		return err
 	}
 	for _, check := range o.Verification.FactChecks {
 		if _, ok := nodeIDs[check.NodeID]; !ok {
@@ -461,6 +467,111 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		for _, id := range summary.UnexpectedNodeIDs {
 			if _, ok := nodeIDs[id]; !ok {
 				return fmt.Errorf("verification summary unexpected references unknown node: %s", id)
+			}
+		}
+	}
+	return nil
+}
+
+func (o NodeExtractionOutput) ValidateWithThresholds(minNodes int) error {
+	nodeIDs, err := validateGraphNodes(o.Graph.Nodes)
+	if err != nil {
+		return err
+	}
+	if len(nodeIDs) < minNodes {
+		return fmt.Errorf("graph must contain at least %d nodes", minNodes)
+	}
+	if len(o.Graph.Edges) > 0 {
+		return fmt.Errorf("node extraction output must not contain edges")
+	}
+	return nil
+}
+
+func (o FullGraphOutput) ValidateWithThresholds(minEdges int, nodeIDs map[string]struct{}, nodeKinds map[string]NodeKind) error {
+	if len(o.Graph.Nodes) > 0 {
+		return fmt.Errorf("full graph output must not contain nodes")
+	}
+	return validateGraphEdges(o.Graph.Edges, nodeIDs, nodeKinds, minEdges)
+}
+
+func (o ThesisOutput) Validate() error {
+	if strings.TrimSpace(o.Summary) == "" {
+		return fmt.Errorf("summary is required")
+	}
+	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("targets", o.Targets); err != nil {
+		return err
+	}
+	if o.Details.IsEmpty() {
+		return fmt.Errorf("details must not be empty")
+	}
+	return nil
+}
+
+func validateStringListEntries(field string, values []string) error {
+	for i, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%s[%d] must not be empty", field, i)
+		}
+	}
+	return nil
+}
+
+func validateGraphNodes(nodes []GraphNode) (map[string]struct{}, error) {
+	nodeIDs := map[string]struct{}{}
+	for _, node := range nodes {
+		if strings.TrimSpace(node.ID) == "" {
+			return nil, fmt.Errorf("graph node id is required")
+		}
+		if strings.TrimSpace(node.Text) == "" {
+			return nil, fmt.Errorf("graph node text is required")
+		}
+		switch node.Kind {
+		case NodeFact, NodeExplicitCondition, NodeImplicitCondition, NodeConclusion, NodePrediction:
+		default:
+			return nil, fmt.Errorf("unsupported node kind: %s", node.Kind)
+		}
+		if err := validateNodeTiming(node); err != nil {
+			return nil, err
+		}
+		nodeIDs[node.ID] = struct{}{}
+	}
+	return nodeIDs, nil
+}
+
+func graphNodeKinds(nodes []GraphNode) map[string]NodeKind {
+	out := make(map[string]NodeKind, len(nodes))
+	for _, node := range nodes {
+		out[node.ID] = node.Kind
+	}
+	return out
+}
+
+func validateGraphEdges(edges []GraphEdge, nodeIDs map[string]struct{}, nodeKinds map[string]NodeKind, minEdges int) error {
+	if len(edges) < minEdges {
+		return fmt.Errorf("graph must contain at least %d edges", minEdges)
+	}
+	for _, edge := range edges {
+		if _, ok := nodeIDs[edge.From]; !ok {
+			return fmt.Errorf("edge from references unknown node: %s", edge.From)
+		}
+		if _, ok := nodeIDs[edge.To]; !ok {
+			return fmt.Errorf("edge to references unknown node: %s", edge.To)
+		}
+		switch edge.Kind {
+		case EdgePositive, EdgeDerives, EdgePresets:
+		default:
+			return fmt.Errorf("unsupported edge kind: %s", edge.Kind)
+		}
+		if edge.Kind == EdgePresets {
+			sourceKind, ok := nodeKinds[edge.From]
+			if !ok {
+				return fmt.Errorf("edge from references unknown node: %s", edge.From)
+			}
+			if sourceKind != NodeExplicitCondition && sourceKind != NodeImplicitCondition {
+				return fmt.Errorf("preset edge must start from a condition node: %s", edge.From)
 			}
 		}
 	}

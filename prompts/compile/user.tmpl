@@ -1,3 +1,29 @@
-请基于以下 payload 产出 reasoning graph JSON：
+Normalization examples:
+
+Example 1
+- causal projection: growth expectations still dominate political-risk pricing -> foreign capital keeps flowing into US assets
+- normalized driver: growth expectations still dominate political-risk pricing
+- normalized target: foreign capital keeps flowing into US assets
+
+Example 2
+- causal projection: war-driven oil shock lifts inflation and rates -> gold reprices lower
+- normalized driver: war-driven oil shock lifts inflation and rates
+- normalized target: gold reprices lower despite traditional safe-haven expectations
+
+Example 3
+- causal projection: growth / return expectations still dominate political-risk pricing -> foreign capital keeps flowing into US assets; no sell/hedge America trade forms
+- side commentary outside projection: the article also discusses rate cuts and dollar weakness
+- normalized driver: growth / return expectations still dominate political-risk pricing
+- normalized target: foreign capital keeps flowing into US assets; no sell/hedge America trade forms
+- do not choose: dollar weakness as the main target when it is only side commentary
+- do not choose: Fed/rates/dollar commentary as a top-level driver when it only supports a side forecast
+
+Payload:
 
 {{.PayloadJSON}}
+
+Causal projection:
+
+{{.ProjectionJSON}}
+
+Map the causal projection into the final `summary`, `drivers`, and `targets`.
