@@ -27,6 +27,7 @@ Stored metadata includes at least:
 - `root_external_id`
 
 See `docs/compile-persistence.md` for the full product/engineering contract.
+See `docs/compile-driver-target-schema.md` for the additive driver-target normalization contract layered on top of compile outputs.
 
 ## Memory organization
 

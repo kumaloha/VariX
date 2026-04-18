@@ -85,6 +85,10 @@ The payload stores the current structured compile output shape:
 - `topics`
 - `confidence`
 
+The additive driver-target normalization contract is documented separately in
+`docs/compile-driver-target-schema.md` so the persistence contract can stay
+focused on storage behavior while the schema work lands.
+
 ---
 
 ## Product boundary
