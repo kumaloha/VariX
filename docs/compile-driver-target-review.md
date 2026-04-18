@@ -2,12 +2,14 @@
 
 ## Scope reviewed
 
-This review covers the implementation landed in worker-1 commit:
+This review covers the landed implementation and test/evaluation commits for the
+compile driver-target schema lane:
 
 - `315a6bb` — `Add driver-target overlays to compile outputs`
+- `5126ed0` — `Make gold evaluation tests work from team worktrees`
 
-It also records the current dependency state for the evaluation / evidence lane
-assigned to worker-2.
+It records the final task-3 review verdict and aggregates the concrete evidence
+reported by the implementation and test lanes.
 
 ---
 
@@ -15,15 +17,17 @@ assigned to worker-2.
 
 ### Verdict
 
-**No blocking findings** in the landed worker-1 implementation.
+**No blocking findings** in the landed worker-1 / worker-2 changes.
 
-The implementation matches the PRD intent in the areas covered by task 3:
+The delivered work matches the PRD intent in the areas covered by task 3:
 
 - additive `drivers[]` / `targets[]` output fields
 - backward-compatible parsing when those fields are absent
 - validation rejects blank driver / target entries when fields are present
 - prompt contract explicitly normalizes article order into `driver -> target`
 - reasoning graph semantics remain intact rather than being replaced
+- gold evaluation tests run from nested OMX team worktrees as well as normal
+  repo layouts
 
 ---
 
@@ -43,7 +47,7 @@ layer the driver-target contract on top.
 
 ### 2. Validation behavior is appropriately narrow
 
-`ValidateWithThresholds()` now rejects blank driver / target entries via
+`ValidateWithThresholds()` rejects blank driver / target entries via
 `validateStringListEntries()`.
 
 **Assessment:** good scope control.
@@ -74,7 +78,19 @@ layer the driver-target contract on top.
 
 **Assessment:** matches the PRD and the batch-1 schema note closely.
 
-### 5. Tests cover the key implementation seam
+### 5. Evaluation tests are runtime-layout tolerant
+
+`varix/compile/gold_eval_test.go` now walks upward from the package working
+folder until the repo-level gold dataset is found.
+
+**Assessment:** good operational hardening.
+
+- fixes the failing assumption that the dataset always lives exactly two levels
+  above the compile package
+- keeps evaluation evidence runnable from nested OMX team worktrees
+- avoids brittle hardcoded worker-path depth assumptions
+
+### 6. Tests cover the key implementation seam
 
 Worker-1 added tests for:
 
@@ -85,8 +101,17 @@ Worker-1 added tests for:
 - backward compatibility without those fields
 - prompt contract strings for driver-target normalization
 
-**Assessment:** the test coverage is targeted and proportional to the schema
-change.
+Worker-2 kept the gold evaluation surface runnable and validated report
+structure across:
+
+- `summary`
+- `node recall / node typing`
+- `reasoning edges`
+- `drivers`
+- `targets`
+
+**Assessment:** the combined test coverage is targeted and proportional to the
+schema change.
 
 ---
 
@@ -96,60 +121,62 @@ change.
    - This is acceptable for v1.
    - No dedupe requirement exists in the PRD.
 
-2. The prompt now requires `drivers` / `targets`, while validation keeps them
+2. The prompt requires `drivers` / `targets`, while validation keeps them
    optional for backward compatibility.
    - This asymmetry is intentional and correct for rollout safety.
 
-3. The current implementation still uses free-text arrays rather than pairwise
+3. The current implementation uses free-text arrays rather than pairwise
    relations.
    - This is consistent with the v1 decision.
    - Do not upgrade to pair objects without evaluation evidence first.
 
 ---
 
-## Remaining dependency / blocker state
+## Aggregated evidence
 
-Task 3 also expects final evidence aggregation after the implementation and test
-lanes land.
+### Landed commits
 
-### Current dependency status at review time
+- implementation: `315a6bb`
+- test/evaluation: `5126ed0`
+- docs/contract: `69c5312`
+- review findings: `8f7ff16`
 
-- worker-1: landed implementation commit `315a6bb`
-- worker-2: evaluation / test lane still appears in progress and not yet landed
+### Verification evidence collected
 
-### Practical implication
+From task-1 result:
 
-**Task 3 is operationally waiting on worker-2's evaluation evidence** before a
-full cross-lane closeout can be claimed.
+- PASS `go test ./compile/...`
+- PASS `go test ./cmd/cli/...`
+- PASS `go test ./...`
+- PASS gold dataset shape validation on `data/gold/compile-gold-batch1-v1.json`
+  with 9 samples and non-empty drivers / targets
 
-This is not a blocker on code quality for worker-1's implementation.
-It is a blocker on the final evidence-aggregation portion of the review/docs
-lane.
+From task-2 result:
 
----
+- PASS `go test ./compile/...`
+- PASS `go test ./compile/... -run TestLoadGoldDatasetBatch1|TestBuildGoldEvaluationReportBatch1|TestGoldDatasetValidateRejectsBlankDriverOrTarget -v`
+- PASS `go test ./cmd/cli/...`
+- PASS Python JSON load of `data/gold/compile-gold-batch1-v1.json`
+- PASS evaluation report structure with distinct sections for:
+  - `summary`
+  - `node_recall_type`
+  - `reasoning_edges`
+  - `drivers`
+  - `targets`
 
-## Recommended closeout checklist
+From task-3 lane:
 
-When worker-2 lands, task 3 should aggregate these pieces into the final team
-handoff:
-
-1. implementation commit hash(es)
-2. compile test evidence
-3. CLI test evidence
-4. gold dataset shape evidence
-5. any batch-1 evaluation report evidence for separate:
-   - summary
-   - node recall / typing
-   - reasoning edges
-   - drivers
-   - targets
+- PASS `git diff --check` on docs/review changes
+- PASS review of worker-1 additive schema implementation
+- PASS review of worker-2 worktree-tolerant evaluation test fix
 
 ---
 
 ## Reviewer conclusion
 
-The current implementation slice reviewed from worker-1 is consistent with the
-compile driver-target v1 contract and introduces no review-blocking issues.
+The compile driver-target v1 work is review-complete.
 
-The only remaining dependency for task-3 closeout is worker-2's pending
-evaluation/evidence lane.
+The schema remains additive to the existing reasoning graph, prompt and parser
+behavior align with the PRD, blank-entry validation is enforced, and the gold
+evaluation surface is runnable from OMX team worktrees. No review-blocking
+issues were found in the landed implementation or test/evaluation commits.
