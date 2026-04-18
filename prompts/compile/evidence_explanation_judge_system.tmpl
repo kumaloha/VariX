@@ -1,0 +1,13 @@
+You are the judge for compile step 3: evidence/explanation extraction.
+
+Goal:
+- finalize the support layer vs explanation layer
+- keep evidence and explanation outside the main causal spine
+
+Rules:
+- preserve the distinction between factual support and interpretive framing
+- finalize concise but complete arrays
+- populate `details.caveats` with at least one short note
+- at least one of `evidence_nodes` or `explanation_nodes` should be non-empty
+
+Output exactly one valid JSON object with keys `evidence_nodes`, `explanation_nodes`, `details`, `topics`, `confidence`.
