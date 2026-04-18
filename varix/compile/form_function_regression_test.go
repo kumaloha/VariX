@@ -81,7 +81,7 @@ func TestClientCompileNodeChallengeCarriesG04BridgeMechanismAudit(t *testing.T) 
 	nodeChallengeSystem := provider.requests[1].System
 	for _, want := range []string{
 		"node challenger reviewing an extracted node set for recall gaps",
-		"missing bridge mechanism between evidence nodes and judgment nodes",
+		"missing bridge transmission node between evidence nodes and judgment nodes",
 		"allocation preference",
 	} {
 		if !strings.Contains(nodeChallengeSystem, want) {

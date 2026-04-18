@@ -108,11 +108,11 @@ func TestBuildPromptIncludesNegatedTradeNormalizationExample(t *testing.T) {
 		Content:    "body",
 	})
 	for _, want := range []string{
-		"growth / return expectations still dominate political-risk pricing -> foreign capital keeps flowing into US assets; no sell/hedge America trade forms",
-		"side commentary outside projection: the article also discusses rate cuts and dollar weakness",
-		"foreign capital keeps flowing into US assets; no sell/hedge America trade forms",
-		"do not choose: dollar weakness as the main target when it is only side commentary",
-		"do not choose: Fed/rates/dollar commentary as a top-level driver when it only supports a side forecast",
+		"relative return expectations keep capital allocated to defensive utilities -> defensive equity inflows persist",
+		"side commentary outside projection: the article also discusses unrelated currency volatility",
+		"defensive equity inflows persist",
+		"do not choose: unrelated currency volatility as the main target when it is only side commentary",
+		"do not choose: unrelated macro commentary as a top-level driver when it only supports a side forecast",
 		"Causal projection:",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -138,11 +138,11 @@ func TestBuildNodeInstructionAndPrompt(t *testing.T) {
 		"Do not collapse evidence, mechanism, and judgment into one sentence if they play different roles in the article.",
 		"If a sentence contains explicit connectors such as because, therefore, so, which means, implying, driven by, due to, despite, or as a result, default to splitting the linked ideas into separate nodes.",
 		"If a sentence contains coordinated claims such as A and B / not X and not Y / both X and Y, default to separate nodes unless they are truly the same proposition restated.",
-		"If a statement says markets prefer or avoid an asset because one force dominates another, capture that preference relation as its own mechanism node.",
-		"If the article says growth expectations, return expectations, or risk pricing dominate competing concerns and therefore keep capital allocated to an asset or market, extract that dominance-to-allocation relation as a standalone mechanism node.",
-		"If observed inflows are presented as the consequence of an investor preference or allocation bias, extract both the preference/allocation-bias mechanism node and the observed inflow evidence node.",
-		"Prefer a mechanism node such as \"markets still allocate to X because growth expectations dominate political risk\" over a high-level slogan node when both express the same idea.",
-		"For G04-style flow/positioning articles, prefer a support -> transmission -> claim decomposition: observed inflow/positioning evidence, the allocation/transmission mechanism, then the judgment or forecast claim.",
+		"If a statement says markets prefer or avoid an asset because one force dominates another, capture that preference relation as its own transmission node.",
+		"If the article says one pricing force, return expectation, or risk regime dominates another and therefore keeps capital allocated to an asset or market, extract that dominance-to-allocation relation as a standalone transmission node.",
+		"If observed flows or positioning are presented as the consequence of an allocation preference or pricing rule, extract both the transmission node and the observed evidence node.",
+		"Prefer a transmission node such as \"capital stays allocated to X because Y dominates Z in market pricing\" over a higher-level slogan node when both express the same idea.",
+		"For flow/positioning articles, prefer a support -> transmission -> claim decomposition: observed evidence, the allocation/transmission mechanism, then the judgment or forecast claim.",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Fatalf("node instruction missing %q in %q", want, instruction)
@@ -164,9 +164,9 @@ func TestBuildGraphInstructionAndPrompt(t *testing.T) {
 		"Treat `function=claim` nodes as downstream judgments / forecasts that are usually supported or transmitted into, not upstream evidence by themselves.",
 		"Apply the intervention test: if changing A would change B in the world, use `正向`; if A only changes how strongly the author can justify B, use `推出`.",
 		"Apply the evidence test: if A causes B, use `正向`; if A proves, supports, or diagnoses B, use `推出`.",
-		"Treat slogans or judgment nodes such as \"there is no sell America trade\" as `推出` targets unless they themselves continue the market mechanism into another downstream state.",
+		"Treat slogan-like or narrative-judgment nodes as `推出` targets unless they themselves continue the market mechanism into another downstream state.",
 		"Treat `预设` as a condition-to-downstream edge only; do not aim `预设` into a condition node.",
-		"In G04-style flow/positioning articles, prefer support -> claim as `推出` and transmission -> claim as `正向` when the transmission node describes the world-state bridge.",
+		"In flow/positioning articles, prefer support -> claim as `推出` and transmission -> claim as `正向` when the transmission node describes the world-state bridge.",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Fatalf("graph instruction missing %q in %q", want, instruction)
@@ -186,9 +186,9 @@ func TestBuildChallengePromptBuilders(t *testing.T) {
 		"node challenger reviewing an extracted node set for recall gaps",
 		"Audit observation / condition / judgment / forecast coverage and support / transmission / claim roles separately before deciding nothing is missing.",
 		"Audit evidence nodes, mechanism/transmission nodes, and judgment nodes separately before deciding nothing is missing.",
-		"Specifically look for the missing bridge mechanism between evidence nodes and judgment nodes.",
-		"In G04-style flow/positioning articles, add the missing transmission node whenever support observations and judgment/forecast claims exist without an explicit bridge.",
-		"When a judgment about a market narrative depends on an allocation preference, pricing dominance, or investor positioning rule, add that missing mechanism node explicitly instead of only adding more evidence or more judgment nodes.",
+		"Specifically look for the missing bridge transmission node between evidence nodes and judgment nodes.",
+		"For flow/positioning articles, add the missing transmission node whenever support observations and judgment/forecast claims exist without an explicit bridge.",
+		"When a market judgment depends on an allocation preference, pricing dominance, or investor positioning rule, add that missing transmission node explicitly instead of only adding more evidence or more judgment nodes.",
 		"Look for nodes that are still too fat: if one existing node contains evidence plus judgment, mechanism plus outcome, prediction plus driver, or multiple coordinated claims, add the missing finer-grained nodes instead of accepting the coarse node as sufficient.",
 		"Treat connector words such as because, therefore, so, which means, implying, driven by, due to, despite, and as a result as split signals.",
 	} {

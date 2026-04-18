@@ -444,10 +444,10 @@ func TestClientCompileRetriesWhenLongformGraphTooSparse(t *testing.T) {
 	retryPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
 	if !containsAll(
 		retryPrompt,
-		"for G04-style flow/positioning articles, split support observations, transmission mechanisms, and judgment/forecast claims into separate nodes",
+		"for flow/positioning articles, split support observations, transmission mechanisms, and judgment/forecast claims into separate nodes",
 		"use only `function` values `support`, `transmission`, `claim`",
 	) {
-		t.Fatalf("retry prompt missing G04 form/function guidance: %q", retryPrompt)
+		t.Fatalf("retry prompt missing form/function guidance: %q", retryPrompt)
 	}
 	if len(record.Output.Graph.Nodes) != 4 || len(record.Output.Graph.Edges) != 3 {
 		t.Fatalf("graph = %#v", record.Output.Graph)
