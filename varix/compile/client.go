@@ -585,9 +585,14 @@ func (c *Client) buildDriverTargetAttempt(ctx context.Context, bundle Bundle, sy
 	if err != nil {
 		return DriverTargetOutput{}, err
 	}
-	if len(out.Drivers) == 0 && len(out.Targets) == 0 && looksLikeLegacyGraphPayload(resp.Text) {
+	if len(out.Drivers) == 0 || len(out.Targets) == 0 {
+		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
+			out = mergeDriverTargetOutputs(out, deriveDriverTargetOutputFromLegacy(legacy))
+		}
+	}
+	if len(out.Drivers) == 0 && len(out.Targets) == 0 {
 		legacyNodeOutput, legacyErr := ParseNodeExtractionOutput(resp.Text)
-		if legacyErr == nil {
+		if legacyErr == nil && len(legacyNodeOutput.Graph.Nodes) > 0 {
 			applyBundleTimingFallbacks(bundle, &legacyNodeOutput.Graph)
 			return DriverTargetOutput{}, legacyNodeStageError{nodeOutput: legacyNodeOutput}
 		}
