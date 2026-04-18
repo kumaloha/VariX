@@ -3,6 +3,12 @@
 ## Status
 
 This document replaces the earlier compatibility-oriented redesign notes.
+
+Current implementation review lives in `docs/compile-redesign-review.md`.
+That review documents the landed state: top-level driver / target output is in
+place, but the runtime compile pipeline is still node-first / edge-first and
+does not yet expose first-class `transmission_paths`, `evidence_nodes`, or
+`explanation_nodes`.
 The target design is no longer "keep the old node kinds and layer new axes on top".
 The target design is now a direct extraction pipeline centered on:
 
