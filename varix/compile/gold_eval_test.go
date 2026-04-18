@@ -2,6 +2,7 @@ package compile
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -98,5 +99,20 @@ func TestGoldDatasetValidateRejectsBlankDriverOrTarget(t *testing.T) {
 
 func batch1GoldDatasetPath(t *testing.T) string {
 	t.Helper()
-	return filepath.Join("..", "..", "data", "gold", "compile-gold-batch1-v1.json")
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd() error = %v", err)
+	}
+	for dir := wd; ; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, "data", "gold", "compile-gold-batch1-v1.json")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+	}
+	t.Fatalf("compile-gold-batch1-v1.json not found from %s upward", wd)
+	return ""
 }
