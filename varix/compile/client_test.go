@@ -609,6 +609,50 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	}
 }
 
+func TestClientCompileRoutesObservationTransmissionNodesThroughFactVerifier(t *testing.T) {
+	provider := &compileMockProvider{responses: append(compileStageResponses(t,
+		`{"summary":"一句话","graph":{"nodes":[{"id":"n1","form":"observation","function":"support","text":"海外资金继续流入美国资产","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","form":"observation","function":"transmission","text":"增长预期仍压过政治风险并维持美国资产配置偏好","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n3","form":"judgment","function":"claim","text":"当前不存在 sell America trade"}],"edges":[{"from":"n2","to":"n1","kind":"正向"},{"from":"n1","to":"n3","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, "compile-model"), []llm.ProviderResponse{
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"},{"node_id":"n2","assessment":"supported","reason":"bridge mechanism is grounded"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
+	}...)}
+	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
+
+	record, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "web:g04-routing",
+		Source:     "web",
+		ExternalID: "g04-routing",
+		Content:    "root body",
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(provider.requests) != 8 {
+		t.Fatalf("provider calls = %d, want 8", len(provider.requests))
+	}
+	factPrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
+	for _, want := range []string{`"kind": "事实"`, `"kind": "机制"`} {
+		if !strings.Contains(factPrompt, want) {
+			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
+		}
+	}
+	if strings.Contains(factPrompt, `"kind": "结论"`) {
+		t.Fatalf("fact verifier prompt should exclude judgment nodes: %q", factPrompt)
+	}
+	if len(record.Output.Verification.FactChecks) != 2 {
+		t.Fatalf("len(FactChecks) = %d, want 2", len(record.Output.Verification.FactChecks))
+	}
+	if !reflect.DeepEqual(
+		[]string{record.Output.Verification.FactChecks[0].NodeID, record.Output.Verification.FactChecks[1].NodeID},
+		[]string{"n1", "n2"},
+	) {
+		t.Fatalf("FactChecks = %#v", record.Output.Verification.FactChecks)
+	}
+	if record.Output.Verification.CoverageSummary == nil || record.Output.Verification.CoverageSummary.TotalExpectedNodes != 2 {
+		t.Fatalf("CoverageSummary = %#v, want 2 expected verified observation nodes", record.Output.Verification.CoverageSummary)
+	}
+}
+
 func TestClientCompileCarriesStructuredWeiboEvidenceIntoVerifierPrompt(t *testing.T) {
 	provider := &compileMockProvider{responses: append(compileStageResponses(t,
 		`{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B"}],"edges":[{"from":"n1","to":"n2","kind":"正向"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, "compile-model"), []llm.ProviderResponse{

@@ -1,5 +1,10 @@
 # Compile Node Form+Function Redesign — Review Notes
 
+This document now describes the **landed** form+function redesign, not just the
+pre-rollout rationale. Use it as the review+documentation companion for the
+current implementation in `varix/compile/*` and the prompt/test contract in
+`prompts/compile/*`.
+
 ## Scope reviewed
 
 This review covers the current compile node contract and the surfaces that will
@@ -15,9 +20,9 @@ have to change for the form+function redesign:
 - `varix/compile/prompt_test.go`
 - batch-1 gold sample `G04` in `data/gold/compile-gold-batch1-v1.json`
 
-The goal of this review is to document **why** the redesign is justified,
-define the minimal rollout contract, and lock one focused regression target
-before the implementation and test lanes land their code changes.
+The goal of this review is to document **why** the redesign was justified,
+record the implementation contract that shipped, and lock the focused G04
+regression target that now protects the rollout.
 
 ---
 
@@ -26,8 +31,8 @@ before the implementation and test lanes land their code changes.
 ### Verdict
 
 The redesign from a single node `kind` axis to separate **form** and
-**function** axes is justified and aligns with the prompt behavior the compile
-lane is already asking models to follow.
+**function** axes is now implemented and aligns with the prompt behavior the
+compile lane already asks models to follow.
 
 ### Main finding
 
@@ -47,7 +52,7 @@ The current schema mixes two different questions into one field:
 That overload is currently handled informally in prompt wording rather than in
 the node schema itself.
 
-### Why the redesign is needed
+### Why the redesign was needed
 
 Current prompts already distinguish:
 
@@ -78,6 +83,53 @@ The new schema makes those distinctions first-class instead of prompt-only.
 
 ---
 
+## Landed implementation contract
+
+### Schema behavior in code
+
+The rollout is additive rather than replacement-only:
+
+- `GraphNode` still carries legacy `kind`
+- `GraphNode` also carries first-class `form` and `function`
+- JSON parsing accepts:
+  - legacy `kind`-only payloads
+  - dual-axis payloads with `form` + `function`
+  - mixed payloads as long as they are internally consistent
+
+`varix/compile/result.go` is the canonical mapping layer. It normalizes every
+node into one internally consistent triple:
+
+- legacy `kind`
+- `form`
+- `function`
+
+That means downstream code can remain stable during the migration while prompts
+and tests move to the dual-axis vocabulary.
+
+### Current canonical mapping
+
+The shipped normalization contract is:
+
+| Legacy kind | Form | Function | Operational meaning |
+| --- | --- | --- | --- |
+| `事实` | `observation` | `support` | observed evidence / supporting state |
+| `显式条件` | `condition` | `claim` | explicit if/when prerequisite stated as a top-level gating claim |
+| `隐含条件` | `condition` | `support` | implicit premise or already-operative condition supporting a downstream claim |
+| `机制` | `observation` | `transmission` | active world-state bridge / pricing-allocation mechanism |
+| `结论` | `judgment` | `claim` | current judgment / slogan / thesis |
+| `预测` | `forecast` | `claim` | future outcome |
+
+Additional parser rules worth remembering:
+
+- `condition + transmission` is accepted and normalized back into the legacy
+  implicit-condition lane, preserving migration safety for bridge-like
+  conditions.
+- explicit condition text such as `如果 / 若 / 一旦` is auto-normalized away
+  from generic `事实` into the explicit-condition lane.
+- legacy validity windows are still normalized into the newer timing fields.
+
+---
+
 ## Proposed contract
 
 ### Form axis
@@ -103,13 +155,14 @@ Use `function` for the node's role in the article's causal spine:
 | --- | --- | --- | --- |
 | observed evidence / reported state | `observation` | `support` | facts that help justify another node |
 | current operative market mechanism | `observation` | `transmission` | pricing/allocation rule already active in the article frame |
-| if/when prerequisite | `condition` | `support` or `transmission` | keep `condition` for gating clauses; choose `transmission` only when the clause itself is the causal bridge |
+| explicit if/when prerequisite | `condition` | `claim` | top-level gating clause that should drive a `预设` edge |
+| implicit supporting prerequisite | `condition` | `support` | unstated or already-operative condition that helps justify another node |
 | author slogan / current thesis | `judgment` | `claim` | e.g. “there is no sell America trade” |
 | future outcome | `forecast` | `claim` | future state/outcome to be tested later |
 
 ### Backward-compatibility rule
 
-Rollout should be additive and parser-safe:
+Rollout is additive and parser-safe:
 
 - keep accepting legacy `kind` payloads during migration
 - normalize legacy `kind` into `form` + `function`
@@ -118,13 +171,28 @@ Rollout should be additive and parser-safe:
 
 ### Time-field rule
 
-The redesign should preserve the current timing behavior:
+The redesign preserves the current timing behavior:
 
 - current-frame operative observations/conditions still use `occurred_at`
 - forecasts still use `prediction_start_at`
 - `prediction_due_at` remains optional and inference-based
 
 Do not regress the current timestamp normalization while changing taxonomy.
+
+### Verifier compatibility rule
+
+The verifier lane remains intentionally conservative:
+
+- `varix/compile/parse.go` normalizes dual-axis nodes back into a compatible
+  legacy `kind`
+- `varix/compile/verifier.go` still routes passes by normalized statement lane:
+  - facts
+  - explicit conditions
+  - implicit conditions
+  - predictions
+
+So the redesign clarifies extraction semantics without forcing a full verifier
+taxonomy rewrite in the same rollout.
 
 ---
 
@@ -143,8 +211,8 @@ contains all three roles that the current prompts already care about:
    - no `sell America` trade forms
    - no `hedge America` trade forms
 
-If the redesign is correct, G04 should stop collapsing those roles into a flat
-`事实 + 结论` shape.
+Because the redesign is now live, G04 should continue to avoid collapsing those
+roles into a flat `事实 + 结论` shape.
 
 ### Gold evidence snapshot
 
@@ -161,7 +229,7 @@ The current gold dataset already encodes the intended top-level meaning for
 
 ### Minimum node-level expectations for G04
 
-The redesign should preserve at least this separation:
+The current implementation should preserve at least this separation:
 
 1. `observation + transmission`
    - growth / return expectations dominate political-risk pricing
@@ -171,6 +239,17 @@ The redesign should preserve at least this separation:
    - no `sell America` trade forms
 4. `judgment + claim`
    - no `hedge America` trade forms
+
+### Minimum edge-level expectations for G04
+
+The accompanying graph contract is just as important as the node contract:
+
+1. `support -> claim` should usually stay `推出`
+   - observed inflow evidence supports the judgment
+2. `transmission -> claim` should usually stay `正向`
+   - the allocation/pricing bridge is the world-state mechanism
+3. conditional downside branches should use `预设`
+   - only when the source node is a condition
 
 ### What must not regress
 
@@ -192,19 +271,19 @@ G04 should remain the quick-check article for
 ### Schema / parsing
 
 - `varix/compile/result.go`
-  - add the new axes without weakening validation
-  - keep migration-safe handling for legacy `kind`
+  - adds the new axes without weakening validation
+  - keeps migration-safe handling for legacy `kind`
 - `varix/compile/parse.go`
-  - normalize old payloads into the new axes
-  - preserve current timing normalization
+  - normalizes old payloads into the new axes
+  - preserves current timing normalization
 
 ### Verification routing
 
 - `varix/compile/verifier.go`
 - `varix/compile/client.go`
 
-Verifier routing should key primarily off statement shape (`form`) while still
-preserving the current pass split:
+Verifier routing should remain compatible with the normalized statement lane
+while still preserving the current pass split:
 
 - facts / support observations
 - explicit conditions
@@ -238,9 +317,11 @@ distinct from each other.
 
 ## Review conclusion
 
-No blocking design objection was found for the form+function redesign.
+No blocking design objection was found for the form+function redesign, and the
+current implementation matches the intended rollout shape.
 
-The main caution is rollout discipline: keep legacy parsing intact, keep timing
-normalization intact, and use G04 as the focused regression that proves the new
-schema separates **support**, **transmission**, and **claim** roles without
-losing the existing observation / condition / judgment / forecast distinction.
+The main caution remains rollout discipline during future edits: keep legacy
+parsing intact, keep timing normalization intact, keep verifier routing stable,
+and use G04 as the focused regression that proves the schema still separates
+**support**, **transmission**, and **claim** roles without losing the existing
+observation / condition / judgment / forecast distinction.

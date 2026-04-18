@@ -52,8 +52,23 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, prompts *pr
 	implicitConditionNodes := make([]GraphNode, 0)
 	predictionNodes := make([]GraphNode, 0)
 	for _, node := range output.Graph.Nodes {
+		switch node.Form {
+		case NodeFormObservation:
+			factNodes = append(factNodes, node)
+			continue
+		case NodeFormForecast:
+			predictionNodes = append(predictionNodes, node)
+			continue
+		case NodeFormCondition:
+			if node.Kind == NodeImplicitCondition || (node.Kind == "" && node.Function != NodeFunctionClaim) {
+				implicitConditionNodes = append(implicitConditionNodes, node)
+			} else {
+				explicitConditionNodes = append(explicitConditionNodes, node)
+			}
+			continue
+		}
 		switch node.Kind {
-		case NodeFact:
+		case NodeFact, NodeMechanism:
 			factNodes = append(factNodes, node)
 		case NodeExplicitCondition:
 			explicitConditionNodes = append(explicitConditionNodes, node)

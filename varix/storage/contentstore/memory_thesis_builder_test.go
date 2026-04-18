@@ -194,6 +194,50 @@ func TestBuildCandidateTheses_UsesFactAndConclusionForSingleSourceTopicLabel(t *
 	}
 }
 
+func TestBuildCandidateTheses_KeepsSameSourceTransmissionBridgeWithEvidenceAndClaim(t *testing.T) {
+	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	nodes := []memory.AcceptedNode{
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "G04",
+			NodeID:           "n1",
+			NodeKind:         string(compile.NodeFact),
+			NodeText:         "海外资金继续流入美国资产",
+			AcceptedAt:       now,
+		},
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "G04",
+			NodeID:           "n2",
+			NodeKind:         string(compile.NodeMechanism),
+			NodeText:         "增长与回报预期仍压过政治风险并维持美国资产配置偏好",
+			AcceptedAt:       now,
+		},
+		{
+			UserID:           "u-thesis",
+			SourcePlatform:   "weibo",
+			SourceExternalID: "G04",
+			NodeID:           "n3",
+			NodeKind:         string(compile.NodeConclusion),
+			NodeText:         "当前并不存在 sell America trade",
+			AcceptedAt:       now,
+		},
+	}
+
+	got := buildCandidateTheses(nodes, now)
+	if len(got) != 1 {
+		t.Fatalf("len(buildCandidateTheses) = %d, want 1 thesis for fact+mechanism+claim chain", len(got))
+	}
+	if len(got[0].NodeIDs) != 3 {
+		t.Fatalf("NodeIDs = %#v, want all 3 same-source chain nodes", got[0].NodeIDs)
+	}
+	if got[0].ClusterReason != "same_source_causal_chain" {
+		t.Fatalf("ClusterReason = %q, want same_source_causal_chain", got[0].ClusterReason)
+	}
+}
+
 func TestBuildCandidateTheses_UsesContradictionPairReason(t *testing.T) {
 	now := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
 	nodes := []memory.AcceptedNode{

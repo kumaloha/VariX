@@ -11,6 +11,15 @@ For the dual-axis rollout note (`form` + `function`) and the focused G04
 regression contract, see
 `docs/compile-node-form-function-review.md`.
 
+When splitting nodes under the current schema, preserve both axes explicitly:
+
+- **form** = observation / condition / judgment / forecast
+- **function** = support / transmission / claim
+
+Do not split a sentence into smaller clauses and then flatten them back into one
+generic role. Splitting is only useful if the resulting nodes still preserve the
+article's distinct evidence, bridge, and claim semantics.
+
 ---
 
 ## Core principle
@@ -116,6 +125,29 @@ Should become:
 - mechanism: 系统脆弱性被放大
 - conclusion: 风险资产承压
 
+Under the dual-axis schema, that usually means:
+
+- support observation or support condition
+- transmission observation
+- claim judgment or claim forecast
+
+### 6. G04-style flow / positioning theses
+
+Split when the article contains all three layers below:
+
+- observed flow / positioning evidence
+- a pricing or allocation bridge explaining that evidence
+- a judgment or forecast about the market narrative
+
+Recommended shape:
+
+- `observation + support`: foreign capital keeps flowing into US assets
+- `observation + transmission`: growth / return expectations still dominate political-risk pricing and keep capital allocated to US assets
+- `judgment + claim`: no `sell America` trade forms
+- `judgment + claim`: no `hedge America` trade forms
+
+Do **not** collapse those roles into one large “flow thesis” node.
+
 ---
 
 ## Usually keep as one node
@@ -155,6 +187,14 @@ first:
 
 This keeps the graph useful even before finer-grained splitting is added.
 
+Under the current contract, the same order can be restated as:
+
+1. `observation + support`
+2. `condition + support` or `condition + claim`
+3. `observation + transmission`
+4. `judgment + claim`
+5. `forecast + claim`
+
 ---
 
 ## Edge mapping rules
@@ -169,6 +209,12 @@ Recommended initial mapping:
 
 Do not overfit edge semantics early. It is better to expose the chain than
 to perfectly label every edge.
+
+For the current compile prompts, the default guardrails are:
+
+- support → claim: usually `推出`
+- transmission → claim: usually `正向`
+- condition → downstream: `预设`
 
 ---
 
