@@ -169,112 +169,19 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	if c.prompts == nil {
 		c.prompts = newPromptRegistry("")
 	}
-	reqs := InferGraphRequirements(bundle)
-	nodeSystemPrompt, err := c.prompts.buildNodeInstruction(reqs)
+	driverTargetOutput, err := c.compileDriverTarget(ctx, bundle)
 	if err != nil {
 		return Record{}, err
 	}
-	nodeUserPrompt, err := c.prompts.buildNodePrompt(bundle)
+	transmissionPathOutput, err := c.compileTransmissionPaths(ctx, bundle, driverTargetOutput)
 	if err != nil {
 		return Record{}, err
 	}
-	nodeOutput, err := c.extractNodesAttempt(ctx, bundle, nodeSystemPrompt, nodeUserPrompt, reqs)
-	if err != nil {
-		retryPrompt, retryErr := c.prompts.buildNodeRetryPrompt(bundle, reqs)
-		if retryErr != nil {
-			return Record{}, retryErr
-		}
-		nodeOutput, err = c.extractNodesAttempt(
-			ctx,
-			bundle,
-			nodeSystemPrompt,
-			retryPrompt,
-			reqs,
-		)
-		if err != nil {
-			return Record{}, err
-		}
-	}
-	nodeChallengeSystemPrompt, err := c.prompts.buildNodeChallengeInstruction(reqs)
+	evidenceExplanationOutput, err := c.compileEvidenceExplanation(ctx, bundle, driverTargetOutput, transmissionPathOutput)
 	if err != nil {
 		return Record{}, err
 	}
-	nodeChallengeUserPrompt, err := c.prompts.buildNodeChallengePrompt(bundle, nodeOutput.Graph.Nodes)
-	if err != nil {
-		return Record{}, err
-	}
-	nodeChallengeOutput, err := c.extractNodesAttempt(ctx, bundle, nodeChallengeSystemPrompt, nodeChallengeUserPrompt, GraphRequirements{})
-	if err != nil {
-		retryPrompt, retryErr := c.prompts.buildNodeChallengeRetryPrompt(bundle, nodeOutput.Graph.Nodes, reqs)
-		if retryErr != nil {
-			return Record{}, retryErr
-		}
-		nodeChallengeOutput, err = c.extractNodesAttempt(ctx, bundle, nodeChallengeSystemPrompt, retryPrompt, GraphRequirements{})
-		if err != nil {
-			nodeChallengeOutput = NodeExtractionOutput{}
-		}
-	}
-	nodeOutput = mergeNodeOutputs(nodeOutput, nodeChallengeOutput)
-	fullGraphSystemPrompt, err := c.prompts.buildGraphInstruction(reqs)
-	if err != nil {
-		return Record{}, err
-	}
-	fullGraphUserPrompt, err := c.prompts.buildGraphPrompt(bundle, nodeOutput.Graph.Nodes)
-	if err != nil {
-		return Record{}, err
-	}
-	fullGraphOutput, err := c.buildFullGraphAttempt(ctx, bundle, fullGraphSystemPrompt, fullGraphUserPrompt, reqs, nodeOutput.Graph.Nodes)
-	if err != nil {
-		retryPrompt, retryErr := c.prompts.buildGraphRetryPrompt(bundle, nodeOutput.Graph.Nodes, reqs)
-		if retryErr != nil {
-			return Record{}, retryErr
-		}
-		fullGraphOutput, err = c.buildFullGraphAttempt(ctx, bundle, fullGraphSystemPrompt, retryPrompt, reqs, nodeOutput.Graph.Nodes)
-		if err != nil {
-			return Record{}, err
-		}
-	}
-	edgeChallengeSystemPrompt, err := c.prompts.buildEdgeChallengeInstruction(reqs)
-	if err != nil {
-		return Record{}, err
-	}
-	edgeChallengeUserPrompt, err := c.prompts.buildEdgeChallengePrompt(bundle, nodeOutput.Graph.Nodes, fullGraphOutput.Graph.Edges)
-	if err != nil {
-		return Record{}, err
-	}
-	edgeChallengeOutput, err := c.buildFullGraphAttempt(ctx, bundle, edgeChallengeSystemPrompt, edgeChallengeUserPrompt, GraphRequirements{}, nodeOutput.Graph.Nodes)
-	if err != nil {
-		retryPrompt, retryErr := c.prompts.buildEdgeChallengeRetryPrompt(bundle, nodeOutput.Graph.Nodes, fullGraphOutput.Graph.Edges, reqs)
-		if retryErr != nil {
-			return Record{}, retryErr
-		}
-		edgeChallengeOutput, err = c.buildFullGraphAttempt(ctx, bundle, edgeChallengeSystemPrompt, retryPrompt, GraphRequirements{}, nodeOutput.Graph.Nodes)
-		if err != nil {
-			edgeChallengeOutput = FullGraphOutput{}
-		}
-	}
-	fullGraphOutput = mergeFullGraphOutputs(fullGraphOutput, edgeChallengeOutput)
-	causalProjection := buildCausalProjection(nodeOutput.Graph.Nodes, fullGraphOutput.Graph.Edges)
-	thesisSystemPrompt, err := c.prompts.buildThesisInstruction(reqs)
-	if err != nil {
-		return Record{}, err
-	}
-	thesisUserPrompt, err := c.prompts.buildThesisPrompt(bundle, causalProjection)
-	if err != nil {
-		return Record{}, err
-	}
-	thesisOutput, err := c.buildThesisAttempt(ctx, bundle, thesisSystemPrompt, thesisUserPrompt)
-	if err != nil {
-		retryPrompt, retryErr := c.prompts.buildThesisRetryPrompt(bundle, causalProjection, reqs)
-		if retryErr != nil {
-			return Record{}, retryErr
-		}
-		thesisOutput, err = c.buildThesisAttempt(ctx, bundle, thesisSystemPrompt, retryPrompt)
-		if err != nil {
-			return Record{}, err
-		}
-	}
-	output := mergeCompileOutputs(nodeOutput, fullGraphOutput, thesisOutput)
+	output := mergeDirectCompileOutputs(bundle, driverTargetOutput, transmissionPathOutput, evidenceExplanationOutput)
 	verification, err := c.verifier.Verify(ctx, bundle, output)
 	if err != nil {
 		return Record{}, err
@@ -289,6 +196,159 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 		Output:         output,
 		CompiledAt:     time.Now().UTC(),
 	}, nil
+}
+
+func (c *Client) compileDriverTarget(ctx context.Context, bundle Bundle) (DriverTargetOutput, error) {
+	systemPrompt, err := c.prompts.buildDriverTargetGeneratorInstruction()
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	userPrompt, err := c.prompts.buildDriverTargetGeneratorPrompt(bundle)
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	generated, err := c.buildDriverTargetAttempt(ctx, bundle, systemPrompt, userPrompt)
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	if err := generated.ValidateGeneratorOrJudge(); err != nil {
+		return DriverTargetOutput{}, err
+	}
+
+	challengeSystemPrompt, err := c.prompts.buildDriverTargetChallengeInstruction()
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	challengeUserPrompt, err := c.prompts.buildDriverTargetChallengePrompt(bundle, generated)
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	challenged, err := c.buildDriverTargetAttempt(ctx, bundle, challengeSystemPrompt, challengeUserPrompt)
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	if err := challenged.ValidateChallenge(); err != nil {
+		return DriverTargetOutput{}, err
+	}
+
+	judgeSystemPrompt, err := c.prompts.buildDriverTargetJudgeInstruction()
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	judgeUserPrompt, err := c.prompts.buildDriverTargetJudgePrompt(bundle, generated, challenged)
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	final, err := c.buildDriverTargetAttempt(ctx, bundle, judgeSystemPrompt, judgeUserPrompt)
+	if err != nil {
+		return DriverTargetOutput{}, err
+	}
+	if err := final.ValidateGeneratorOrJudge(); err != nil {
+		return DriverTargetOutput{}, err
+	}
+	return final, nil
+}
+
+func (c *Client) compileTransmissionPaths(ctx context.Context, bundle Bundle, driverTarget DriverTargetOutput) (TransmissionPathOutput, error) {
+	systemPrompt, err := c.prompts.buildTransmissionPathGeneratorInstruction()
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	userPrompt, err := c.prompts.buildTransmissionPathGeneratorPrompt(bundle, driverTarget)
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	generated, err := c.buildTransmissionPathAttempt(ctx, bundle, systemPrompt, userPrompt)
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	if err := generated.ValidateGeneratorOrJudge(); err != nil {
+		return TransmissionPathOutput{}, err
+	}
+
+	challengeSystemPrompt, err := c.prompts.buildTransmissionPathChallengeInstruction()
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	challengeUserPrompt, err := c.prompts.buildTransmissionPathChallengePrompt(bundle, driverTarget, generated)
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	challenged, err := c.buildTransmissionPathAttempt(ctx, bundle, challengeSystemPrompt, challengeUserPrompt)
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	if err := challenged.ValidateChallenge(); err != nil {
+		return TransmissionPathOutput{}, err
+	}
+
+	judgeSystemPrompt, err := c.prompts.buildTransmissionPathJudgeInstruction()
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	judgeUserPrompt, err := c.prompts.buildTransmissionPathJudgePrompt(bundle, driverTarget, generated, challenged)
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	final, err := c.buildTransmissionPathAttempt(ctx, bundle, judgeSystemPrompt, judgeUserPrompt)
+	if err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	if err := final.ValidateGeneratorOrJudge(); err != nil {
+		return TransmissionPathOutput{}, err
+	}
+	return final, nil
+}
+
+func (c *Client) compileEvidenceExplanation(ctx context.Context, bundle Bundle, driverTarget DriverTargetOutput, paths TransmissionPathOutput) (EvidenceExplanationOutput, error) {
+	systemPrompt, err := c.prompts.buildEvidenceExplanationGeneratorInstruction()
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	userPrompt, err := c.prompts.buildEvidenceExplanationGeneratorPrompt(bundle, driverTarget, paths)
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	generated, err := c.buildEvidenceExplanationAttempt(ctx, bundle, systemPrompt, userPrompt)
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	if err := generated.ValidateGeneratorOrJudge(); err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+
+	challengeSystemPrompt, err := c.prompts.buildEvidenceExplanationChallengeInstruction()
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	challengeUserPrompt, err := c.prompts.buildEvidenceExplanationChallengePrompt(bundle, driverTarget, paths, generated)
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	challenged, err := c.buildEvidenceExplanationAttempt(ctx, bundle, challengeSystemPrompt, challengeUserPrompt)
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	if err := challenged.ValidateChallenge(); err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+
+	judgeSystemPrompt, err := c.prompts.buildEvidenceExplanationJudgeInstruction()
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	judgeUserPrompt, err := c.prompts.buildEvidenceExplanationJudgePrompt(bundle, driverTarget, paths, generated, challenged)
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	final, err := c.buildEvidenceExplanationAttempt(ctx, bundle, judgeSystemPrompt, judgeUserPrompt)
+	if err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	if err := final.ValidateGeneratorOrJudge(); err != nil {
+		return EvidenceExplanationOutput{}, err
+	}
+	return final, nil
 }
 
 func (c *Client) extractNodesAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string, reqs GraphRequirements) (NodeExtractionOutput, error) {
