@@ -436,10 +436,9 @@ func (r *promptRegistry) render(relativePath string, data any) (string, error) {
 	if r == nil || strings.TrimSpace(r.promptsDir) == "" {
 		return "", fmt.Errorf("prompt registry has no prompts directory")
 	}
-	path := filepath.Join(r.promptsDir, filepath.FromSlash(relativePath))
-	body, err := os.ReadFile(path)
+	body, err := r.loadPromptBody(relativePath)
 	if err != nil {
-		return "", fmt.Errorf("load prompt %s: %w", relativePath, err)
+		return "", err
 	}
 	tmpl, err := template.New(relativePath).Option("missingkey=error").Parse(string(body))
 	if err != nil {
@@ -450,6 +449,32 @@ func (r *promptRegistry) render(relativePath string, data any) (string, error) {
 		return "", fmt.Errorf("render prompt %s: %w", relativePath, err)
 	}
 	return strings.TrimSpace(rendered.String()), nil
+}
+
+func (r *promptRegistry) loadPromptBody(relativePath string) ([]byte, error) {
+	candidate := filepath.Join(r.promptsDir, filepath.FromSlash(relativePath))
+	body, err := os.ReadFile(candidate)
+	if err == nil {
+		return body, nil
+	}
+	defaultDir := resolvePromptsDir()
+	if strings.TrimSpace(defaultDir) != "" && !samePath(defaultDir, r.promptsDir) {
+		fallback := filepath.Join(defaultDir, filepath.FromSlash(relativePath))
+		body, fallbackErr := os.ReadFile(fallback)
+		if fallbackErr == nil {
+			return body, nil
+		}
+	}
+	return nil, fmt.Errorf("load prompt %s: %w", relativePath, err)
+}
+
+func samePath(a, b string) bool {
+	a = filepath.Clean(strings.TrimSpace(a))
+	b = filepath.Clean(strings.TrimSpace(b))
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 func marshalCompilePayload(bundle Bundle) (string, error) {

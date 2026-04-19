@@ -748,6 +748,62 @@ func TestClientCompileUsesConfiguredPromptsDir(t *testing.T) {
 	}
 }
 
+func TestClientCompileConfiguredPromptsDirFallsBackToDefaultForMissingThreeStageTemplates(t *testing.T) {
+	root := t.TempDir()
+	settings := config.DefaultSettings(root)
+	for rel, body := range map[string]string{
+		"compile/node_system.tmpl": "legacy node system min={{.MinNodes}}",
+		"compile/node_user.tmpl":   "legacy node user {{.PayloadJSON}}",
+	} {
+		path := filepath.Join(settings.PromptsDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q): %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q): %v", path, err)
+		}
+	}
+
+	provider := &compileMockProvider{responses: directThreeStepResponses()}
+	client := NewClientWithRuntimePromptsAndVerifier(
+		newTestRuntime(provider, "compile-model"),
+		"compile-model",
+		newPromptRegistry(settings.PromptsDir),
+		noopVerificationService{},
+	)
+
+	record, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "web:fallback-prompts",
+		Source:     "web",
+		ExternalID: "fallback-prompts",
+		Content:    "root body",
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(provider.requests) != 9 {
+		t.Fatalf("provider calls = %d, want 9 direct-stage calls", len(provider.requests))
+	}
+	if strings.TrimSpace(record.Output.Summary) == "" {
+		t.Fatalf("Summary = %q, want non-empty", record.Output.Summary)
+	}
+}
+
+func TestBuildCompatibilityGraphPadsSparseDirectOutput(t *testing.T) {
+	graph := buildCompatibilityGraph(
+		Bundle{Content: "root body"},
+		DriverTargetOutput{Drivers: []string{"增长溢价上升"}, Targets: []string{"美元走强"}},
+		TransmissionPathOutput{},
+		EvidenceExplanationOutput{},
+	)
+	if len(graph.Nodes) < 2 {
+		t.Fatalf("len(nodes) = %d, want at least 2", len(graph.Nodes))
+	}
+	if len(graph.Edges) < 1 {
+		t.Fatalf("len(edges) = %d, want at least 1", len(graph.Edges))
+	}
+}
+
 func TestClientCompileCarriesAttachmentTranscriptIntoForgePrompt(t *testing.T) {
 	provider := &compileMockProvider{responses: append(compileStageResponses(t,
 		`{"summary":"一句话","graph":{"nodes":[{"id":"n1","kind":"事实","text":"事实A","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"},{"id":"n2","kind":"结论","text":"结论B","valid_from":"2026-04-14T00:00:00Z","valid_to":"2026-07-14T00:00:00Z"}],"edges":[{"from":"n1","to":"n2","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, "compile-model"), []llm.ProviderResponse{
