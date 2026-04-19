@@ -27,25 +27,25 @@ func (r *promptRegistry) buildInstruction(req GraphRequirements) (string, error)
 	return r.buildThesisInstruction(req)
 }
 
-func (r *promptRegistry) buildDriverTargetGeneratorInstruction() (string, error) {
-	return r.render("compile/driver_target_generator_system.tmpl", nil)
+func (r *promptRegistry) buildUnifiedGeneratorInstruction() (string, error) {
+	return r.render("compile/unified_generator_system.tmpl", nil)
 }
 
-func (r *promptRegistry) buildDriverTargetGeneratorPrompt(bundle Bundle) (string, error) {
+func (r *promptRegistry) buildUnifiedGeneratorPrompt(bundle Bundle) (string, error) {
 	payloadJSON, err := marshalCompilePayload(bundle)
 	if err != nil {
 		return "", err
 	}
-	return r.render("compile/driver_target_generator_user.tmpl", map[string]any{
+	return r.render("compile/unified_generator_user.tmpl", map[string]any{
 		"PayloadJSON": payloadJSON,
 	})
 }
 
-func (r *promptRegistry) buildDriverTargetChallengeInstruction() (string, error) {
-	return r.render("compile/driver_target_challenge_system.tmpl", nil)
+func (r *promptRegistry) buildUnifiedChallengeInstruction() (string, error) {
+	return r.render("compile/unified_challenge_system.tmpl", nil)
 }
 
-func (r *promptRegistry) buildDriverTargetChallengePrompt(bundle Bundle, generated DriverTargetOutput) (string, error) {
+func (r *promptRegistry) buildUnifiedChallengePrompt(bundle Bundle, generated UnifiedCompileOutput) (string, error) {
 	payloadJSON, err := marshalCompilePayload(bundle)
 	if err != nil {
 		return "", err
@@ -54,17 +54,17 @@ func (r *promptRegistry) buildDriverTargetChallengePrompt(bundle Bundle, generat
 	if err != nil {
 		return "", err
 	}
-	return r.render("compile/driver_target_challenge_user.tmpl", map[string]any{
+	return r.render("compile/unified_challenge_user.tmpl", map[string]any{
 		"PayloadJSON":   payloadJSON,
 		"GeneratedJSON": generatedJSON,
 	})
 }
 
-func (r *promptRegistry) buildDriverTargetJudgeInstruction() (string, error) {
-	return r.render("compile/driver_target_judge_system.tmpl", nil)
+func (r *promptRegistry) buildUnifiedJudgeInstruction() (string, error) {
+	return r.render("compile/unified_judge_system.tmpl", nil)
 }
 
-func (r *promptRegistry) buildDriverTargetJudgePrompt(bundle Bundle, generated DriverTargetOutput, challenged DriverTargetOutput) (string, error) {
+func (r *promptRegistry) buildUnifiedJudgePrompt(bundle Bundle, generated UnifiedCompileOutput, challenged UnifiedCompileOutput) (string, error) {
 	payloadJSON, err := marshalCompilePayload(bundle)
 	if err != nil {
 		return "", err
@@ -77,169 +77,10 @@ func (r *promptRegistry) buildDriverTargetJudgePrompt(bundle Bundle, generated D
 	if err != nil {
 		return "", err
 	}
-	return r.render("compile/driver_target_judge_user.tmpl", map[string]any{
+	return r.render("compile/unified_judge_user.tmpl", map[string]any{
 		"PayloadJSON":    payloadJSON,
 		"GeneratedJSON":  generatedJSON,
 		"ChallengedJSON": challengedJSON,
-	})
-}
-
-func (r *promptRegistry) buildTransmissionPathGeneratorInstruction() (string, error) {
-	return r.render("compile/transmission_path_generator_system.tmpl", nil)
-}
-
-func (r *promptRegistry) buildTransmissionPathGeneratorPrompt(bundle Bundle, driverTarget DriverTargetOutput) (string, error) {
-	payloadJSON, err := marshalCompilePayload(bundle)
-	if err != nil {
-		return "", err
-	}
-	driverTargetJSON, err := marshalJSON(driverTarget)
-	if err != nil {
-		return "", err
-	}
-	return r.render("compile/transmission_path_generator_user.tmpl", map[string]any{
-		"PayloadJSON":      payloadJSON,
-		"DriverTargetJSON": driverTargetJSON,
-	})
-}
-
-func (r *promptRegistry) buildTransmissionPathChallengeInstruction() (string, error) {
-	return r.render("compile/transmission_path_challenge_system.tmpl", nil)
-}
-
-func (r *promptRegistry) buildTransmissionPathChallengePrompt(bundle Bundle, driverTarget DriverTargetOutput, generated TransmissionPathOutput) (string, error) {
-	payloadJSON, err := marshalCompilePayload(bundle)
-	if err != nil {
-		return "", err
-	}
-	driverTargetJSON, err := marshalJSON(driverTarget)
-	if err != nil {
-		return "", err
-	}
-	generatedJSON, err := marshalJSON(generated)
-	if err != nil {
-		return "", err
-	}
-	return r.render("compile/transmission_path_challenge_user.tmpl", map[string]any{
-		"PayloadJSON":      payloadJSON,
-		"DriverTargetJSON": driverTargetJSON,
-		"GeneratedJSON":    generatedJSON,
-	})
-}
-
-func (r *promptRegistry) buildTransmissionPathJudgeInstruction() (string, error) {
-	return r.render("compile/transmission_path_judge_system.tmpl", nil)
-}
-
-func (r *promptRegistry) buildTransmissionPathJudgePrompt(bundle Bundle, driverTarget DriverTargetOutput, generated TransmissionPathOutput, challenged TransmissionPathOutput) (string, error) {
-	payloadJSON, err := marshalCompilePayload(bundle)
-	if err != nil {
-		return "", err
-	}
-	driverTargetJSON, err := marshalJSON(driverTarget)
-	if err != nil {
-		return "", err
-	}
-	generatedJSON, err := marshalJSON(generated)
-	if err != nil {
-		return "", err
-	}
-	challengedJSON, err := marshalJSON(challenged)
-	if err != nil {
-		return "", err
-	}
-	return r.render("compile/transmission_path_judge_user.tmpl", map[string]any{
-		"PayloadJSON":      payloadJSON,
-		"DriverTargetJSON": driverTargetJSON,
-		"GeneratedJSON":    generatedJSON,
-		"ChallengedJSON":   challengedJSON,
-	})
-}
-
-func (r *promptRegistry) buildEvidenceExplanationGeneratorInstruction() (string, error) {
-	return r.render("compile/evidence_explanation_generator_system.tmpl", nil)
-}
-
-func (r *promptRegistry) buildEvidenceExplanationGeneratorPrompt(bundle Bundle, driverTarget DriverTargetOutput, paths TransmissionPathOutput) (string, error) {
-	payloadJSON, err := marshalCompilePayload(bundle)
-	if err != nil {
-		return "", err
-	}
-	driverTargetJSON, err := marshalJSON(driverTarget)
-	if err != nil {
-		return "", err
-	}
-	pathsJSON, err := marshalJSON(paths)
-	if err != nil {
-		return "", err
-	}
-	return r.render("compile/evidence_explanation_generator_user.tmpl", map[string]any{
-		"PayloadJSON":      payloadJSON,
-		"DriverTargetJSON": driverTargetJSON,
-		"PathsJSON":        pathsJSON,
-	})
-}
-
-func (r *promptRegistry) buildEvidenceExplanationChallengeInstruction() (string, error) {
-	return r.render("compile/evidence_explanation_challenge_system.tmpl", nil)
-}
-
-func (r *promptRegistry) buildEvidenceExplanationChallengePrompt(bundle Bundle, driverTarget DriverTargetOutput, paths TransmissionPathOutput, generated EvidenceExplanationOutput) (string, error) {
-	payloadJSON, err := marshalCompilePayload(bundle)
-	if err != nil {
-		return "", err
-	}
-	driverTargetJSON, err := marshalJSON(driverTarget)
-	if err != nil {
-		return "", err
-	}
-	pathsJSON, err := marshalJSON(paths)
-	if err != nil {
-		return "", err
-	}
-	generatedJSON, err := marshalJSON(generated)
-	if err != nil {
-		return "", err
-	}
-	return r.render("compile/evidence_explanation_challenge_user.tmpl", map[string]any{
-		"PayloadJSON":      payloadJSON,
-		"DriverTargetJSON": driverTargetJSON,
-		"PathsJSON":        pathsJSON,
-		"GeneratedJSON":    generatedJSON,
-	})
-}
-
-func (r *promptRegistry) buildEvidenceExplanationJudgeInstruction() (string, error) {
-	return r.render("compile/evidence_explanation_judge_system.tmpl", nil)
-}
-
-func (r *promptRegistry) buildEvidenceExplanationJudgePrompt(bundle Bundle, driverTarget DriverTargetOutput, paths TransmissionPathOutput, generated EvidenceExplanationOutput, challenged EvidenceExplanationOutput) (string, error) {
-	payloadJSON, err := marshalCompilePayload(bundle)
-	if err != nil {
-		return "", err
-	}
-	driverTargetJSON, err := marshalJSON(driverTarget)
-	if err != nil {
-		return "", err
-	}
-	pathsJSON, err := marshalJSON(paths)
-	if err != nil {
-		return "", err
-	}
-	generatedJSON, err := marshalJSON(generated)
-	if err != nil {
-		return "", err
-	}
-	challengedJSON, err := marshalJSON(challenged)
-	if err != nil {
-		return "", err
-	}
-	return r.render("compile/evidence_explanation_judge_user.tmpl", map[string]any{
-		"PayloadJSON":      payloadJSON,
-		"DriverTargetJSON": driverTargetJSON,
-		"PathsJSON":        pathsJSON,
-		"GeneratedJSON":    generatedJSON,
-		"ChallengedJSON":   challengedJSON,
 	})
 }
 

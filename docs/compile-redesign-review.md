@@ -29,28 +29,26 @@ Main architecture surfaces reviewed:
 
 ### Verdict
 
-The redesign is **partially landed, not fully landed**.
+The redesign is **architecturally landed but still quality-sensitive**.
 
 What is already true:
 
-- driver / target has a real top-level output contract
-- transmission is a first-class **node function** in the graph schema
-- support vs transmission vs claim distinctions are now explicit in prompts,
-  parsing, and regression coverage
+- compile now starts from a unified generator -> challenge -> judge flow
+- driver / target has a first-class top-level output contract
+- compile now exposes first-class `transmission_paths`
+- compile now exposes first-class `evidence_nodes` and `explanation_nodes`
+- support vs transmission vs explanation distinctions are explicit in prompts,
+  parsing, regression coverage, and the direct compile runtime
 
 What is **not** yet true:
 
-- compile does **not** start from driver / target extraction as its primary
-  architecture
-- compile does **not** expose first-class `transmission_paths`
-- compile does **not** expose first-class `evidence_nodes` and
-  `explanation_nodes`
-- the planned generator -> challenge -> judge flow does **not** exist yet for
-  step 1 / step 2 / step 3 as dedicated compile stages
+- target selection is not yet guaranteed to be optimal on every case
+- driver/source selection can still drift in difficult articles
+- retained paths and auxiliary layers still need quality tuning against gold
+  cases
 
-The current system is still primarily a **node-first / edge-first pipeline with
-an added thesis overlay**, not the final three-step redesign described in the
-plan doc.
+The current system is no longer the old node-first / edge-first overlay design,
+but it still needs prompt-quality iteration to stabilize boundaries.
 
 ---
 
@@ -85,38 +83,41 @@ it has **not** yet fully switched to the plan's direct-extraction architecture.
 
 ### What is landed
 
-Step 1 is the most advanced part of the redesign.
+Step 1 is now a first-class stage in the direct compile pipeline.
 
 The following pieces are already in place:
 
-- `prompts/compile/system.tmpl` defines the top-level driver / target thesis
-  contract
-- `promptRegistry.buildThesisInstruction()` and
-  `promptRegistry.buildThesisPrompt()` make thesis extraction a separate stage
-- `ParseThesisOutput()` parses `summary`, `drivers`, and `targets`
+- unified generator / challenge / judge prompts now emit final top-level
+  `drivers[]` / `targets[]` directly
+- the direct compile runtime now commits to top-level endpoints before building
+  the compatibility graph
+- `ParseOutput()` / unified output parsing preserve `summary`, `drivers`, and
+  `targets`
 - `Output` / `ThesisOutput` carry top-level `drivers[]` and `targets[]`
 - validation rejects blank driver / target entries when those fields are present
-- tests in `prompt_test.go`, `result_test.go`, and
-  `form_function_regression_test.go` lock the main prompt and parser behavior
+- regression tests now cover unified generator / challenge / judge prompt
+  contracts and 3-call orchestration
 
 ### What is still missing
 
-Step 1 is still **late-bound** rather than architecture-first.
+The main remaining risk is not stage existence but **boundary quality**.
 
 Current gap vs the plan:
 
-- thesis extraction happens **after** node extraction and graph construction
-- there is no dedicated compile-stage **challenge** for driver / target recall
-- there is no dedicated compile-stage **judge** that finalizes driver / target
-  independently of the later graph merge
-- driver / target is still an overlay on top of the graph pipeline rather than
-  the first object the compile flow commits to
+- target selection can still drift toward a too-narrow or too-broad market
+  outcome
+- driver selection can still confuse shared sources with strong mid-chain
+  bridges
+- gold-case quality still depends on prompt discipline, not only stage shape
 
 ### Review finding
 
-The current driver / target implementation is a good additive rollout layer, but
-it should not be documented as if step 1 already replaced the old architecture.
-It has not.
+Step 1 is now architecturally landed, but it remains quality-sensitive.
+
+The most important rule is:
+- **target first**
+- target = final **market outcome**
+- driver = shared source of retained transmission paths
 
 ---
 
@@ -124,36 +125,35 @@ It has not.
 
 ### What is landed
 
-The codebase has useful building blocks for step 2:
+Step 2 is now a first-class part of the unified direct compile flow.
 
-- node `function=transmission` is first-class in `varix/compile/result.go`
-- prompt guidance strongly protects support -> transmission -> claim separation
-- graph extraction uses `drives` for market transmission relations
-- node and edge challenge prompts already try to recover missing bridge
-  transmission nodes
+The following pieces are now in place:
+
+- unified generator returns first-class `transmission_paths`
+- unified challenge audits missing bridges, fat steps, and misplaced
+  support/explanation items
+- unified judge returns the final retained transmission paths as part of the
+  full compile package
+- the compatibility graph is now downstream of first-class path extraction
+  rather than the source of path ownership
 
 ### What is still missing
 
-Step 2 is **not** yet implemented as a dedicated transmission-path stage.
+The remaining risk is boundary quality and path sharpness.
 
 Current gap vs the plan:
 
-- there is no top-level `transmission_paths` output contract
-- there is no step-2 generator -> challenge -> judge loop
-- transmission is still represented indirectly through graph nodes and edges
-- `buildCausalProjection()` reconstructs the main chain from positive edges
-  after graph extraction instead of extracting the path directly
+- the retained path can still be phrased too broadly
+- some cases may still compress two hops into one step
+- some cases may still over-promote a side branch into the retained path set
 
 ### Review finding
 
-This is the main architecture gap.
+Step 2 ownership is now landed.
 
-The current branch improved transmission **representation**, but not yet
-transmission-path **ownership**.
-
-In the target design, step 2 owns the causal spine directly.
-In the current design, the causal spine is still assembled bottom-up from graph
-artifacts.
+The open issue has shifted from architecture to quality:
+- does the path really represent the shortest sufficient causal spine?
+- does it terminate at the right market outcome?
 
 ---
 
@@ -161,32 +161,34 @@ artifacts.
 
 ### What is landed
 
-The current graph model already contains pieces that belong to the future
-auxiliary layer:
+Step 3 is now a first-class part of the unified direct compile flow.
 
-- support nodes
-- `substantiates` edges
-- `explains` edges
-- verification outputs for factual support
-- `details.caveats` for bounded free-form context
+The following pieces are now in place:
+
+- unified generator emits `evidence_nodes` and `explanation_nodes`
+- unified challenge audits misplaced auxiliary material
+- unified judge regenerates the final full package with auxiliary material kept
+  outside the retained causal spine
+- compatibility graph attachment now happens after these fields are finalized
 
 ### What is still missing
 
-Step 3 is also **not** yet implemented as a dedicated auxiliary-layer stage.
+The remaining gap is quality, not ownership.
 
 Current gap vs the plan:
 
-- there is no first-class `evidence_nodes` output field
-- there is no first-class `explanation_nodes` output field
-- evidence and explanation are still interleaved with the main graph instead of
-  being extracted only after the main chain is fixed
-- there is no step-3 generator -> challenge -> judge loop that explicitly keeps
-  evidence / explanation outside the causal spine
+- evidence can still be too broad or too numerous
+- explanation can still absorb material that should really be transmission
+- some cases still need tighter auxiliary-layer pruning
 
 ### Review finding
 
-The current branch has the raw ingredients for evidence / explanation, but it
-has not yet separated them into the plan's explicit auxiliary layer.
+Step 3 separation is now architecturally landed.
+
+The remaining question is how strictly the prompts preserve:
+- transmission = main causal spine
+- evidence = why believe it
+- explanation = how to interpret it
 
 ---
 
@@ -238,19 +240,17 @@ The main chain is still being **derived** from graph structure rather than being
 
 ## Documentation guardrails
 
-Until the next implementation round lands, docs should describe the system this
-way:
+Docs should now describe the system this way:
 
-- **landed now:** graph extraction plus a driver / target thesis overlay
-- **partially landed:** transmission as a first-class role in graph semantics
-- **not landed yet:** dedicated transmission-path extraction stage
-- **not landed yet:** dedicated evidence / explanation extraction stage
-- **not landed yet:** full generator -> challenge -> judge pipeline for each of
-  the three target steps
+- **landed now:** unified generator -> challenge -> judge compile pipeline
+- **landed now:** first-class `drivers[]`, `targets[]`, `transmission_paths`,
+  `evidence_nodes`, and `explanation_nodes`
+- **landed now:** target-first / driver-source / spine-vs-auxiliary boundary
+  rules in the unified prompt contract
+- **still evolving:** output quality on hard cases and the exact boundary tuning
 
-Do **not** describe the current branch as if the compile pipeline already starts
-with driver / target and only later fills transmission and support. That is the
-plan target, not the current runtime architecture.
+Do **not** describe the current branch as if it were still only a graph overlay
+without first-class path / auxiliary outputs. That is no longer accurate.
 
 ---
 

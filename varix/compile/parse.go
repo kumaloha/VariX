@@ -47,28 +47,6 @@ func ParseOutput(raw string) (Output, error) {
 	return out, nil
 }
 
-func ParseDriverTargetOutput(raw string) (DriverTargetOutput, error) {
-	payload, err := parseCompilePayload(raw)
-	if err != nil {
-		return DriverTargetOutput{}, err
-	}
-	var out DriverTargetOutput
-	_ = json.Unmarshal(payload["drivers"], &out.Drivers)
-	_ = json.Unmarshal(payload["targets"], &out.Targets)
-	out.Drivers = normalizeStringList(out.Drivers)
-	out.Targets = normalizeStringList(out.Targets)
-	_ = json.Unmarshal(payload["topics"], &out.Topics)
-	_ = json.Unmarshal(payload["confidence"], &out.Confidence)
-	if rawDetails, ok := payload["details"]; ok {
-		details, err := parseHiddenDetails(rawDetails)
-		if err != nil {
-			return DriverTargetOutput{}, err
-		}
-		out.Details = details
-	}
-	return out, nil
-}
-
 func ParseNodeExtractionOutput(raw string) (NodeExtractionOutput, error) {
 	payload, err := parseCompilePayload(raw)
 	if err != nil {
@@ -109,42 +87,29 @@ func ParseFullGraphOutput(raw string, nodeIDs map[string]struct{}, nodeKinds map
 	return out, nil
 }
 
-func ParseTransmissionPathOutput(raw string) (TransmissionPathOutput, error) {
+func ParseUnifiedCompileOutput(raw string) (UnifiedCompileOutput, error) {
 	payload, err := parseCompilePayload(raw)
 	if err != nil {
-		return TransmissionPathOutput{}, err
+		return UnifiedCompileOutput{}, err
 	}
-	var out TransmissionPathOutput
+	var out UnifiedCompileOutput
+	_ = json.Unmarshal(payload["summary"], &out.Summary)
+	_ = json.Unmarshal(payload["drivers"], &out.Drivers)
+	_ = json.Unmarshal(payload["targets"], &out.Targets)
 	_ = json.Unmarshal(payload["transmission_paths"], &out.TransmissionPaths)
+	_ = json.Unmarshal(payload["evidence_nodes"], &out.EvidenceNodes)
+	_ = json.Unmarshal(payload["explanation_nodes"], &out.ExplanationNodes)
+	out.Drivers = normalizeStringList(out.Drivers)
+	out.Targets = normalizeStringList(out.Targets)
+	out.EvidenceNodes = normalizeStringList(out.EvidenceNodes)
+	out.ExplanationNodes = normalizeStringList(out.ExplanationNodes)
 	normalizeTransmissionPaths(out.TransmissionPaths)
 	_ = json.Unmarshal(payload["topics"], &out.Topics)
 	_ = json.Unmarshal(payload["confidence"], &out.Confidence)
 	if rawDetails, ok := payload["details"]; ok {
 		details, err := parseHiddenDetails(rawDetails)
 		if err != nil {
-			return TransmissionPathOutput{}, err
-		}
-		out.Details = details
-	}
-	return out, nil
-}
-
-func ParseEvidenceExplanationOutput(raw string) (EvidenceExplanationOutput, error) {
-	payload, err := parseCompilePayload(raw)
-	if err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	var out EvidenceExplanationOutput
-	_ = json.Unmarshal(payload["evidence_nodes"], &out.EvidenceNodes)
-	_ = json.Unmarshal(payload["explanation_nodes"], &out.ExplanationNodes)
-	out.EvidenceNodes = normalizeStringList(out.EvidenceNodes)
-	out.ExplanationNodes = normalizeStringList(out.ExplanationNodes)
-	_ = json.Unmarshal(payload["topics"], &out.Topics)
-	_ = json.Unmarshal(payload["confidence"], &out.Confidence)
-	if rawDetails, ok := payload["details"]; ok {
-		details, err := parseHiddenDetails(rawDetails)
-		if err != nil {
-			return EvidenceExplanationOutput{}, err
+			return UnifiedCompileOutput{}, err
 		}
 		out.Details = details
 	}

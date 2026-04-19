@@ -56,13 +56,18 @@ The driver-target layer fixes that gap without redesigning node taxonomy.
 
 3. **Drivers are concrete forces**
    - a driver should describe the mechanism or force moving markets
+   - a retained driver should be the shared source of the retained transmission
+     paths, not a mid-chain bridge
    - vague placeholders like "many risks exist" are not acceptable drivers
 
-4. **Targets are changes**
-   - a target should describe the affected repricing / flow / pressure /
-     deleveraging / rotation / volatility change
+4. **Targets are market outcomes**
+   - a target should describe the final market outcome of the thesis
+   - the target may be a narrow pricing move or a broader trading /
+     positioning / market-state outcome
    - target entries should avoid raw object nouns alone such as `housing` or
      `stocks`
+   - target entries should not be background context, pure interpretation, or a
+     mid-chain bridge
 
 5. **Free-text v1**
    - v1 uses free-text `drivers[]` and `targets[]`
@@ -121,6 +126,8 @@ Prefer entries like:
 - `housing prices reprice lower`
 - `household de-risking accelerates`
 - `volatility in debt-priced assets rises`
+- `sell America trade does not materialize`
+- `US assets remain in an overweight / unhedged positioning regime`
 
 Avoid entries like:
 
@@ -128,6 +135,10 @@ Avoid entries like:
 - `housing`
 - `private credit`
 - `stocks`
+- `inflation remains high`
+- `the market is nervous`
+- `growth narrative dominates political risk` (bridge / mechanism rather than
+  final outcome)
 
 ### Narrative-order rule
 
@@ -141,6 +152,21 @@ compile should still output:
 - `targets[]` = resulting changes
 
 This keeps evaluation stable across writing styles.
+
+### Target-width rule
+
+Targets do **not** need to be maximally narrow.
+
+Some articles end in:
+- an explicit repricing / yield / FX / spread move
+- a broader trading / positioning / market-state outcome
+
+Both are acceptable if they are the thesis' true final market outcome.
+
+### Driver-source rule
+
+When a compile output also carries first-class transmission paths, the retained
+drivers should correspond to the shared sources of those retained paths.
 
 ---
 

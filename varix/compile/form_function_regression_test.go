@@ -75,12 +75,12 @@ func TestClientCompileNodeChallengeCarriesG04BridgeMechanismAudit(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) < 5 {
-		t.Fatalf("provider calls = %d, want direct three-stage compile requests", len(provider.requests))
+	if len(provider.requests) < 2 {
+		t.Fatalf("provider calls = %d, want unified three-call compile requests", len(provider.requests))
 	}
-	nodeChallengeSystem := provider.requests[4].System
+	nodeChallengeSystem := provider.requests[1].System
 	for _, want := range []string{
-		"challenger for compile step 2: transmission path extraction",
+		"unified compile challenger",
 		"detect missing bridge steps",
 		"support/explanation rather than transmission",
 	} {
@@ -88,8 +88,8 @@ func TestClientCompileNodeChallengeCarriesG04BridgeMechanismAudit(t *testing.T) 
 			t.Fatalf("node challenge system prompt missing %q in %q", want, nodeChallengeSystem)
 		}
 	}
-	nodeChallengePrompt := provider.requests[4].UserParts[len(provider.requests[4].UserParts)-1].Text
-	for _, want := range []string{"海外资金继续流入美国资产", "没有形成 sell America 交易", "Final driver/target pairs:"} {
+	nodeChallengePrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
+	for _, want := range []string{"海外资金继续流入美国资产", "没有形成 sell America 交易", "Generated draft:"} {
 		if !strings.Contains(nodeChallengePrompt, want) {
 			t.Fatalf("node challenge prompt missing %q in %q", want, nodeChallengePrompt)
 		}

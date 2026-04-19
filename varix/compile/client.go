@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -218,19 +219,26 @@ func shouldFallbackToLegacyCompile(err error) bool {
 }
 
 func (c *Client) compileDirect(ctx context.Context, bundle Bundle) (Output, error) {
-	driverTargetOutput, err := c.compileDriverTarget(ctx, bundle)
+	debugCompileStage(bundle, "compile_direct", "start")
+	generated, err := c.compileUnifiedGenerate(ctx, bundle)
 	if err != nil {
+		debugCompileStage(bundle, "compile_direct", "unified_generator_error: "+err.Error())
 		return Output{}, err
 	}
-	transmissionPathOutput, err := c.compileTransmissionPaths(ctx, bundle, driverTargetOutput)
+	debugCompileStage(bundle, "compile_direct", "unified_generator_done")
+	challenged, err := c.compileUnifiedChallenge(ctx, bundle, generated)
 	if err != nil {
+		debugCompileStage(bundle, "compile_direct", "unified_challenge_error: "+err.Error())
 		return Output{}, err
 	}
-	evidenceExplanationOutput, err := c.compileEvidenceExplanation(ctx, bundle, driverTargetOutput, transmissionPathOutput)
+	debugCompileStage(bundle, "compile_direct", "unified_challenge_done")
+	final, err := c.compileUnifiedJudge(ctx, bundle, generated, challenged)
 	if err != nil {
+		debugCompileStage(bundle, "compile_direct", "unified_judge_error: "+err.Error())
 		return Output{}, err
 	}
-	return mergeDirectCompileOutputs(bundle, driverTargetOutput, transmissionPathOutput, evidenceExplanationOutput), nil
+	debugCompileStage(bundle, "compile_direct", "unified_judge_done")
+	return mergeUnifiedCompileOutput(bundle, final), nil
 }
 
 func (c *Client) compileLegacy(ctx context.Context, bundle Bundle) (Output, error) {
@@ -353,163 +361,66 @@ func (c *Client) compileLegacyFromInitialNodeOutput(ctx context.Context, bundle 
 	return mergeCompileOutputs(nodeOutput, fullGraphOutput, thesisOutput), nil
 }
 
-func (c *Client) compileDriverTarget(ctx context.Context, bundle Bundle) (DriverTargetOutput, error) {
-	systemPrompt, err := c.prompts.buildDriverTargetGeneratorInstruction()
+func (c *Client) compileUnifiedGenerate(ctx context.Context, bundle Bundle) (UnifiedCompileOutput, error) {
+	systemPrompt, err := c.prompts.buildUnifiedGeneratorInstruction()
 	if err != nil {
-		return DriverTargetOutput{}, err
+		return UnifiedCompileOutput{}, err
 	}
-	userPrompt, err := c.prompts.buildDriverTargetGeneratorPrompt(bundle)
+	userPrompt, err := c.prompts.buildUnifiedGeneratorPrompt(bundle)
 	if err != nil {
-		return DriverTargetOutput{}, err
+		return UnifiedCompileOutput{}, err
 	}
-	generated, err := c.buildDriverTargetAttempt(ctx, bundle, systemPrompt, userPrompt)
+	out, err := c.buildUnifiedAttempt(ctx, bundle, "unified_generator", systemPrompt, userPrompt)
 	if err != nil {
-		return DriverTargetOutput{}, err
+		return UnifiedCompileOutput{}, err
 	}
-	if err := generated.ValidateGeneratorOrJudge(); err != nil {
-		return DriverTargetOutput{}, err
+	out = sanitizeUnifiedGeneratorOrJudgeOutput(out)
+	if err := out.ValidateGeneratorOrJudge(); err != nil {
+		return UnifiedCompileOutput{}, err
 	}
-
-	challengeSystemPrompt, err := c.prompts.buildDriverTargetChallengeInstruction()
-	if err != nil {
-		return DriverTargetOutput{}, err
-	}
-	challengeUserPrompt, err := c.prompts.buildDriverTargetChallengePrompt(bundle, generated)
-	if err != nil {
-		return DriverTargetOutput{}, err
-	}
-	challenged, err := c.buildDriverTargetAttempt(ctx, bundle, challengeSystemPrompt, challengeUserPrompt)
-	if err != nil {
-		return DriverTargetOutput{}, err
-	}
-	if err := challenged.ValidateChallenge(); err != nil {
-		return DriverTargetOutput{}, err
-	}
-	challenged = mergeDriverTargetOutputs(DriverTargetOutput{}, challenged)
-
-	judgeSystemPrompt, err := c.prompts.buildDriverTargetJudgeInstruction()
-	if err != nil {
-		return DriverTargetOutput{}, err
-	}
-	judgeUserPrompt, err := c.prompts.buildDriverTargetJudgePrompt(bundle, generated, challenged)
-	if err != nil {
-		return DriverTargetOutput{}, err
-	}
-	final, err := c.buildDriverTargetAttempt(ctx, bundle, judgeSystemPrompt, judgeUserPrompt)
-	if err != nil {
-		return DriverTargetOutput{}, err
-	}
-	final = mergeDriverTargetOutputs(generated, challenged, final)
-	if err := final.ValidateGeneratorOrJudge(); err != nil {
-		return DriverTargetOutput{}, err
-	}
-	return final, nil
+	return out, nil
 }
 
-func (c *Client) compileTransmissionPaths(ctx context.Context, bundle Bundle, driverTarget DriverTargetOutput) (TransmissionPathOutput, error) {
-	systemPrompt, err := c.prompts.buildTransmissionPathGeneratorInstruction()
+func (c *Client) compileUnifiedChallenge(ctx context.Context, bundle Bundle, generated UnifiedCompileOutput) (UnifiedCompileOutput, error) {
+	systemPrompt, err := c.prompts.buildUnifiedChallengeInstruction()
 	if err != nil {
-		return TransmissionPathOutput{}, err
+		return UnifiedCompileOutput{}, err
 	}
-	userPrompt, err := c.prompts.buildTransmissionPathGeneratorPrompt(bundle, driverTarget)
+	userPrompt, err := c.prompts.buildUnifiedChallengePrompt(bundle, generated)
 	if err != nil {
-		return TransmissionPathOutput{}, err
+		return UnifiedCompileOutput{}, err
 	}
-	generated, err := c.buildTransmissionPathAttempt(ctx, bundle, systemPrompt, userPrompt)
+	out, err := c.buildUnifiedAttempt(ctx, bundle, "unified_challenge", systemPrompt, userPrompt)
 	if err != nil {
-		return TransmissionPathOutput{}, err
+		debugCompileStage(bundle, "unified_challenge", "degrading_to_empty_corrections_after_error")
+		return emptyUnifiedChallengeOutput(), nil
 	}
-	if err := generated.ValidateGeneratorOrJudge(); err != nil {
-		return TransmissionPathOutput{}, err
+	out = sanitizeUnifiedChallengeOutput(out)
+	if err := out.ValidateChallenge(); err != nil {
+		debugCompileStage(bundle, "unified_challenge", "degrading_to_empty_corrections_after_validation_error: "+err.Error())
+		return emptyUnifiedChallengeOutput(), nil
 	}
-
-	challengeSystemPrompt, err := c.prompts.buildTransmissionPathChallengeInstruction()
-	if err != nil {
-		return TransmissionPathOutput{}, err
-	}
-	challengeUserPrompt, err := c.prompts.buildTransmissionPathChallengePrompt(bundle, driverTarget, generated)
-	if err != nil {
-		return TransmissionPathOutput{}, err
-	}
-	challenged, err := c.buildTransmissionPathAttempt(ctx, bundle, challengeSystemPrompt, challengeUserPrompt)
-	if err != nil {
-		return TransmissionPathOutput{}, err
-	}
-	if err := challenged.ValidateChallenge(); err != nil {
-		return TransmissionPathOutput{}, err
-	}
-	challenged = mergeTransmissionPathOutputs(TransmissionPathOutput{}, challenged)
-
-	judgeSystemPrompt, err := c.prompts.buildTransmissionPathJudgeInstruction()
-	if err != nil {
-		return TransmissionPathOutput{}, err
-	}
-	judgeUserPrompt, err := c.prompts.buildTransmissionPathJudgePrompt(bundle, driverTarget, generated, challenged)
-	if err != nil {
-		return TransmissionPathOutput{}, err
-	}
-	final, err := c.buildTransmissionPathAttempt(ctx, bundle, judgeSystemPrompt, judgeUserPrompt)
-	if err != nil {
-		return TransmissionPathOutput{}, err
-	}
-	final = mergeTransmissionPathOutputs(generated, challenged, final)
-	if err := final.ValidateGeneratorOrJudge(); err != nil {
-		return TransmissionPathOutput{}, err
-	}
-	return final, nil
+	return out, nil
 }
 
-func (c *Client) compileEvidenceExplanation(ctx context.Context, bundle Bundle, driverTarget DriverTargetOutput, paths TransmissionPathOutput) (EvidenceExplanationOutput, error) {
-	systemPrompt, err := c.prompts.buildEvidenceExplanationGeneratorInstruction()
+func (c *Client) compileUnifiedJudge(ctx context.Context, bundle Bundle, generated UnifiedCompileOutput, challenged UnifiedCompileOutput) (UnifiedCompileOutput, error) {
+	systemPrompt, err := c.prompts.buildUnifiedJudgeInstruction()
 	if err != nil {
-		return EvidenceExplanationOutput{}, err
+		return UnifiedCompileOutput{}, err
 	}
-	userPrompt, err := c.prompts.buildEvidenceExplanationGeneratorPrompt(bundle, driverTarget, paths)
+	userPrompt, err := c.prompts.buildUnifiedJudgePrompt(bundle, generated, challenged)
 	if err != nil {
-		return EvidenceExplanationOutput{}, err
+		return UnifiedCompileOutput{}, err
 	}
-	generated, err := c.buildEvidenceExplanationAttempt(ctx, bundle, systemPrompt, userPrompt)
+	out, err := c.buildUnifiedAttempt(ctx, bundle, "unified_judge", systemPrompt, userPrompt)
 	if err != nil {
-		return EvidenceExplanationOutput{}, err
+		return UnifiedCompileOutput{}, err
 	}
-	if err := generated.ValidateGeneratorOrJudge(); err != nil {
-		return EvidenceExplanationOutput{}, err
+	out = sanitizeUnifiedGeneratorOrJudgeOutput(out)
+	if err := out.ValidateGeneratorOrJudge(); err != nil {
+		return UnifiedCompileOutput{}, err
 	}
-
-	challengeSystemPrompt, err := c.prompts.buildEvidenceExplanationChallengeInstruction()
-	if err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	challengeUserPrompt, err := c.prompts.buildEvidenceExplanationChallengePrompt(bundle, driverTarget, paths, generated)
-	if err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	challenged, err := c.buildEvidenceExplanationAttempt(ctx, bundle, challengeSystemPrompt, challengeUserPrompt)
-	if err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	if err := challenged.ValidateChallenge(); err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	challenged = mergeEvidenceExplanationOutputs(EvidenceExplanationOutput{}, challenged)
-
-	judgeSystemPrompt, err := c.prompts.buildEvidenceExplanationJudgeInstruction()
-	if err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	judgeUserPrompt, err := c.prompts.buildEvidenceExplanationJudgePrompt(bundle, driverTarget, paths, generated, challenged)
-	if err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	final, err := c.buildEvidenceExplanationAttempt(ctx, bundle, judgeSystemPrompt, judgeUserPrompt)
-	if err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	final = mergeEvidenceExplanationOutputs(generated, challenged, final)
-	if err := final.ValidateGeneratorOrJudge(); err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	return final, nil
+	return out, nil
 }
 
 func (c *Client) extractNodesAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string, reqs GraphRequirements) (NodeExtractionOutput, error) {
@@ -572,74 +483,44 @@ func (c *Client) buildThesisAttempt(ctx context.Context, bundle Bundle, systemPr
 	return out, nil
 }
 
-func (c *Client) buildDriverTargetAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string) (DriverTargetOutput, error) {
+func (c *Client) buildUnifiedAttempt(ctx context.Context, bundle Bundle, stageName string, systemPrompt string, userPrompt string) (UnifiedCompileOutput, error) {
+	debugCompileStage(bundle, stageName, "start")
 	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
 	if err != nil {
-		return DriverTargetOutput{}, err
+		debugCompileStage(bundle, stageName, "build_request_error: "+err.Error())
+		return UnifiedCompileOutput{}, err
 	}
 	resp, err := c.runtime.Call(ctx, req)
 	if err != nil {
-		return DriverTargetOutput{}, err
+		debugCompileStage(bundle, stageName, "call_error: "+err.Error())
+		return UnifiedCompileOutput{}, err
 	}
-	out, err := ParseDriverTargetOutput(resp.Text)
+	debugCompileStage(bundle, stageName, fmt.Sprintf("response_received model=%s bytes=%d", strings.TrimSpace(resp.Model), len(resp.Text)))
+	out, err := ParseUnifiedCompileOutput(resp.Text)
 	if err != nil {
-		return DriverTargetOutput{}, err
-	}
-	if len(out.Drivers) == 0 || len(out.Targets) == 0 {
-		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
-			out = mergeDriverTargetOutputs(out, deriveDriverTargetOutputFromLegacy(legacy))
-		}
+		debugCompileStage(bundle, stageName, "parse_error: "+err.Error())
+		return UnifiedCompileOutput{}, err
 	}
 	if len(out.Drivers) == 0 && len(out.Targets) == 0 && looksLikeLegacyGraphPayload(resp.Text) {
-		legacyNodeOutput, legacyErr := ParseNodeExtractionOutput(resp.Text)
-		if legacyErr == nil && len(legacyNodeOutput.Graph.Nodes) > 0 {
-			applyBundleTimingFallbacks(bundle, &legacyNodeOutput.Graph)
-			return DriverTargetOutput{}, legacyNodeStageError{nodeOutput: legacyNodeOutput}
+		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
+			out = deriveUnifiedCompileOutputFromLegacy(legacy)
+			debugCompileStage(bundle, stageName, "legacy_graph_fallback")
 		}
 	}
+	debugCompileStage(bundle, stageName, fmt.Sprintf("done drivers=%d targets=%d paths=%d evidence=%d explanation=%d", len(out.Drivers), len(out.Targets), len(out.TransmissionPaths), len(out.EvidenceNodes), len(out.ExplanationNodes)))
 	return out, nil
 }
 
-func (c *Client) buildTransmissionPathAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string) (TransmissionPathOutput, error) {
-	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
-	if err != nil {
-		return TransmissionPathOutput{}, err
+func debugCompileStage(bundle Bundle, stageName string, message string) {
+	if strings.TrimSpace(os.Getenv("COMPILE_STAGE_DEBUG")) == "" {
+		return
 	}
-	resp, err := c.runtime.Call(ctx, req)
-	if err != nil {
-		return TransmissionPathOutput{}, err
+	unitID := strings.TrimSpace(bundle.UnitID)
+	if unitID == "" {
+		unitID = strings.TrimSpace(bundle.ExternalID)
 	}
-	out, err := ParseTransmissionPathOutput(resp.Text)
-	if err != nil {
-		return TransmissionPathOutput{}, err
-	}
-	if len(out.TransmissionPaths) == 0 && looksLikeLegacyGraphPayload(resp.Text) {
-		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
-			out = deriveTransmissionPathOutputFromLegacy(legacy)
-		}
-	}
-	return out, nil
-}
-
-func (c *Client) buildEvidenceExplanationAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string) (EvidenceExplanationOutput, error) {
-	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
-	if err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	resp, err := c.runtime.Call(ctx, req)
-	if err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	out, err := ParseEvidenceExplanationOutput(resp.Text)
-	if err != nil {
-		return EvidenceExplanationOutput{}, err
-	}
-	if len(out.EvidenceNodes) == 0 && len(out.ExplanationNodes) == 0 && looksLikeLegacyGraphPayload(resp.Text) {
-		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
-			out = deriveEvidenceExplanationOutputFromLegacy(legacy)
-		}
-	}
-	return out, nil
+	fmt.Fprintf(os.Stderr, "[compile-stage] %s %s %s\n", time.Now().UTC().Format(time.RFC3339), stageName, unitID)
+	fmt.Fprintf(os.Stderr, "[compile-stage] %s %s\n", stageName, message)
 }
 
 func looksLikeLegacyGraphPayload(raw string) bool {
@@ -686,6 +567,105 @@ func mergeDirectCompileOutputs(bundle Bundle, driverTarget DriverTargetOutput, p
 		Details:           details,
 		Topics:            topics,
 		Confidence:        confidence,
+	}
+}
+
+func mergeUnifiedCompileOutput(bundle Bundle, final UnifiedCompileOutput) Output {
+	driverTarget := DriverTargetOutput{
+		Drivers:    final.Drivers,
+		Targets:    final.Targets,
+		Details:    final.Details,
+		Topics:     final.Topics,
+		Confidence: final.Confidence,
+	}
+	paths := TransmissionPathOutput{
+		TransmissionPaths: final.TransmissionPaths,
+		Details:           final.Details,
+		Topics:            final.Topics,
+		Confidence:        final.Confidence,
+	}
+	aux := EvidenceExplanationOutput{
+		EvidenceNodes:    final.EvidenceNodes,
+		ExplanationNodes: final.ExplanationNodes,
+		Details:          final.Details,
+		Topics:           final.Topics,
+		Confidence:       final.Confidence,
+	}
+	graph := buildCompatibilityGraph(bundle, driverTarget, paths, aux)
+	return Output{
+		Summary:           strings.TrimSpace(final.Summary),
+		Drivers:           driverTarget.Drivers,
+		Targets:           driverTarget.Targets,
+		TransmissionPaths: paths.TransmissionPaths,
+		EvidenceNodes:     aux.EvidenceNodes,
+		ExplanationNodes:  aux.ExplanationNodes,
+		Graph:             graph,
+		Details:           final.Details,
+		Topics:            final.Topics,
+		Confidence:        final.Confidence,
+	}
+}
+
+func sanitizeUnifiedChallengeOutput(out UnifiedCompileOutput) UnifiedCompileOutput {
+	out = sanitizeUnifiedCommonOutput(out)
+	sanitizedPaths := make([]TransmissionPath, 0, len(out.TransmissionPaths))
+	for _, path := range out.TransmissionPaths {
+		if path.Driver == "" || path.Target == "" || len(path.Steps) == 0 {
+			continue
+		}
+		sanitizedPaths = append(sanitizedPaths, path)
+	}
+	out.TransmissionPaths = sanitizedPaths
+	return out
+}
+
+func sanitizeUnifiedGeneratorOrJudgeOutput(out UnifiedCompileOutput) UnifiedCompileOutput {
+	out = sanitizeUnifiedCommonOutput(out)
+	sanitizedPaths := make([]TransmissionPath, 0, len(out.TransmissionPaths))
+	for _, path := range out.TransmissionPaths {
+		switch {
+		case path.Driver != "" && path.Target != "" && len(path.Steps) > 0:
+			sanitizedPaths = append(sanitizedPaths, path)
+		case path.Driver == "" && path.Target != "" && len(path.Steps) > 0 && len(out.Drivers) == 1:
+			path.Driver = out.Drivers[0]
+			sanitizedPaths = append(sanitizedPaths, path)
+		case path.Driver != "" && path.Target == "" && len(path.Steps) > 0 && len(out.Targets) == 1:
+			path.Target = out.Targets[0]
+			sanitizedPaths = append(sanitizedPaths, path)
+		}
+	}
+	if len(sanitizedPaths) == 0 && len(out.Drivers) > 0 && len(out.Targets) > 0 {
+		sanitizedPaths = append(sanitizedPaths, TransmissionPath{
+			Driver: out.Drivers[0],
+			Target: out.Targets[0],
+			Steps:  []string{out.Drivers[0]},
+		})
+	}
+	out.TransmissionPaths = sanitizedPaths
+	return out
+}
+
+func sanitizeUnifiedCommonOutput(out UnifiedCompileOutput) UnifiedCompileOutput {
+	out.Summary = strings.TrimSpace(out.Summary)
+	out.Drivers = normalizeStringList(out.Drivers)
+	out.Targets = normalizeStringList(out.Targets)
+	out.EvidenceNodes = normalizeStringList(out.EvidenceNodes)
+	out.ExplanationNodes = normalizeStringList(out.ExplanationNodes)
+	if out.Details.IsEmpty() {
+		out.Details = HiddenDetails{Caveats: []string{"model omitted details"}}
+	}
+	for i := range out.TransmissionPaths {
+		out.TransmissionPaths[i].Driver = strings.TrimSpace(out.TransmissionPaths[i].Driver)
+		out.TransmissionPaths[i].Target = strings.TrimSpace(out.TransmissionPaths[i].Target)
+		out.TransmissionPaths[i].Steps = normalizeStringList(out.TransmissionPaths[i].Steps)
+	}
+	return out
+}
+
+func emptyUnifiedChallengeOutput() UnifiedCompileOutput {
+	return UnifiedCompileOutput{
+		Summary: "no reliable challenge corrections",
+		Details: HiddenDetails{Caveats: []string{"challenge unavailable"}},
 	}
 }
 
@@ -875,67 +855,6 @@ func firstNonEmptyTrimmed(values ...string) string {
 	return ""
 }
 
-func mergeDriverTargetOutputs(outputs ...DriverTargetOutput) DriverTargetOutput {
-	var merged DriverTargetOutput
-	for _, out := range outputs {
-		merged.Drivers = appendUniqueNormalized(merged.Drivers, out.Drivers...)
-		merged.Targets = appendUniqueNormalized(merged.Targets, out.Targets...)
-		if merged.Details.IsEmpty() && !out.Details.IsEmpty() {
-			merged.Details = out.Details
-		}
-		if len(merged.Topics) == 0 && len(out.Topics) > 0 {
-			merged.Topics = append([]string(nil), out.Topics...)
-		}
-		if strings.TrimSpace(merged.Confidence) == "" && strings.TrimSpace(out.Confidence) != "" {
-			merged.Confidence = out.Confidence
-		}
-	}
-	return merged
-}
-
-func mergeTransmissionPathOutputs(outputs ...TransmissionPathOutput) TransmissionPathOutput {
-	var merged TransmissionPathOutput
-	seen := map[string]struct{}{}
-	for _, out := range outputs {
-		for _, path := range out.TransmissionPaths {
-			key := normalizedPathKey(path)
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			merged.TransmissionPaths = append(merged.TransmissionPaths, path)
-		}
-		if merged.Details.IsEmpty() && !out.Details.IsEmpty() {
-			merged.Details = out.Details
-		}
-		if len(merged.Topics) == 0 && len(out.Topics) > 0 {
-			merged.Topics = append([]string(nil), out.Topics...)
-		}
-		if strings.TrimSpace(merged.Confidence) == "" && strings.TrimSpace(out.Confidence) != "" {
-			merged.Confidence = out.Confidence
-		}
-	}
-	return merged
-}
-
-func mergeEvidenceExplanationOutputs(outputs ...EvidenceExplanationOutput) EvidenceExplanationOutput {
-	var merged EvidenceExplanationOutput
-	for _, out := range outputs {
-		merged.EvidenceNodes = appendUniqueNormalized(merged.EvidenceNodes, out.EvidenceNodes...)
-		merged.ExplanationNodes = appendUniqueNormalized(merged.ExplanationNodes, out.ExplanationNodes...)
-		if merged.Details.IsEmpty() && !out.Details.IsEmpty() {
-			merged.Details = out.Details
-		}
-		if len(merged.Topics) == 0 && len(out.Topics) > 0 {
-			merged.Topics = append([]string(nil), out.Topics...)
-		}
-		if strings.TrimSpace(merged.Confidence) == "" && strings.TrimSpace(out.Confidence) != "" {
-			merged.Confidence = out.Confidence
-		}
-	}
-	return merged
-}
-
 func deriveDriverTargetOutputFromLegacy(out Output) DriverTargetOutput {
 	derived := DriverTargetOutput{
 		Drivers:    append([]string(nil), out.Drivers...),
@@ -966,6 +885,27 @@ func deriveDriverTargetOutputFromLegacy(out Output) DriverTargetOutput {
 		derived.Targets = appendUniqueNormalized(derived.Targets, out.Summary)
 	}
 	return derived
+}
+
+func deriveUnifiedCompileOutputFromLegacy(out Output) UnifiedCompileOutput {
+	driverTarget := deriveDriverTargetOutputFromLegacy(out)
+	paths := deriveTransmissionPathOutputFromLegacy(out)
+	aux := deriveEvidenceExplanationOutputFromLegacy(out)
+	summary := strings.TrimSpace(out.Summary)
+	if summary == "" {
+		summary = summarizeDirectCompileOutput(driverTarget, paths)
+	}
+	return UnifiedCompileOutput{
+		Summary:           summary,
+		Drivers:           driverTarget.Drivers,
+		Targets:           driverTarget.Targets,
+		TransmissionPaths: paths.TransmissionPaths,
+		EvidenceNodes:     aux.EvidenceNodes,
+		ExplanationNodes:  aux.ExplanationNodes,
+		Details:           out.Details,
+		Topics:            out.Topics,
+		Confidence:        out.Confidence,
+	}
 }
 
 func deriveTransmissionPathOutputFromLegacy(out Output) TransmissionPathOutput {
@@ -1044,10 +984,6 @@ func appendUniqueNormalized(base []string, values ...string) []string {
 		}
 	}
 	return base
-}
-
-func normalizedPathKey(path TransmissionPath) string {
-	return normalizeLooseText(path.Driver) + "->" + normalizeLooseText(path.Target) + "::" + normalizeLooseText(strings.Join(path.Steps, "|"))
 }
 
 func findNodeText(nodes []GraphNode, id string) string {

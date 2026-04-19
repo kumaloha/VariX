@@ -37,6 +37,16 @@ The new design starts from the main structure first, then fills in the middle an
 Identify the article's main drivers and main targets directly.
 Do not begin from generic node extraction.
 
+Boundary rule:
+- identify the **target first**
+- the target must be the article's final **market outcome**
+- the target may be narrow (explicit price / yield / spread / FX move) or wider
+  (trading / positioning / market-state outcome)
+- the target must not be background context, pure interpretation, or a mid-path
+  transmission bridge
+- after the retained target is fixed, identify the **driver**
+- the driver must be the shared source of the retained transmission paths
+
 ### Workflow
 - generator
 - challenge
@@ -54,17 +64,26 @@ Do not begin from generic node extraction.
 - propose the main drivers
 - propose the main targets
 - normalize to driver -> target regardless of article writing order
+- do not force targets to be maximally narrow if the article's real end state is
+  a broader market-state outcome
+- do not allow non-outcome items to become targets
 
 ### Challenge responsibilities
 - check whether generator missed a driver
 - check whether generator missed a target
 - check whether one driver/target entry improperly merges multiple independent items
 - challenge analytical center drift (for example, latching onto a side thesis instead of the main thesis)
+- check whether a retained target is actually a market outcome rather than
+  context / interpretation / bridge logic
+- check whether a retained driver is actually a shared source rather than a
+  mid-chain bridge
 
 ### Judge responsibilities
 - select the final driver set
 - select the final target set
 - reject unsupported side-thesis promotion
+- keep the final target set outcome-layer only
+- keep the final driver set source-layer only
 
 ### Acceptance criterion
 At the end of step 1, the system should already know:
@@ -103,6 +122,7 @@ This step owns the causal spine.
 - propose the shortest sufficient path from driver to target
 - include bridge mechanisms that are necessary to make the relation intelligible
 - avoid padding the path with proof-only material
+- every retained path should converge to the retained target set
 
 ### Challenge responsibilities
 - detect missing bridge steps

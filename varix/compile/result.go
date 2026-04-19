@@ -498,6 +498,18 @@ type EvidenceExplanationOutput struct {
 	Confidence       string        `json:"confidence,omitempty"`
 }
 
+type UnifiedCompileOutput struct {
+	Summary           string             `json:"summary,omitempty"`
+	Drivers           []string           `json:"drivers,omitempty"`
+	Targets           []string           `json:"targets,omitempty"`
+	TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
+	EvidenceNodes     []string           `json:"evidence_nodes,omitempty"`
+	ExplanationNodes  []string           `json:"explanation_nodes,omitempty"`
+	Details           HiddenDetails      `json:"details,omitempty"`
+	Topics            []string           `json:"topics,omitempty"`
+	Confidence        string             `json:"confidence,omitempty"`
+}
+
 type ThesisOutput struct {
 	Summary    string        `json:"summary,omitempty"`
 	Drivers    []string      `json:"drivers,omitempty"`
@@ -729,6 +741,59 @@ func (o EvidenceExplanationOutput) ValidateGeneratorOrJudge() error {
 }
 
 func (o EvidenceExplanationOutput) ValidateChallenge() error {
+	if err := validateStringListEntries("evidence_nodes", o.EvidenceNodes); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (o UnifiedCompileOutput) ValidateGeneratorOrJudge() error {
+	if strings.TrimSpace(o.Summary) == "" {
+		return fmt.Errorf("summary is required")
+	}
+	if len(o.Drivers) == 0 {
+		return fmt.Errorf("drivers must not be empty")
+	}
+	if len(o.Targets) == 0 {
+		return fmt.Errorf("targets must not be empty")
+	}
+	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("targets", o.Targets); err != nil {
+		return err
+	}
+	if err := validateTransmissionPaths("transmission_paths", o.TransmissionPaths, true); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("evidence_nodes", o.EvidenceNodes); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
+		return err
+	}
+	if o.Details.IsEmpty() {
+		return fmt.Errorf("details must not be empty")
+	}
+	return nil
+}
+
+func (o UnifiedCompileOutput) ValidateChallenge() error {
+	if strings.TrimSpace(o.Summary) == "" && len(o.Drivers) == 0 && len(o.Targets) == 0 && len(o.TransmissionPaths) == 0 && len(o.EvidenceNodes) == 0 && len(o.ExplanationNodes) == 0 {
+		return fmt.Errorf("challenge output must not be entirely empty")
+	}
+	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("targets", o.Targets); err != nil {
+		return err
+	}
+	if err := validateTransmissionPaths("transmission_paths", o.TransmissionPaths, false); err != nil {
+		return err
+	}
 	if err := validateStringListEntries("evidence_nodes", o.EvidenceNodes); err != nil {
 		return err
 	}

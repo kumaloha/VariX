@@ -69,6 +69,7 @@ A driver is an upstream force in the article's dominant thesis.
 
 A valid driver must satisfy all of the following:
 - it is upstream of the chosen top-level target
+- it is the shared source of the retained transmission paths
 - removing it would materially weaken the dominant thesis
 - it is part of the article's main causal story, not just background or side
   commentary
@@ -76,22 +77,36 @@ A valid driver must satisfy all of the following:
 A driver is **not**:
 - generic background macro context
 - a side forecast
+- a mid-chain bridge
 - a restatement of a transmission step
 - a restatement of the target
 
 ### Target
 
-A target is the article's true downstream conclusion or market implication.
+A target is the article's true downstream **market outcome**.
 
 A valid target must satisfy all of the following:
 - it is an endpoint the author wants the reader to believe
+- it is an outcome-layer item rather than background or a bridge
 - it belongs to the dominant thesis rather than a side branch
 - it is downstream of at least one retained driver
+- it may be:
+  - a narrow pricing move, valuation move, yield move, spread move, or FX move
+  - a broader trading / positioning / market-state outcome
+    (for example, the absence of a trade or the persistence of a positioning regime)
 
 A target is **not**:
 - a mid-chain transmission step
 - auxiliary interpretation or framing
+- generic background context
 - a near-duplicate paraphrase of another retained target
+
+Target-width rule:
+- targets do **not** need to be maximally narrow
+- some cases legitimately end in a broader market-state target rather than a
+  single explicit price sentence
+- the key test is whether the item is the article's final market outcome, not
+  whether it is phrased narrowly
 
 ### Transmission path
 
@@ -150,13 +165,18 @@ Short rule:
 
 When one item could fit multiple layers, prompts must apply this ordering:
 
-1. If it is required to preserve the main causal spine, classify it as
-   transmission.
-2. Else if it mainly proves a retained endpoint or path step, classify it as
-   evidence.
-3. Else if it mainly frames or interprets the thesis, classify it as
-   explanation.
-4. Otherwise omit it.
+1. First determine the retained **target**:
+   - keep the item as target only if it is the final market outcome
+2. Then determine the retained **driver**:
+   - keep the item as driver only if it is the shared source of the retained
+     transmission paths
+3. If another item is required to preserve the main causal spine, classify it
+   as transmission
+4. Else if it mainly proves a retained endpoint or path step, classify it as
+   evidence
+5. Else if it mainly frames or interprets the thesis, classify it as
+   explanation
+6. Otherwise omit it
 
 This ordering is intended to suppress the most common failure modes:
 - support mistaken for causation

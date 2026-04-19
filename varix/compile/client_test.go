@@ -72,92 +72,64 @@ func compileStageResponses(t *testing.T, fullOutputJSON string, model string) []
 	if err != nil {
 		t.Fatalf("ParseOutput(fullOutputJSON) error = %v", err)
 	}
-	driverTarget := deriveDriverTargetOutputForTest(out)
-	driverTargetGeneratorRaw, err := json.Marshal(DriverTargetOutput{
-		Drivers:    takeFirstN(driverTarget.Drivers, 1),
-		Targets:    takeFirstN(driverTarget.Targets, 1),
-		Details:    HiddenDetails{Caveats: []string{"generator"}},
-		Topics:     out.Topics,
-		Confidence: out.Confidence,
-	})
-	if err != nil {
-		t.Fatalf("marshal driver-target generator stage: %v", err)
-	}
-	driverTargetChallengeRaw, err := json.Marshal(DriverTargetOutput{
-		Drivers:    tailFrom(driverTarget.Drivers, 1),
-		Targets:    tailFrom(driverTarget.Targets, 1),
-		Details:    HiddenDetails{Caveats: []string{"challenge"}},
-		Topics:     out.Topics,
-		Confidence: out.Confidence,
-	})
-	if err != nil {
-		t.Fatalf("marshal driver-target challenge stage: %v", err)
-	}
-	driverTargetJudgeRaw, err := json.Marshal(driverTarget)
-	if err != nil {
-		t.Fatalf("marshal driver-target judge stage: %v", err)
-	}
-
-	transmissionPaths := deriveTransmissionPathOutputForTest(out, driverTarget)
-	transmissionPathGeneratorRaw, err := json.Marshal(TransmissionPathOutput{
-		TransmissionPaths: takeFirstPathN(transmissionPaths.TransmissionPaths, 1),
+	unified := deriveUnifiedCompileOutputForTest(out)
+	generatorRaw, err := json.Marshal(UnifiedCompileOutput{
+		Summary:           unified.Summary,
+		Drivers:           takeFirstN(unified.Drivers, 1),
+		Targets:           takeFirstN(unified.Targets, 1),
+		TransmissionPaths: takeFirstPathN(unified.TransmissionPaths, 1),
+		EvidenceNodes:     takeFirstN(unified.EvidenceNodes, 1),
+		ExplanationNodes:  takeFirstN(unified.ExplanationNodes, 1),
 		Details:           HiddenDetails{Caveats: []string{"generator"}},
-		Topics:            out.Topics,
-		Confidence:        out.Confidence,
+		Topics:            unified.Topics,
+		Confidence:        unified.Confidence,
 	})
 	if err != nil {
-		t.Fatalf("marshal transmission-path generator stage: %v", err)
+		t.Fatalf("marshal unified generator stage: %v", err)
 	}
-	transmissionPathChallengeRaw, err := json.Marshal(TransmissionPathOutput{
-		TransmissionPaths: tailPathFrom(transmissionPaths.TransmissionPaths, 1),
+	challengeRaw, err := json.Marshal(UnifiedCompileOutput{
+		Summary:           "challenge: boundary corrections",
+		Drivers:           tailFrom(unified.Drivers, 1),
+		Targets:           tailFrom(unified.Targets, 1),
+		TransmissionPaths: tailPathFrom(unified.TransmissionPaths, 1),
+		EvidenceNodes:     tailFrom(unified.EvidenceNodes, 1),
+		ExplanationNodes:  tailFrom(unified.ExplanationNodes, 1),
 		Details:           HiddenDetails{Caveats: []string{"challenge"}},
+		Topics:            unified.Topics,
+		Confidence:        unified.Confidence,
+	})
+	if err != nil {
+		t.Fatalf("marshal unified challenge stage: %v", err)
+	}
+	judgeRaw, err := json.Marshal(unified)
+	if err != nil {
+		t.Fatalf("marshal unified judge stage: %v", err)
+	}
+	return []llm.ProviderResponse{
+		{Text: string(generatorRaw), Model: model},
+		{Text: string(challengeRaw), Model: model},
+		{Text: string(judgeRaw), Model: model},
+	}
+}
+
+func deriveUnifiedCompileOutputForTest(out Output) UnifiedCompileOutput {
+	driverTarget := deriveDriverTargetOutputForTest(out)
+	paths := deriveTransmissionPathOutputForTest(out, driverTarget)
+	aux := deriveEvidenceExplanationOutputForTest(out, driverTarget)
+	summary := strings.TrimSpace(out.Summary)
+	if summary == "" {
+		summary = summarizeDirectCompileOutput(driverTarget, paths)
+	}
+	return UnifiedCompileOutput{
+		Summary:           summary,
+		Drivers:           driverTarget.Drivers,
+		Targets:           driverTarget.Targets,
+		TransmissionPaths: paths.TransmissionPaths,
+		EvidenceNodes:     aux.EvidenceNodes,
+		ExplanationNodes:  aux.ExplanationNodes,
+		Details:           out.Details,
 		Topics:            out.Topics,
 		Confidence:        out.Confidence,
-	})
-	if err != nil {
-		t.Fatalf("marshal transmission-path challenge stage: %v", err)
-	}
-	transmissionPathJudgeRaw, err := json.Marshal(transmissionPaths)
-	if err != nil {
-		t.Fatalf("marshal transmission-path judge stage: %v", err)
-	}
-
-	aux := deriveEvidenceExplanationOutputForTest(out, driverTarget)
-	evidenceExplanationGeneratorRaw, err := json.Marshal(EvidenceExplanationOutput{
-		EvidenceNodes:    takeFirstN(aux.EvidenceNodes, 1),
-		ExplanationNodes: takeFirstN(aux.ExplanationNodes, 1),
-		Details:          HiddenDetails{Caveats: []string{"generator"}},
-		Topics:           out.Topics,
-		Confidence:       out.Confidence,
-	})
-	if err != nil {
-		t.Fatalf("marshal evidence/explanation generator stage: %v", err)
-	}
-	evidenceExplanationChallengeRaw, err := json.Marshal(EvidenceExplanationOutput{
-		EvidenceNodes:    tailFrom(aux.EvidenceNodes, 1),
-		ExplanationNodes: tailFrom(aux.ExplanationNodes, 1),
-		Details:          HiddenDetails{Caveats: []string{"challenge"}},
-		Topics:           out.Topics,
-		Confidence:       out.Confidence,
-	})
-	if err != nil {
-		t.Fatalf("marshal evidence/explanation challenge stage: %v", err)
-	}
-	evidenceExplanationJudgeRaw, err := json.Marshal(aux)
-	if err != nil {
-		t.Fatalf("marshal evidence/explanation judge stage: %v", err)
-	}
-
-	return []llm.ProviderResponse{
-		{Text: string(driverTargetGeneratorRaw), Model: model},
-		{Text: string(driverTargetChallengeRaw), Model: model},
-		{Text: string(driverTargetJudgeRaw), Model: model},
-		{Text: string(transmissionPathGeneratorRaw), Model: model},
-		{Text: string(transmissionPathChallengeRaw), Model: model},
-		{Text: string(transmissionPathJudgeRaw), Model: model},
-		{Text: string(evidenceExplanationGeneratorRaw), Model: model},
-		{Text: string(evidenceExplanationChallengeRaw), Model: model},
-		{Text: string(evidenceExplanationJudgeRaw), Model: model},
 	}
 }
 
@@ -336,39 +308,15 @@ func mustFindGraphNodeByText(t *testing.T, nodes []GraphNode, want string) Graph
 func directThreeStepResponses() []llm.ProviderResponse {
 	return []llm.ProviderResponse{
 		{
-			Text:  `{"drivers":["美国增长与回报预期继续压过政治风险定价"],"targets":["海外资金继续流入美国资产"],"details":{"caveats":["generator"]},"topics":["macro"],"confidence":"medium"}`,
+			Text:  `{"summary":"增长与回报预期继续压过政治风险定价，因此海外资金继续流入美国资产。","drivers":["美国增长与回报预期继续压过政治风险定价"],"targets":["海外资金继续流入美国资产"],"transmission_paths":[{"driver":"美国增长与回报预期继续压过政治风险定价","target":"海外资金继续流入美国资产","steps":["增长与回报预期继续压过政治风险定价","资本继续配置美国资产"]}],"evidence_nodes":["海外资金继续流入美国资产"],"explanation_nodes":["市场仍按美国例外论框架理解风险"],"details":{"caveats":["generator"]},"topics":["macro"],"confidence":"medium"}`,
 			Model: "compile-model",
 		},
 		{
-			Text:  `{"drivers":[],"targets":["没有形成 sell America 交易"],"details":{"caveats":["challenge"]},"topics":["macro"],"confidence":"medium"}`,
+			Text:  `{"summary":"challenge: add the missing retained endpoint and support item","drivers":[],"targets":["没有形成 sell America 交易"],"transmission_paths":[{"driver":"美国增长与回报预期继续压过政治风险定价","target":"没有形成 sell America 交易","steps":["资本没有撤出美国资产"]}],"evidence_nodes":["美元指数并未出现持续性崩跌"],"explanation_nodes":[],"details":{"caveats":["challenge"]},"topics":["macro"],"confidence":"medium"}`,
 			Model: "compile-model",
 		},
 		{
-			Text:  `{"drivers":["美国增长与回报预期继续压过政治风险定价"],"targets":["海外资金继续流入美国资产","没有形成 sell America 交易"],"details":{"caveats":["judge"]},"topics":["macro"],"confidence":"high"}`,
-			Model: "compile-model",
-		},
-		{
-			Text:  `{"transmission_paths":[{"driver":"美国增长与回报预期继续压过政治风险定价","target":"海外资金继续流入美国资产","steps":["增长与回报预期继续压过政治风险定价","资本继续配置美国资产"]}],"details":{"caveats":["generator"]},"topics":["macro"],"confidence":"medium"}`,
-			Model: "compile-model",
-		},
-		{
-			Text:  `{"transmission_paths":[{"driver":"美国增长与回报预期继续压过政治风险定价","target":"没有形成 sell America 交易","steps":["资本没有撤出美国资产"]}],"details":{"caveats":["challenge"]},"topics":["macro"],"confidence":"medium"}`,
-			Model: "compile-model",
-		},
-		{
-			Text:  `{"transmission_paths":[{"driver":"美国增长与回报预期继续压过政治风险定价","target":"海外资金继续流入美国资产","steps":["增长与回报预期继续压过政治风险定价","资本继续配置美国资产"]},{"driver":"美国增长与回报预期继续压过政治风险定价","target":"没有形成 sell America 交易","steps":["资本没有撤出美国资产"]}],"details":{"caveats":["judge"]},"topics":["macro"],"confidence":"high"}`,
-			Model: "compile-model",
-		},
-		{
-			Text:  `{"evidence_nodes":["海外资金继续流入美国资产"],"explanation_nodes":["市场仍按美国例外论框架理解风险"],"details":{"caveats":["generator"]},"topics":["macro"],"confidence":"medium"}`,
-			Model: "compile-model",
-		},
-		{
-			Text:  `{"evidence_nodes":["美元指数并未出现持续性崩跌"],"explanation_nodes":[],"details":{"caveats":["challenge"]},"topics":["macro"],"confidence":"medium"}`,
-			Model: "compile-model",
-		},
-		{
-			Text:  `{"evidence_nodes":["海外资金继续流入美国资产","美元指数并未出现持续性崩跌"],"explanation_nodes":["市场仍按美国例外论框架理解风险"],"details":{"caveats":["judge"]},"topics":["macro"],"confidence":"high"}`,
+			Text:  `{"summary":"增长与回报预期继续压过政治风险定价，海外资金继续流入美国资产，因此没有形成 sell America 交易。","drivers":["美国增长与回报预期继续压过政治风险定价"],"targets":["海外资金继续流入美国资产","没有形成 sell America 交易"],"transmission_paths":[{"driver":"美国增长与回报预期继续压过政治风险定价","target":"海外资金继续流入美国资产","steps":["增长与回报预期继续压过政治风险定价","资本继续配置美国资产"]},{"driver":"美国增长与回报预期继续压过政治风险定价","target":"没有形成 sell America 交易","steps":["资本没有撤出美国资产"]}],"evidence_nodes":["海外资金继续流入美国资产","美元指数并未出现持续性崩跌"],"explanation_nodes":["市场仍按美国例外论框架理解风险"],"details":{"caveats":["judge"]},"topics":["macro"],"confidence":"high"}`,
 			Model: "compile-model",
 		},
 	}
@@ -393,8 +341,8 @@ func TestClientCompileUsesDirectThreeStepPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 9 {
-		t.Fatalf("provider calls = %d, want 9 direct-stage calls", len(provider.requests))
+	if len(provider.requests) != 3 {
+		t.Fatalf("provider calls = %d, want 3 direct-stage calls", len(provider.requests))
 	}
 	if got, want := record.Output.Drivers, []string{"美国增长与回报预期继续压过政治风险定价"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Drivers = %#v, want %#v", got, want)
@@ -417,8 +365,8 @@ func TestClientCompileUsesDirectThreeStepPipeline(t *testing.T) {
 	if len(record.Output.Graph.Edges) < 5 {
 		t.Fatalf("derived graph edges = %#v, want compatibility graph edges", record.Output.Graph.Edges)
 	}
-	if record.Output.Summary == "" {
-		t.Fatalf("Summary = empty, want derived summary")
+	if got, want := record.Output.Summary, "增长与回报预期继续压过政治风险定价，海外资金继续流入美国资产，因此没有形成 sell America 交易。"; got != want {
+		t.Fatalf("Summary = %q, want %q", got, want)
 	}
 }
 
@@ -454,8 +402,8 @@ func TestClientCompileUsesForgeRuntime(t *testing.T) {
 	if strings.TrimSpace(record.Output.Summary) == "" {
 		t.Fatalf("Summary = %q, want non-empty", record.Output.Summary)
 	}
-	if len(provider.requests) != 12 {
-		t.Fatalf("provider calls = %d, want 12", len(provider.requests))
+	if len(provider.requests) != 6 {
+		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
 	}
 	if provider.requests[0].Model != "compile-model" {
 		t.Fatalf("request model = %q, want compile-model", provider.requests[0].Model)
@@ -496,8 +444,8 @@ func TestClientCompileProjectsInjectedVerificationServiceIntoCompatibilityOutput
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 9 {
-		t.Fatalf("provider calls = %d, want 9 compile-stage calls when verifier is injected", len(provider.requests))
+	if len(provider.requests) != 3 {
+		t.Fatalf("provider calls = %d, want 3 compile-stage calls when verifier is injected", len(provider.requests))
 	}
 	if verifier.calls != 1 {
 		t.Fatalf("verifier calls = %d, want 1", verifier.calls)
@@ -535,8 +483,8 @@ func TestNoopVerificationServiceSkipsVerificationProjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 9 {
-		t.Fatalf("provider calls = %d, want 9", len(provider.requests))
+	if len(provider.requests) != 3 {
+		t.Fatalf("provider calls = %d, want 3", len(provider.requests))
 	}
 	if !record.Output.Verification.VerifiedAt.IsZero() || record.Output.Verification.Model != "" || len(record.Output.Verification.FactChecks) != 0 {
 		t.Fatalf("verification = %#v, want zero-value verification", record.Output.Verification)
@@ -643,17 +591,17 @@ func TestClientCompileCarriesPrimaryTransmissionBridgeIntoThesisProjection(t *te
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 9 {
-		t.Fatalf("provider calls = %d, want 9 compile-stage calls", len(provider.requests))
+	if len(provider.requests) != 3 {
+		t.Fatalf("provider calls = %d, want 3 compile-stage calls", len(provider.requests))
 	}
 	if !containsGraphNodeText(record.Output.Graph.Nodes, "资本继续配置美国资产") {
 		t.Fatalf("merged graph missing transmission bridge: %#v", record.Output.Graph.Nodes)
 	}
-	judgePrompt := provider.requests[5].UserParts[len(provider.requests[5].UserParts)-1].Text
+	judgePrompt := provider.requests[2].UserParts[len(provider.requests[2].UserParts)-1].Text
 	for _, want := range []string{
 		"美国增长与回报预期继续压过政治风险定价",
 		"没有形成 sell America 交易",
-		"Challenge draft:",
+		"Challenge corrections:",
 	} {
 		if !strings.Contains(judgePrompt, want) {
 			t.Fatalf("transmission-path judge prompt missing %q in %q", want, judgePrompt)
@@ -665,30 +613,18 @@ func TestClientCompileUsesConfiguredPromptsDir(t *testing.T) {
 	root := t.TempDir()
 	settings := config.DefaultSettings(root)
 	for rel, body := range map[string]string{
-		"compile/driver_target_generator_system.tmpl":        "driver-target generator system",
-		"compile/driver_target_generator_user.tmpl":          "driver-target generator user {{.PayloadJSON}}",
-		"compile/driver_target_challenge_system.tmpl":        "driver-target challenge system",
-		"compile/driver_target_challenge_user.tmpl":          "driver-target challenge user {{.GeneratedJSON}} {{.PayloadJSON}}",
-		"compile/driver_target_judge_system.tmpl":            "driver-target judge system",
-		"compile/driver_target_judge_user.tmpl":              "driver-target judge user {{.GeneratedJSON}} {{.ChallengedJSON}} {{.PayloadJSON}}",
-		"compile/transmission_path_generator_system.tmpl":    "transmission-path generator system",
-		"compile/transmission_path_generator_user.tmpl":      "transmission-path generator user {{.DriverTargetJSON}} {{.PayloadJSON}}",
-		"compile/transmission_path_challenge_system.tmpl":    "transmission-path challenge system",
-		"compile/transmission_path_challenge_user.tmpl":      "transmission-path challenge user {{.GeneratedJSON}} {{.DriverTargetJSON}} {{.PayloadJSON}}",
-		"compile/transmission_path_judge_system.tmpl":        "transmission-path judge system",
-		"compile/transmission_path_judge_user.tmpl":          "transmission-path judge user {{.GeneratedJSON}} {{.ChallengedJSON}} {{.DriverTargetJSON}} {{.PayloadJSON}}",
-		"compile/evidence_explanation_generator_system.tmpl": "evidence-explanation generator system",
-		"compile/evidence_explanation_generator_user.tmpl":   "evidence-explanation generator user {{.PathsJSON}} {{.DriverTargetJSON}} {{.PayloadJSON}}",
-		"compile/evidence_explanation_challenge_system.tmpl": "evidence-explanation challenge system",
-		"compile/evidence_explanation_challenge_user.tmpl":   "evidence-explanation challenge user {{.GeneratedJSON}} {{.PathsJSON}} {{.DriverTargetJSON}} {{.PayloadJSON}}",
-		"compile/evidence_explanation_judge_system.tmpl":     "evidence-explanation judge system",
-		"compile/evidence_explanation_judge_user.tmpl":       "evidence-explanation judge user {{.GeneratedJSON}} {{.ChallengedJSON}} {{.PathsJSON}} {{.DriverTargetJSON}} {{.PayloadJSON}}",
-		"compile/verifier/fact_claim.tmpl":                   "fact claim prompt",
-		"compile/verifier/fact_challenge.tmpl":               "fact challenge prompt",
-		"compile/verifier/fact_adjudicate.tmpl":              "fact adjudication prompt",
-		"compile/verifier/prediction.tmpl":                   "prediction verifier prompt",
-		"compile/verifier/explicit_condition.tmpl":           "explicit verifier prompt",
-		"compile/verifier/implicit_condition.tmpl":           "implicit verifier prompt",
+		"compile/unified_generator_system.tmpl":    "unified generator system",
+		"compile/unified_generator_user.tmpl":      "unified generator user {{.PayloadJSON}}",
+		"compile/unified_challenge_system.tmpl":    "unified challenge system",
+		"compile/unified_challenge_user.tmpl":      "unified challenge user {{.GeneratedJSON}} {{.PayloadJSON}}",
+		"compile/unified_judge_system.tmpl":        "unified judge system",
+		"compile/unified_judge_user.tmpl":          "unified judge user {{.GeneratedJSON}} {{.ChallengedJSON}} {{.PayloadJSON}}",
+		"compile/verifier/fact_claim.tmpl":         "fact claim prompt",
+		"compile/verifier/fact_challenge.tmpl":     "fact challenge prompt",
+		"compile/verifier/fact_adjudicate.tmpl":    "fact adjudication prompt",
+		"compile/verifier/prediction.tmpl":         "prediction verifier prompt",
+		"compile/verifier/explicit_condition.tmpl": "explicit verifier prompt",
+		"compile/verifier/implicit_condition.tmpl": "implicit verifier prompt",
 	} {
 		path := filepath.Join(settings.PromptsDir, rel)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -716,34 +652,16 @@ func TestClientCompileUsesConfiguredPromptsDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if got := provider.requests[0].System; got != "driver-target generator system" {
-		t.Fatalf("driver-target generator system prompt = %q", got)
+	if got := provider.requests[0].System; got != "unified generator system" {
+		t.Fatalf("unified generator system prompt = %q", got)
 	}
-	if got := provider.requests[1].System; got != "driver-target challenge system" {
-		t.Fatalf("driver-target challenge system prompt = %q", got)
+	if got := provider.requests[1].System; got != "unified challenge system" {
+		t.Fatalf("unified challenge system prompt = %q", got)
 	}
-	if got := provider.requests[2].System; got != "driver-target judge system" {
-		t.Fatalf("driver-target judge system prompt = %q", got)
+	if got := provider.requests[2].System; got != "unified judge system" {
+		t.Fatalf("unified judge system prompt = %q", got)
 	}
-	if got := provider.requests[3].System; got != "transmission-path generator system" {
-		t.Fatalf("transmission-path generator system prompt = %q", got)
-	}
-	if got := provider.requests[4].System; got != "transmission-path challenge system" {
-		t.Fatalf("transmission-path challenge system prompt = %q", got)
-	}
-	if got := provider.requests[5].System; got != "transmission-path judge system" {
-		t.Fatalf("transmission-path judge system prompt = %q", got)
-	}
-	if got := provider.requests[6].System; got != "evidence-explanation generator system" {
-		t.Fatalf("evidence-explanation generator system prompt = %q", got)
-	}
-	if got := provider.requests[7].System; got != "evidence-explanation challenge system" {
-		t.Fatalf("evidence-explanation challenge system prompt = %q", got)
-	}
-	if got := provider.requests[8].System; got != "evidence-explanation judge system" {
-		t.Fatalf("evidence-explanation judge system prompt = %q", got)
-	}
-	if got := provider.requests[9].System; got != "fact claim prompt" {
+	if got := provider.requests[3].System; got != "fact claim prompt" {
 		t.Fatalf("fact verifier system prompt = %q", got)
 	}
 }
@@ -781,8 +699,8 @@ func TestClientCompileConfiguredPromptsDirFallsBackToDefaultForMissingThreeStage
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 9 {
-		t.Fatalf("provider calls = %d, want 9 direct-stage calls", len(provider.requests))
+	if len(provider.requests) != 3 {
+		t.Fatalf("provider calls = %d, want 3 direct-stage calls", len(provider.requests))
 	}
 	if strings.TrimSpace(record.Output.Summary) == "" {
 		t.Fatalf("Summary = %q, want non-empty", record.Output.Summary)
@@ -826,8 +744,8 @@ func TestClientCompileCarriesAttachmentTranscriptIntoForgePrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 12 {
-		t.Fatalf("provider calls = %d, want 12", len(provider.requests))
+	if len(provider.requests) != 6 {
+		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
 	}
 	if len(provider.requests[0].UserParts) == 0 {
 		t.Fatalf("provider request missing user parts: %#v", provider.requests[0])
@@ -860,7 +778,7 @@ func TestClientCompileRetriesWhenFirstResponseHasEmptyGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 9 {
+	if len(provider.requests) != 3 {
 		t.Fatalf("call count = %d, want 9", len(provider.requests))
 	}
 	retryPrompt := provider.requests[1].UserParts[len(provider.requests[1].UserParts)-1].Text
@@ -946,7 +864,7 @@ func TestClientCompileRetriesWhenDetailsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 9 {
+	if len(provider.requests) != 3 {
 		t.Fatalf("call count = %d, want 9", len(provider.requests))
 	}
 	if len(record.Output.Details.Caveats) != 1 {
@@ -986,8 +904,8 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 12 {
-		t.Fatalf("provider calls = %d, want 12", len(provider.requests))
+	if len(provider.requests) != 6 {
+		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
 	}
 	if len(record.Output.Verification.FactChecks) != 1 {
 		t.Fatalf("verification = %#v", record.Output.Verification)
@@ -995,7 +913,7 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 	if record.Output.Verification.FactChecks[0].Status != FactStatusClearlyTrue {
 		t.Fatalf("fact check = %#v", record.Output.Verification.FactChecks[0])
 	}
-	factPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
+	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
 	if !containsAll(factPrompt, `"kind": "机制"`, `"occurred_at": "`, `"as_of": "`, `"retrieval_context"`, `"https://example.com/fact"`) {
 		t.Fatalf("fact verifier prompt missing occurred_at evidence: %q", factPrompt)
 	}
@@ -1025,10 +943,10 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 12 {
-		t.Fatalf("provider calls = %d, want 12", len(provider.requests))
+	if len(provider.requests) != 6 {
+		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
 	}
-	factPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
+	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
 	for _, want := range []string{`"kind": "机制"`} {
 		if !strings.Contains(factPrompt, want) {
 			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
@@ -1068,10 +986,10 @@ func TestClientCompileRoutesObservationTransmissionNodesThroughFactVerifier(t *t
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 12 {
-		t.Fatalf("provider calls = %d, want 12", len(provider.requests))
+	if len(provider.requests) != 6 {
+		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
 	}
-	factPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
+	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
 	for _, want := range []string{`"kind": "事实"`, `"kind": "机制"`} {
 		if !strings.Contains(factPrompt, want) {
 			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
@@ -1133,7 +1051,7 @@ func TestClientCompileCarriesStructuredWeiboEvidenceIntoVerifierPrompt(t *testin
 		t.Fatalf("Compile() error = %v", err)
 	}
 
-	factPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
+	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
 	for _, want := range []string{
 		`"root_external_id": "120"`,
 		`"author_name": "alice"`,
@@ -1202,7 +1120,7 @@ func TestClientCompileAppliesVerifyV2FactsMetadataWithoutBreakingLegacyArrays(t 
 	if record.Output.Verification.Model != "fact-judge-model" {
 		t.Fatalf("Verification.Model = %q, want fact-judge-model", record.Output.Verification.Model)
 	}
-	factPrompt := provider.requests[9].UserParts[len(provider.requests[9].UserParts)-1].Text
+	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
 	if !containsAll(factPrompt, `"retrieval_context"`, `"https://example.com/fact"`) {
 		t.Fatalf("fact verifier prompt missing retrieval context: %q", factPrompt)
 	}

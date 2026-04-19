@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestCompileRedesignPromptBuildersCoverThreeStages(t *testing.T) {
+func TestCompileRedesignPromptBuildersCoverUnifiedThreeCallFlow(t *testing.T) {
 	registry := newPromptRegistry("")
 	bundle := Bundle{
 		UnitID:     "web:redesign",
@@ -15,20 +15,15 @@ func TestCompileRedesignPromptBuildersCoverThreeStages(t *testing.T) {
 		ExternalID: "redesign",
 		Content:    "root body",
 	}
-	driverTarget := DriverTargetOutput{
+	generated := UnifiedCompileOutput{
+		Summary: "增长与回报预期继续压过政治风险定价，因此海外资金继续流入美国资产。",
 		Drivers: []string{"美国增长与回报预期继续压过政治风险定价"},
 		Targets: []string{"海外资金继续流入美国资产"},
-		Details: HiddenDetails{Caveats: []string{"judge"}},
-	}
-	paths := TransmissionPathOutput{
 		TransmissionPaths: []TransmissionPath{{
 			Driver: "美国增长与回报预期继续压过政治风险定价",
 			Target: "海外资金继续流入美国资产",
 			Steps:  []string{"资本继续配置美国资产"},
 		}},
-		Details: HiddenDetails{Caveats: []string{"judge"}},
-	}
-	evidence := EvidenceExplanationOutput{
 		EvidenceNodes:    []string{"海外资金继续流入美国资产"},
 		ExplanationNodes: []string{"市场仍按美国例外论框架理解风险"},
 		Details:          HiddenDetails{Caveats: []string{"judge"}},
@@ -41,43 +36,73 @@ func TestCompileRedesignPromptBuildersCoverThreeStages(t *testing.T) {
 		userText []string
 	}{
 		{
-			name: "driver-target",
+			name: "unified-generator",
 			build: func() (string, string, error) {
-				system, err := registry.buildDriverTargetGeneratorInstruction()
+				system, err := registry.buildUnifiedGeneratorInstruction()
 				if err != nil {
 					return "", "", err
 				}
-				user, err := registry.buildDriverTargetGeneratorPrompt(bundle)
+				user, err := registry.buildUnifiedGeneratorPrompt(bundle)
 				return system, user, err
 			},
-			system:   []string{"compile step 1", "driver/target extraction", "`drivers`, `targets`, `details`, `topics`, `confidence`"},
-			userText: []string{"Payload:", "Extract the dominant drivers and targets directly."},
+			system: []string{
+				"unified compile generator",
+				"single main market target",
+				"target must be a market outcome",
+				"the target may be a narrow pricing move or a broader trading / positioning state",
+				"driver must be the shared source of all retained transmission paths",
+				"prefer the market outcome most directly supported by the article's main evidence",
+				"prefer the directly evidenced current market outcome unless the forecast is clearly the article's primary conclusion",
+				"prefer article-native target wording over abstract paraphrase when the source wording already cleanly expresses the market outcome",
+				"when a slogan-like trade label only comments on a more basic market result, prefer the underlying market result as the target",
+				"`summary`, `drivers`, `targets`, `transmission_paths`, `evidence_nodes`, `explanation_nodes`, `details`, `topics`, `confidence`",
+			},
+			userText: []string{"Payload:", "Generate the full dominant-thesis package in one pass."},
 		},
 		{
-			name: "transmission-path",
+			name: "unified-challenge",
 			build: func() (string, string, error) {
-				system, err := registry.buildTransmissionPathJudgeInstruction()
+				system, err := registry.buildUnifiedChallengeInstruction()
 				if err != nil {
 					return "", "", err
 				}
-				user, err := registry.buildTransmissionPathJudgePrompt(bundle, driverTarget, paths, TransmissionPathOutput{})
+				user, err := registry.buildUnifiedChallengePrompt(bundle, generated)
 				return system, user, err
 			},
-			system:   []string{"compile step 2", "transmission path extraction", "`transmission_paths`, `details`, `topics`, `confidence`"},
-			userText: []string{"Final driver/target pairs:", "\"drivers\": [", "Return the final transmission paths for the dominant causal spine."},
+			system: []string{
+				"unified compile challenger",
+				"boundary problems",
+				"support / explanation items incorrectly placed on the main transmission spine",
+				"items incorrectly promoted to target even though they are not market outcomes",
+				"speculative side forecast",
+				"directly evidenced current market outcome",
+				"over-abstract target wording",
+				"slogan-like trade label",
+			},
+			userText: []string{"Generated draft:", "\"transmission_paths\": [", "Return only corrections worth applying to the generated package."},
 		},
 		{
-			name: "evidence-explanation",
+			name: "unified-judge",
 			build: func() (string, string, error) {
-				system, err := registry.buildEvidenceExplanationChallengeInstruction()
+				system, err := registry.buildUnifiedJudgeInstruction()
 				if err != nil {
 					return "", "", err
 				}
-				user, err := registry.buildEvidenceExplanationChallengePrompt(bundle, driverTarget, paths, evidence)
+				user, err := registry.buildUnifiedJudgePrompt(bundle, generated, UnifiedCompileOutput{Targets: []string{"没有形成 sell America 交易"}})
 				return system, user, err
 			},
-			system:   []string{"compile step 3", "evidence/explanation extraction", "`evidence_nodes`, `explanation_nodes`, `details`, `topics`, `confidence`"},
-			userText: []string{"Final transmission paths:", "\"transmission_paths\": [", "Return only missing or corrected evidence/explanation items."},
+			system: []string{
+				"unified compile judge",
+				"final adjudicator and final generator",
+				"single main market target",
+				"all retained transmission paths must converge to the retained target set",
+				"prefer the market outcome most directly supported by the article's main evidence",
+				"prefer the market outcome most directly supported by the article's main evidence over a speculative side forecast",
+				"prefer article-native target wording over abstract paraphrase when possible",
+				"prefer the underlying market result over a slogan-like trade label",
+				"`summary`, `drivers`, `targets`, `transmission_paths`, `evidence_nodes`, `explanation_nodes`, `details`, `topics`, `confidence`",
+			},
+			userText: []string{"Challenge corrections:", "\"targets\": [", "Return the final complete compile package."},
 		},
 	}
 
