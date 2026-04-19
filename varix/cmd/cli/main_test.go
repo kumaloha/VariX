@@ -2962,10 +2962,13 @@ func TestRunCompileSummaryPrintsHumanReadableOutput(t *testing.T) {
 			RootExternalID: "QAu4U9USk",
 			Model:          c.Qwen36PlusModel,
 			Output: c.Output{
-				Summary: "一句话",
+				Summary:           "一句话",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
-					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeMechanism, "驱动A"), testGraphNode("n2", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
 				Topics:     []string{"topic-a", "topic-b"},
@@ -2985,7 +2988,7 @@ func TestRunCompileSummaryPrintsHumanReadableOutput(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary: 一句话", "Nodes: 2", "Edges: 1", "Topics: topic-a, topic-b", "Confidence: medium"} {
+	for _, want := range []string{"Summary: 一句话", "Drivers: 1", "Targets: 1", "Paths: 1", "Topics: topic-a, topic-b", "Confidence: medium"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -3026,10 +3029,13 @@ func TestRunCompileSummaryReadsByURL(t *testing.T) {
 			RootExternalID: "2026305745872998803",
 			Model:          c.Qwen36PlusModel,
 			Output: c.Output{
-				Summary: "Dalio summary",
+				Summary:           "Dalio summary",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
-					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeMechanism, "驱动A"), testGraphNode("n2", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
 				Topics:     []string{"macro"},
@@ -3049,7 +3055,7 @@ func TestRunCompileSummaryReadsByURL(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary: Dalio summary", "Nodes: 2", "Edges: 1", "Topics: macro", "Confidence: high"} {
+	for _, want := range []string{"Summary: Dalio summary", "Drivers: 1", "Targets: 1", "Paths: 1", "Topics: macro", "Confidence: high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -3091,10 +3097,13 @@ func TestRunCompileComparePrintsRawPreviewAndSummary(t *testing.T) {
 			RootExternalID: "QAu4U9USk",
 			Model:          c.Qwen36PlusModel,
 			Output: c.Output{
-				Summary: "一句话",
+				Summary:           "一句话",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
-					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeMechanism, "驱动A"), testGraphNode("n2", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
 				Confidence: "medium",
@@ -3113,7 +3122,7 @@ func TestRunCompileComparePrintsRawPreviewAndSummary(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Raw preview: 原文正文", "Summary: 一句话", "Nodes: 2", "Edges: 1", "Confidence: medium"} {
+	for _, want := range []string{"Raw preview: 原文正文", "Summary: 一句话", "Drivers: 1", "Targets: 1", "Paths: 1", "Confidence: medium"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -3163,10 +3172,13 @@ func TestRunCompileCompareReadsByURL(t *testing.T) {
 			RootExternalID: "2026305745872998803",
 			Model:          c.Qwen36PlusModel,
 			Output: c.Output{
-				Summary: "Dalio summary",
+				Summary:           "Dalio summary",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
-					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeMechanism, "驱动A"), testGraphNode("n2", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
 				Confidence: "high",
@@ -3185,7 +3197,7 @@ func TestRunCompileCompareReadsByURL(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Raw preview: dalio raw body", "Summary: Dalio summary", "Nodes: 2", "Edges: 1", "Confidence: high"} {
+	for _, want := range []string{"Raw preview: dalio raw body", "Summary: Dalio summary", "Drivers: 1", "Targets: 1", "Paths: 1", "Confidence: high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -3218,10 +3230,15 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 			RootExternalID: "1",
 			Model:          c.Qwen36PlusModel,
 			Output: c.Output{
-				Summary: "一句话总结",
+				Summary:           "一句话总结",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
+				EvidenceNodes:     []string{"证据A"},
+				ExplanationNodes:  []string{"解释B"},
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
-					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeMechanism, "驱动A"), testGraphNode("n2", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
 				Topics:     []string{"topic-a", "topic-b"},
@@ -3241,7 +3258,7 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Logic chain", "事实A --substantiates--> 结论B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Logic chain", "驱动A -> 中间步骤 -> 目标B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -3274,15 +3291,17 @@ func TestRunCompileCardCompactPrintsCompactView(t *testing.T) {
 			RootExternalID: "1",
 			Model:          c.Qwen36PlusModel,
 			Output: c.Output{
-				Summary: "一句话总结",
+				Summary:           "一句话总结",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
+				EvidenceNodes:     []string{"证据A"},
+				ExplanationNodes:  []string{"解释B"},
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B"), testGraphNode("n3", c.NodePrediction, "预测C")},
-					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeMechanism, "驱动A"), testGraphNode("n2", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}},
 				},
-				Details: c.HiddenDetails{Caveats: []string{"说明"}},
-				Verification: c.Verification{
-					PredictionChecks: []c.PredictionCheck{{NodeID: "n3", Status: c.PredictionStatusUnresolved, Reason: "pending", AsOf: time.Now().UTC()}},
-				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
 				Confidence: "high",
 			},
 			CompiledAt: time.Now().UTC(),
@@ -3299,7 +3318,7 @@ func TestRunCompileCardCompactPrintsCompactView(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- [预|unresolved] 预测C", "Main logic", "事实A --substantiates--> 结论B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Drivers", "- 驱动A", "Targets", "- 目标B", "Evidence", "- 证据A", "Explanations", "- 解释B", "Main logic", "驱动A -> 中间步骤 -> 目标B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -3340,15 +3359,17 @@ func TestRunCompileCardCompactReadsByURL(t *testing.T) {
 			RootExternalID: "QAu4U9USk",
 			Model:          c.Qwen36PlusModel,
 			Output: c.Output{
-				Summary: "一句话总结",
+				Summary:           "一句话总结",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
+				EvidenceNodes:     []string{"证据A"},
+				ExplanationNodes:  []string{"解释B"},
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B"), testGraphNode("n3", c.NodePrediction, "预测C")},
-					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeMechanism, "驱动A"), testGraphNode("n2", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}},
 				},
-				Details: c.HiddenDetails{Caveats: []string{"说明"}},
-				Verification: c.Verification{
-					PredictionChecks: []c.PredictionCheck{{NodeID: "n3", Status: c.PredictionStatusUnresolved, Reason: "pending", AsOf: time.Now().UTC()}},
-				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
 				Confidence: "high",
 			},
 			CompiledAt: time.Now().UTC(),
@@ -3365,7 +3386,7 @@ func TestRunCompileCardCompactReadsByURL(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Facts", "- 事实A", "Conclusions", "- 结论B", "Predictions", "- [预|unresolved] 预测C", "Main logic", "事实A --substantiates--> 结论B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Drivers", "- 驱动A", "Targets", "- 目标B", "Evidence", "- 证据A", "Explanations", "- 解释B", "Main logic", "驱动A -> 中间步骤 -> 目标B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
@@ -3399,16 +3420,16 @@ func TestRunCompileCardCollapsesLinearChain(t *testing.T) {
 			Model:          c.Qwen36PlusModel,
 			Output: c.Output{
 				Summary: "一句话总结",
+				Drivers: []string{"驱动A"},
+				Targets: []string{"目标C"},
+				TransmissionPaths: []c.TransmissionPath{{
+					Driver: "驱动A",
+					Target: "目标C",
+					Steps:  []string{"步骤B"},
+				}},
 				Graph: c.ReasoningGraph{
-					Nodes: []c.GraphNode{
-						testGraphNode("n1", c.NodeFact, "事实A"),
-						testGraphNode("n2", c.NodeFact, "事实B"),
-						testGraphNode("n3", c.NodeConclusion, "结论C"),
-					},
-					Edges: []c.GraphEdge{
-						{From: "n1", To: "n2", Kind: c.EdgePositive},
-						{From: "n2", To: "n3", Kind: c.EdgeDerives},
-					},
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeMechanism, "驱动A"), testGraphNode("n2", c.NodeMechanism, "步骤B"), testGraphNode("n3", c.NodeConclusion, "目标C")},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}, {From: "n2", To: "n3", Kind: c.EdgePositive}},
 				},
 				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
 				Confidence: "high",
@@ -3427,7 +3448,7 @@ func TestRunCompileCardCollapsesLinearChain(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "事实A --drives--> 事实B --substantiates--> 结论C") {
+	if !strings.Contains(out, "驱动A -> 步骤B -> 目标C") {
 		t.Fatalf("stdout missing collapsed chain in %q", out)
 	}
 }

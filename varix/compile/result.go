@@ -451,6 +451,33 @@ type Output struct {
 	Verification      Verification       `json:"verification,omitempty"`
 }
 
+func (o Output) MarshalJSON() ([]byte, error) {
+	type publicOutput struct {
+		Summary           string             `json:"summary,omitempty"`
+		Drivers           []string           `json:"drivers,omitempty"`
+		Targets           []string           `json:"targets,omitempty"`
+		TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
+		EvidenceNodes     []string           `json:"evidence_nodes,omitempty"`
+		ExplanationNodes  []string           `json:"explanation_nodes,omitempty"`
+		Details           HiddenDetails      `json:"details,omitempty"`
+		Topics            []string           `json:"topics,omitempty"`
+		Confidence        string             `json:"confidence,omitempty"`
+		Verification      Verification       `json:"verification,omitempty"`
+	}
+	return json.Marshal(publicOutput{
+		Summary:           o.Summary,
+		Drivers:           o.Drivers,
+		Targets:           o.Targets,
+		TransmissionPaths: o.TransmissionPaths,
+		EvidenceNodes:     o.EvidenceNodes,
+		ExplanationNodes:  o.ExplanationNodes,
+		Details:           o.Details,
+		Topics:            o.Topics,
+		Confidence:        o.Confidence,
+		Verification:      o.Verification,
+	})
+}
+
 type Record struct {
 	UnitID         string    `json:"unit_id"`
 	Source         string    `json:"source"`

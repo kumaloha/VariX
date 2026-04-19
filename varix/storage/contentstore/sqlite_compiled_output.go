@@ -19,7 +19,7 @@ func (s *SQLiteStore) UpsertCompiledOutput(ctx context.Context, record compile.R
 	if record.CompiledAt.IsZero() {
 		record.CompiledAt = time.Now().UTC()
 	}
-	payload, err := json.Marshal(record)
+	payload, err := marshalStoredCompileRecord(record)
 	if err != nil {
 		return err
 	}
@@ -61,4 +61,50 @@ func (s *SQLiteStore) GetCompiledOutput(ctx context.Context, platform, externalI
 		return compile.Record{}, err
 	}
 	return record, nil
+}
+
+func marshalStoredCompileRecord(record compile.Record) ([]byte, error) {
+	type storedOutput struct {
+		Summary           string                     `json:"summary,omitempty"`
+		Drivers           []string                   `json:"drivers,omitempty"`
+		Targets           []string                   `json:"targets,omitempty"`
+		TransmissionPaths []compile.TransmissionPath `json:"transmission_paths,omitempty"`
+		EvidenceNodes     []string                   `json:"evidence_nodes,omitempty"`
+		ExplanationNodes  []string                   `json:"explanation_nodes,omitempty"`
+		Graph             compile.ReasoningGraph     `json:"graph,omitempty"`
+		Details           compile.HiddenDetails      `json:"details,omitempty"`
+		Topics            []string                   `json:"topics,omitempty"`
+		Confidence        string                     `json:"confidence,omitempty"`
+		Verification      compile.Verification       `json:"verification,omitempty"`
+	}
+	type storedRecord struct {
+		UnitID         string       `json:"unit_id"`
+		Source         string       `json:"source"`
+		ExternalID     string       `json:"external_id"`
+		RootExternalID string       `json:"root_external_id,omitempty"`
+		Model          string       `json:"model"`
+		Output         storedOutput `json:"output"`
+		CompiledAt     time.Time    `json:"compiled_at"`
+	}
+	return json.Marshal(storedRecord{
+		UnitID:         record.UnitID,
+		Source:         record.Source,
+		ExternalID:     record.ExternalID,
+		RootExternalID: record.RootExternalID,
+		Model:          record.Model,
+		Output: storedOutput{
+			Summary:           record.Output.Summary,
+			Drivers:           record.Output.Drivers,
+			Targets:           record.Output.Targets,
+			TransmissionPaths: record.Output.TransmissionPaths,
+			EvidenceNodes:     record.Output.EvidenceNodes,
+			ExplanationNodes:  record.Output.ExplanationNodes,
+			Graph:             record.Output.Graph,
+			Details:           record.Output.Details,
+			Topics:            record.Output.Topics,
+			Confidence:        record.Output.Confidence,
+			Verification:      record.Output.Verification,
+		},
+		CompiledAt: record.CompiledAt,
+	})
 }

@@ -2,7 +2,6 @@ package compile
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -173,15 +172,6 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	}
 	output, err := c.compileDirect(ctx, bundle)
 	if err != nil {
-		var legacyStageErr legacyNodeStageError
-		switch {
-		case errors.As(err, &legacyStageErr):
-			output, err = c.compileLegacyFromInitialNodeOutput(ctx, bundle, legacyStageErr.nodeOutput)
-		case shouldFallbackToLegacyCompile(err):
-			output, err = c.compileLegacy(ctx, bundle)
-		}
-	}
-	if err != nil {
 		return Record{}, err
 	}
 	verification, err := c.verifier.Verify(ctx, bundle, output)
@@ -198,24 +188,6 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 		Output:         output,
 		CompiledAt:     time.Now().UTC(),
 	}, nil
-}
-
-type legacyNodeStageError struct {
-	nodeOutput NodeExtractionOutput
-}
-
-func (e legacyNodeStageError) Error() string {
-	return "direct pipeline received legacy node stage output"
-}
-
-func shouldFallbackToLegacyCompile(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "drivers must not be empty") ||
-		strings.Contains(msg, "targets must not be empty") ||
-		strings.Contains(msg, "load prompt compile/driver_target_")
 }
 
 func (c *Client) compileDirect(ctx context.Context, bundle Bundle) (Output, error) {
@@ -239,126 +211,6 @@ func (c *Client) compileDirect(ctx context.Context, bundle Bundle) (Output, erro
 	}
 	debugCompileStage(bundle, "compile_direct", "unified_judge_done")
 	return mergeUnifiedCompileOutput(bundle, final), nil
-}
-
-func (c *Client) compileLegacy(ctx context.Context, bundle Bundle) (Output, error) {
-	reqs := InferGraphRequirements(bundle)
-	nodeSystemPrompt, err := c.prompts.buildNodeInstruction(reqs)
-	if err != nil {
-		return Output{}, err
-	}
-	nodeUserPrompt, err := c.prompts.buildNodePrompt(bundle)
-	if err != nil {
-		return Output{}, err
-	}
-	nodeOutput, err := c.extractNodesAttempt(ctx, bundle, nodeSystemPrompt, nodeUserPrompt, reqs)
-	if err != nil {
-		return Output{}, err
-	}
-	return c.compileLegacyFromInitialNodeOutput(ctx, bundle, nodeOutput)
-}
-
-func (c *Client) compileLegacyFromInitialNodeOutput(ctx context.Context, bundle Bundle, nodeOutput NodeExtractionOutput) (Output, error) {
-	reqs := InferGraphRequirements(bundle)
-	nodeSystemPrompt, err := c.prompts.buildNodeInstruction(reqs)
-	if err != nil {
-		return Output{}, err
-	}
-	if err := nodeOutput.ValidateWithThresholds(reqs.MinNodes); err != nil {
-		retryPrompt, retryErr := c.prompts.buildNodeRetryPrompt(bundle, reqs)
-		if retryErr != nil {
-			return Output{}, retryErr
-		}
-		nodeOutput, err = c.extractNodesAttempt(ctx, bundle, nodeSystemPrompt, retryPrompt, reqs)
-		if err != nil {
-			return Output{}, err
-		}
-	}
-
-	nodeChallengeSystemPrompt, err := c.prompts.buildNodeChallengeInstruction(reqs)
-	if err != nil {
-		return Output{}, err
-	}
-	nodeChallengeUserPrompt, err := c.prompts.buildNodeChallengePrompt(bundle, nodeOutput.Graph.Nodes)
-	if err != nil {
-		return Output{}, err
-	}
-	nodeChallengeOutput, err := c.extractNodesAttempt(ctx, bundle, nodeChallengeSystemPrompt, nodeChallengeUserPrompt, GraphRequirements{})
-	if err != nil {
-		retryPrompt, retryErr := c.prompts.buildNodeChallengeRetryPrompt(bundle, nodeOutput.Graph.Nodes, reqs)
-		if retryErr != nil {
-			return Output{}, retryErr
-		}
-		nodeChallengeOutput, err = c.extractNodesAttempt(ctx, bundle, nodeChallengeSystemPrompt, retryPrompt, GraphRequirements{})
-		if err != nil {
-			nodeChallengeOutput = NodeExtractionOutput{}
-		}
-	}
-	nodeOutput = mergeNodeOutputs(nodeOutput, nodeChallengeOutput)
-
-	fullGraphSystemPrompt, err := c.prompts.buildGraphInstruction(reqs)
-	if err != nil {
-		return Output{}, err
-	}
-	fullGraphUserPrompt, err := c.prompts.buildGraphPrompt(bundle, nodeOutput.Graph.Nodes)
-	if err != nil {
-		return Output{}, err
-	}
-	fullGraphOutput, err := c.buildFullGraphAttempt(ctx, bundle, fullGraphSystemPrompt, fullGraphUserPrompt, reqs, nodeOutput.Graph.Nodes)
-	if err != nil {
-		retryPrompt, retryErr := c.prompts.buildGraphRetryPrompt(bundle, nodeOutput.Graph.Nodes, reqs)
-		if retryErr != nil {
-			return Output{}, retryErr
-		}
-		fullGraphOutput, err = c.buildFullGraphAttempt(ctx, bundle, fullGraphSystemPrompt, retryPrompt, reqs, nodeOutput.Graph.Nodes)
-		if err != nil {
-			return Output{}, err
-		}
-	}
-
-	edgeChallengeSystemPrompt, err := c.prompts.buildEdgeChallengeInstruction(reqs)
-	if err != nil {
-		return Output{}, err
-	}
-	edgeChallengeUserPrompt, err := c.prompts.buildEdgeChallengePrompt(bundle, nodeOutput.Graph.Nodes, fullGraphOutput.Graph.Edges)
-	if err != nil {
-		return Output{}, err
-	}
-	edgeChallengeOutput, err := c.buildFullGraphAttempt(ctx, bundle, edgeChallengeSystemPrompt, edgeChallengeUserPrompt, GraphRequirements{}, nodeOutput.Graph.Nodes)
-	if err != nil {
-		retryPrompt, retryErr := c.prompts.buildEdgeChallengeRetryPrompt(bundle, nodeOutput.Graph.Nodes, fullGraphOutput.Graph.Edges, reqs)
-		if retryErr != nil {
-			return Output{}, retryErr
-		}
-		edgeChallengeOutput, err = c.buildFullGraphAttempt(ctx, bundle, edgeChallengeSystemPrompt, retryPrompt, GraphRequirements{}, nodeOutput.Graph.Nodes)
-		if err != nil {
-			edgeChallengeOutput = FullGraphOutput{}
-		}
-	}
-	fullGraphOutput = mergeFullGraphOutputs(fullGraphOutput, edgeChallengeOutput)
-
-	causalProjection := buildCausalProjection(nodeOutput.Graph.Nodes, fullGraphOutput.Graph.Edges)
-	thesisSystemPrompt, err := c.prompts.buildThesisInstruction(reqs)
-	if err != nil {
-		return Output{}, err
-	}
-	thesisUserPrompt, err := c.prompts.buildThesisPrompt(bundle, causalProjection)
-	if err != nil {
-		return Output{}, err
-	}
-	thesisOutput, err := c.buildThesisAttempt(ctx, bundle, thesisSystemPrompt, thesisUserPrompt)
-	if err != nil {
-		retryPrompt, retryErr := c.prompts.buildThesisRetryPrompt(bundle, causalProjection, reqs)
-		if retryErr != nil {
-			return Output{}, retryErr
-		}
-		thesisOutput, err = c.buildThesisAttempt(ctx, bundle, thesisSystemPrompt, retryPrompt)
-		if err != nil {
-			return Output{}, err
-		}
-	}
-
-	return mergeCompileOutputs(nodeOutput, fullGraphOutput, thesisOutput), nil
 }
 
 func (c *Client) compileUnifiedGenerate(ctx context.Context, bundle Bundle) (UnifiedCompileOutput, error) {
@@ -423,66 +275,6 @@ func (c *Client) compileUnifiedJudge(ctx context.Context, bundle Bundle, generat
 	return out, nil
 }
 
-func (c *Client) extractNodesAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string, reqs GraphRequirements) (NodeExtractionOutput, error) {
-	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
-	if err != nil {
-		return NodeExtractionOutput{}, err
-	}
-	resp, err := c.runtime.Call(ctx, req)
-	if err != nil {
-		return NodeExtractionOutput{}, err
-	}
-	out, err := ParseNodeExtractionOutput(resp.Text)
-	if err != nil {
-		return NodeExtractionOutput{}, err
-	}
-	applyBundleTimingFallbacks(bundle, &out.Graph)
-	if err := out.ValidateWithThresholds(reqs.MinNodes); err != nil {
-		return NodeExtractionOutput{}, err
-	}
-	return out, nil
-}
-
-func (c *Client) buildFullGraphAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string, reqs GraphRequirements, nodes []GraphNode) (FullGraphOutput, error) {
-	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
-	if err != nil {
-		return FullGraphOutput{}, err
-	}
-	resp, err := c.runtime.Call(ctx, req)
-	if err != nil {
-		return FullGraphOutput{}, err
-	}
-	nodeIDs, err := validateGraphNodes(nodes)
-	if err != nil {
-		return FullGraphOutput{}, err
-	}
-	nodeKinds := graphNodeKinds(nodes)
-	out, err := ParseFullGraphOutput(resp.Text, nodeIDs, nodeKinds)
-	if err != nil {
-		return FullGraphOutput{}, err
-	}
-	if err := out.ValidateWithThresholds(reqs.MinEdges, nodeIDs, nodeKinds); err != nil {
-		return FullGraphOutput{}, err
-	}
-	return out, nil
-}
-
-func (c *Client) buildThesisAttempt(ctx context.Context, bundle Bundle, systemPrompt string, userPrompt string) (ThesisOutput, error) {
-	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
-	if err != nil {
-		return ThesisOutput{}, err
-	}
-	resp, err := c.runtime.Call(ctx, req)
-	if err != nil {
-		return ThesisOutput{}, err
-	}
-	out, err := ParseThesisOutput(resp.Text)
-	if err != nil {
-		return ThesisOutput{}, err
-	}
-	return out, nil
-}
-
 func (c *Client) buildUnifiedAttempt(ctx context.Context, bundle Bundle, stageName string, systemPrompt string, userPrompt string) (UnifiedCompileOutput, error) {
 	debugCompileStage(bundle, stageName, "start")
 	req, err := BuildQwen36ProviderRequest(c.model, bundle, systemPrompt, userPrompt)
@@ -501,12 +293,6 @@ func (c *Client) buildUnifiedAttempt(ctx context.Context, bundle Bundle, stageNa
 		debugCompileStage(bundle, stageName, "parse_error: "+err.Error())
 		return UnifiedCompileOutput{}, err
 	}
-	if len(out.Drivers) == 0 && len(out.Targets) == 0 && looksLikeLegacyGraphPayload(resp.Text) {
-		if legacy, legacyErr := ParseOutput(resp.Text); legacyErr == nil {
-			out = deriveUnifiedCompileOutputFromLegacy(legacy)
-			debugCompileStage(bundle, stageName, "legacy_graph_fallback")
-		}
-	}
 	debugCompileStage(bundle, stageName, fmt.Sprintf("done drivers=%d targets=%d paths=%d evidence=%d explanation=%d", len(out.Drivers), len(out.Targets), len(out.TransmissionPaths), len(out.EvidenceNodes), len(out.ExplanationNodes)))
 	return out, nil
 }
@@ -521,53 +307,6 @@ func debugCompileStage(bundle Bundle, stageName string, message string) {
 	}
 	fmt.Fprintf(os.Stderr, "[compile-stage] %s %s %s\n", time.Now().UTC().Format(time.RFC3339), stageName, unitID)
 	fmt.Fprintf(os.Stderr, "[compile-stage] %s %s\n", stageName, message)
-}
-
-func looksLikeLegacyGraphPayload(raw string) bool {
-	payload, err := parseCompilePayload(raw)
-	if err != nil {
-		return false
-	}
-	_, hasGraph := payload["graph"]
-	_, hasSummary := payload["summary"]
-	return hasGraph || hasSummary
-}
-
-func mergeDirectCompileOutputs(bundle Bundle, driverTarget DriverTargetOutput, paths TransmissionPathOutput, aux EvidenceExplanationOutput) Output {
-	topics := aux.Topics
-	if len(topics) == 0 {
-		topics = paths.Topics
-	}
-	if len(topics) == 0 {
-		topics = driverTarget.Topics
-	}
-	confidence := strings.TrimSpace(aux.Confidence)
-	if confidence == "" {
-		confidence = strings.TrimSpace(paths.Confidence)
-	}
-	if confidence == "" {
-		confidence = strings.TrimSpace(driverTarget.Confidence)
-	}
-	details := aux.Details
-	if details.IsEmpty() {
-		details = paths.Details
-	}
-	if details.IsEmpty() {
-		details = driverTarget.Details
-	}
-	graph := buildCompatibilityGraph(bundle, driverTarget, paths, aux)
-	return Output{
-		Summary:           summarizeDirectCompileOutput(driverTarget, paths),
-		Drivers:           driverTarget.Drivers,
-		Targets:           driverTarget.Targets,
-		TransmissionPaths: paths.TransmissionPaths,
-		EvidenceNodes:     aux.EvidenceNodes,
-		ExplanationNodes:  aux.ExplanationNodes,
-		Graph:             graph,
-		Details:           details,
-		Topics:            topics,
-		Confidence:        confidence,
-	}
 }
 
 func mergeUnifiedCompileOutput(bundle Bundle, final UnifiedCompileOutput) Output {
@@ -853,117 +592,6 @@ func firstNonEmptyTrimmed(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func deriveDriverTargetOutputFromLegacy(out Output) DriverTargetOutput {
-	derived := DriverTargetOutput{
-		Drivers:    append([]string(nil), out.Drivers...),
-		Targets:    append([]string(nil), out.Targets...),
-		Details:    out.Details,
-		Topics:     out.Topics,
-		Confidence: out.Confidence,
-	}
-	if len(derived.Drivers) == 0 || len(derived.Targets) == 0 {
-		for _, node := range out.Graph.Nodes {
-			switch node.Kind {
-			case NodeMechanism:
-				derived.Drivers = appendUniqueNormalized(derived.Drivers, node.Text)
-			case NodeConclusion, NodePrediction:
-				derived.Targets = appendUniqueNormalized(derived.Targets, node.Text)
-			}
-		}
-	}
-	if len(derived.Drivers) == 0 {
-		for _, node := range out.Graph.Nodes {
-			if node.Kind == NodeFact {
-				derived.Drivers = appendUniqueNormalized(derived.Drivers, node.Text)
-				break
-			}
-		}
-	}
-	if len(derived.Targets) == 0 && strings.TrimSpace(out.Summary) != "" {
-		derived.Targets = appendUniqueNormalized(derived.Targets, out.Summary)
-	}
-	return derived
-}
-
-func deriveUnifiedCompileOutputFromLegacy(out Output) UnifiedCompileOutput {
-	driverTarget := deriveDriverTargetOutputFromLegacy(out)
-	paths := deriveTransmissionPathOutputFromLegacy(out)
-	aux := deriveEvidenceExplanationOutputFromLegacy(out)
-	summary := strings.TrimSpace(out.Summary)
-	if summary == "" {
-		summary = summarizeDirectCompileOutput(driverTarget, paths)
-	}
-	return UnifiedCompileOutput{
-		Summary:           summary,
-		Drivers:           driverTarget.Drivers,
-		Targets:           driverTarget.Targets,
-		TransmissionPaths: paths.TransmissionPaths,
-		EvidenceNodes:     aux.EvidenceNodes,
-		ExplanationNodes:  aux.ExplanationNodes,
-		Details:           out.Details,
-		Topics:            out.Topics,
-		Confidence:        out.Confidence,
-	}
-}
-
-func deriveTransmissionPathOutputFromLegacy(out Output) TransmissionPathOutput {
-	driverTarget := deriveDriverTargetOutputFromLegacy(out)
-	derived := TransmissionPathOutput{
-		Details:    out.Details,
-		Topics:     out.Topics,
-		Confidence: out.Confidence,
-	}
-	for _, edge := range out.Graph.Edges {
-		if edge.Kind != EdgePositive {
-			continue
-		}
-		from := findNodeText(out.Graph.Nodes, edge.From)
-		to := findNodeText(out.Graph.Nodes, edge.To)
-		if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" {
-			continue
-		}
-		derived.TransmissionPaths = append(derived.TransmissionPaths, TransmissionPath{
-			Driver: firstNormalizedOrFallback(driverTarget.Drivers, from),
-			Target: to,
-			Steps:  []string{from},
-		})
-	}
-	if len(derived.TransmissionPaths) == 0 && len(driverTarget.Drivers) > 0 && len(driverTarget.Targets) > 0 {
-		derived.TransmissionPaths = append(derived.TransmissionPaths, TransmissionPath{
-			Driver: driverTarget.Drivers[0],
-			Target: driverTarget.Targets[0],
-			Steps:  []string{driverTarget.Drivers[0]},
-		})
-	}
-	return derived
-}
-
-func deriveEvidenceExplanationOutputFromLegacy(out Output) EvidenceExplanationOutput {
-	driverTarget := deriveDriverTargetOutputFromLegacy(out)
-	derived := EvidenceExplanationOutput{
-		EvidenceNodes:    append([]string(nil), out.EvidenceNodes...),
-		ExplanationNodes: append([]string(nil), out.ExplanationNodes...),
-		Details:          out.Details,
-		Topics:           out.Topics,
-		Confidence:       out.Confidence,
-	}
-	targets := make(map[string]struct{}, len(driverTarget.Targets))
-	for _, target := range driverTarget.Targets {
-		targets[normalizeLooseText(target)] = struct{}{}
-	}
-	for _, node := range out.Graph.Nodes {
-		switch node.Kind {
-		case NodeFact:
-			derived.EvidenceNodes = appendUniqueNormalized(derived.EvidenceNodes, node.Text)
-		case NodeConclusion:
-			if _, ok := targets[normalizeLooseText(node.Text)]; !ok {
-				derived.ExplanationNodes = appendUniqueNormalized(derived.ExplanationNodes, node.Text)
-			}
-		}
-	}
-	return derived
 }
 
 func appendUniqueNormalized(base []string, values ...string) []string {

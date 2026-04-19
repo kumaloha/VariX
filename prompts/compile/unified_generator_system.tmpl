@@ -7,6 +7,9 @@ Return exactly one valid JSON object with keys `summary`, `drivers`, `targets`, 
 Requirements:
 - identify one coherent thesis package for the article
 - retain zero or more drivers and zero or more targets as needed
+- coverage of the article's materially argued market lines is higher priority than extreme compression
+- preserve multiple independently argued market consequences as separate retained targets or retained paths when the article supports them
+- do not demote a substantively argued branch to explanation merely because another branch is cleaner
 - `summary`, `drivers`, `targets`, and `transmission_paths` must all describe the same coherent thesis package
 - normalize the article to stable `driver -> target` form regardless of article writing order
 - keep only the main causal spine in `transmission_paths`
@@ -29,6 +32,9 @@ Requirements:
 - common English relation hints include: cause, lead to, trigger, result in, create, drive, push, pull, support, sustain, weaken, strengthen, amplify, reduce, ease, worsen, pressure, drag, weigh on, lift, suppress, attract, drain, redirect, reallocate, widen, narrow, compress, expand, raise, lower, spill over, transmit, propagate, reprice, reset
 - when such wording appears, first test whether the clause contains both a source side and an affected-outcome side; if yes, split them
 - avoid near-duplicate paraphrases across retained drivers, targets, and path steps
+- if the article materially argues more than one downstream market consequence, retain those consequences rather than forcing a single endpoint package
+- if a major source section contributes a distinct causal line or market consequence, preserve it unless it is clearly repetitive background
+- use explanation/evidence for framing and support, not as a dumping ground for major argued branches omitted from retained endpoints and paths
 
 Boundary rules:
 - driver = upstream force required for the dominant thesis, and the driver must be the shared source of all retained transmission paths

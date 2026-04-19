@@ -272,8 +272,9 @@ func runCompileSummary(args []string, projectRoot string, stdout, stderr io.Writ
 	}
 
 	fmt.Fprintf(stdout, "Summary: %s\n", record.Output.Summary)
-	fmt.Fprintf(stdout, "Nodes: %d\n", len(record.Output.Graph.Nodes))
-	fmt.Fprintf(stdout, "Edges: %d\n", len(record.Output.Graph.Edges))
+	fmt.Fprintf(stdout, "Drivers: %d\n", len(record.Output.Drivers))
+	fmt.Fprintf(stdout, "Targets: %d\n", len(record.Output.Targets))
+	fmt.Fprintf(stdout, "Paths: %d\n", len(record.Output.TransmissionPaths))
 	if len(record.Output.Topics) > 0 {
 		fmt.Fprintf(stdout, "Topics: %s\n", strings.Join(record.Output.Topics, ", "))
 	}
@@ -336,8 +337,9 @@ func runCompileCompare(args []string, projectRoot string, stdout, stderr io.Writ
 	}
 	fmt.Fprintf(stdout, "Raw preview: %s\n", rawPreview)
 	fmt.Fprintf(stdout, "Summary: %s\n", record.Output.Summary)
-	fmt.Fprintf(stdout, "Nodes: %d\n", len(record.Output.Graph.Nodes))
-	fmt.Fprintf(stdout, "Edges: %d\n", len(record.Output.Graph.Edges))
+	fmt.Fprintf(stdout, "Drivers: %d\n", len(record.Output.Drivers))
+	fmt.Fprintf(stdout, "Targets: %d\n", len(record.Output.Targets))
+	fmt.Fprintf(stdout, "Paths: %d\n", len(record.Output.TransmissionPaths))
 	fmt.Fprintf(stdout, "Confidence: %s\n", record.Output.Confidence)
 	return 0
 }
@@ -415,10 +417,10 @@ func formatCompileCard(record c.Record) string {
 func formatCompactCompileCard(record c.Record) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Summary\n%s\n\n", record.Output.Summary)
-	writeCompactNodeSection(&b, "Facts", pickNodesByKinds(record, 2, c.NodeFact))
-	writeCompactNodeSection(&b, "Conditions", pickConditionPoints(record, 3))
-	writeCompactNodeSection(&b, "Conclusions", pickNodesByKinds(record, 2, c.NodeConclusion))
-	writeCompactNodeSection(&b, "Predictions", pickPredictionPoints(record, 2))
+	writeCompactNodeSection(&b, "Drivers", truncateList(record.Output.Drivers, 3))
+	writeCompactNodeSection(&b, "Targets", truncateList(record.Output.Targets, 3))
+	writeCompactNodeSection(&b, "Evidence", truncateList(record.Output.EvidenceNodes, 3))
+	writeCompactNodeSection(&b, "Explanations", truncateList(record.Output.ExplanationNodes, 2))
 	if chains := logicChains(record); len(chains) > 0 {
 		fmt.Fprintf(&b, "Main logic\n- %s\n\n", chains[0])
 	}
@@ -437,149 +439,27 @@ func writeCompactNodeSection(b *strings.Builder, title string, items []string) {
 	b.WriteString("\n")
 }
 
-func pickNodesByKinds(record c.Record, max int, kinds ...c.NodeKind) []string {
-	allowed := map[c.NodeKind]struct{}{}
-	for _, kind := range kinds {
-		allowed[kind] = struct{}{}
-	}
-	out := make([]string, 0, max)
-	for _, node := range record.Output.Graph.Nodes {
-		if strings.TrimSpace(node.Text) == "" {
-			continue
-		}
-		if _, ok := allowed[node.Kind]; !ok {
-			continue
-		}
-		out = append(out, truncate(node.Text, 100))
-		if len(out) == max {
-			break
-		}
-	}
-	return out
-}
-
-func pickConditionPoints(record c.Record, max int) []string {
-	explicitStatus := map[string]string{}
-	for _, check := range record.Output.Verification.ExplicitConditionChecks {
-		explicitStatus[check.NodeID] = string(check.Status)
-	}
-	implicitStatus := map[string]string{}
-	for _, check := range record.Output.Verification.ImplicitConditionChecks {
-		implicitStatus[check.NodeID] = string(check.Status)
-	}
-	out := make([]string, 0, max)
-	for _, node := range record.Output.Graph.Nodes {
-		if strings.TrimSpace(node.Text) == "" {
-			continue
-		}
-		switch node.Kind {
-		case c.NodeExplicitCondition:
-			label := "[显]"
-			if status := strings.TrimSpace(explicitStatus[node.ID]); status != "" {
-				label = "[显|" + status + "]"
-			}
-			out = append(out, label+" "+truncate(node.Text, 100))
-		case c.NodeImplicitCondition:
-			label := "[隐]"
-			if status := strings.TrimSpace(implicitStatus[node.ID]); status != "" {
-				label = "[隐|" + status + "]"
-			}
-			out = append(out, label+" "+truncate(node.Text, 100))
-		default:
-			continue
-		}
-		if len(out) == max {
-			break
-		}
-	}
-	return out
-}
-
-func pickPredictionPoints(record c.Record, max int) []string {
-	statusByNode := map[string]string{}
-	for _, check := range record.Output.Verification.PredictionChecks {
-		statusByNode[check.NodeID] = string(check.Status)
-	}
-	out := make([]string, 0, max)
-	for _, node := range record.Output.Graph.Nodes {
-		if node.Kind != c.NodePrediction || strings.TrimSpace(node.Text) == "" {
-			continue
-		}
-		label := "[预]"
-		if status := strings.TrimSpace(statusByNode[node.ID]); status != "" {
-			label = "[预|" + status + "]"
-		}
-		out = append(out, label+" "+truncate(node.Text, 100))
-		if len(out) == max {
-			break
-		}
-	}
-	return out
-}
-
 func logicChains(record c.Record) []string {
-	if len(record.Output.Graph.Edges) == 0 || len(record.Output.Graph.Nodes) == 0 {
+	if len(record.Output.TransmissionPaths) == 0 {
 		return nil
 	}
-	nodeText := map[string]string{}
-	for _, node := range record.Output.Graph.Nodes {
-		nodeText[node.ID] = node.Text
-	}
-	outgoing := map[string][]c.GraphEdge{}
-	inDegree := map[string]int{}
-	for _, edge := range record.Output.Graph.Edges {
-		outgoing[edge.From] = append(outgoing[edge.From], edge)
-		inDegree[edge.To]++
-		if _, ok := inDegree[edge.From]; !ok {
-			inDegree[edge.From] = inDegree[edge.From]
+	chains := make([]string, 0, len(record.Output.TransmissionPaths))
+	for _, path := range record.Output.TransmissionPaths {
+		parts := []string{}
+		if strings.TrimSpace(path.Driver) != "" {
+			parts = append(parts, truncate(path.Driver, 50))
 		}
-	}
-	visited := map[string]bool{}
-	var chains []string
-	for _, edge := range record.Output.Graph.Edges {
-		if visited[edge.From+"->"+edge.To+"#"+string(edge.Kind)] {
-			continue
+		for _, step := range path.Steps {
+			parts = append(parts, truncate(step, 50))
 		}
-		if inDegree[edge.From] == 1 {
-			continue
+		if strings.TrimSpace(path.Target) != "" {
+			parts = append(parts, truncate(path.Target, 50))
 		}
-		chain := formatChain(edge, outgoing, inDegree, visited, nodeText)
-		if chain != "" {
-			chains = append(chains, chain)
-		}
-	}
-	for _, edge := range record.Output.Graph.Edges {
-		key := edge.From + "->" + edge.To + "#" + string(edge.Kind)
-		if visited[key] {
-			continue
-		}
-		chain := formatChain(edge, outgoing, inDegree, visited, nodeText)
-		if chain != "" {
-			chains = append(chains, chain)
+		if len(parts) > 0 {
+			chains = append(chains, strings.Join(parts, " -> "))
 		}
 	}
 	return chains
-}
-
-func formatChain(start c.GraphEdge, outgoing map[string][]c.GraphEdge, inDegree map[string]int, visited map[string]bool, nodeText map[string]string) string {
-	parts := []string{truncate(nodeText[start.From], 50)}
-	current := start
-	for {
-		key := current.From + "->" + current.To + "#" + string(current.Kind)
-		visited[key] = true
-		parts = append(parts, fmt.Sprintf("--%s-->", current.Kind), truncate(nodeText[current.To], 50))
-		nextEdges := outgoing[current.To]
-		if len(nextEdges) != 1 || inDegree[current.To] != 1 {
-			break
-		}
-		next := nextEdges[0]
-		nextKey := next.From + "->" + next.To + "#" + string(next.Kind)
-		if visited[nextKey] {
-			break
-		}
-		current = next
-	}
-	return strings.Join(parts, " ")
 }
 
 func truncate(value string, max int) string {
@@ -589,4 +469,18 @@ func truncate(value string, max int) string {
 		return value
 	}
 	return string(runes[:max]) + "…"
+}
+
+func truncateList(values []string, max int) []string {
+	out := make([]string, 0, max)
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		out = append(out, truncate(value, 100))
+		if len(out) == max {
+			break
+		}
+	}
+	return out
 }
