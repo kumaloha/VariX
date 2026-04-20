@@ -319,3 +319,5 @@ than cluster-first output on real memory sets.
 
 
 - `verify show --platform <platform> --id <external_id>` now falls back to current graph-first verification state when no legacy `verification_results` row exists
+
+- `verify run --platform <platform> --id <external_id>` now updates legacy verification results and syncs the graph-first content/event/paradigm chain

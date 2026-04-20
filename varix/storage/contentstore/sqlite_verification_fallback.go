@@ -49,3 +49,41 @@ func (s *SQLiteStore) BuildVerificationRecordFromContentSubgraph(ctx context.Con
 	verification.VerifiedAt = verifiedAt
 	return compile.VerificationRecord{UnitID: subgraph.ArticleID, Source: subgraph.SourcePlatform, ExternalID: subgraph.SourceExternalID, RootExternalID: subgraph.RootExternalID, Model: subgraph.CompileVersion, Verification: verification, VerifiedAt: verifiedAt}, nil
 }
+
+func (s *SQLiteStore) ApplyVerificationRecordToContentSubgraph(ctx context.Context, record compile.VerificationRecord) error {
+	for _, check := range record.Verification.FactChecks {
+		verdict := graphmodel.VerifyVerdict{ObjectType: graphmodel.VerifyQueueObjectNode, ObjectID: check.NodeID, Reason: check.Reason, AsOf: record.VerifiedAt.UTC().Format(time.RFC3339)}
+		switch check.Status {
+		case compile.FactStatusClearlyTrue:
+			verdict.Verdict = graphmodel.VerificationProved
+		case compile.FactStatusClearlyFalse:
+			verdict.Verdict = graphmodel.VerificationDisproved
+		case compile.FactStatusUnverifiable:
+			verdict.Verdict = graphmodel.VerificationUnverifiable
+		default:
+			continue
+		}
+		if err := s.ApplyVerifyVerdictToContentSubgraph(ctx, record.Source, record.ExternalID, verdict); err != nil {
+			return err
+		}
+	}
+	for _, check := range record.Verification.PredictionChecks {
+		verdict := graphmodel.VerifyVerdict{ObjectType: graphmodel.VerifyQueueObjectNode, ObjectID: check.NodeID, Reason: check.Reason, AsOf: record.VerifiedAt.UTC().Format(time.RFC3339)}
+		switch check.Status {
+		case compile.PredictionStatusResolvedTrue:
+			verdict.Verdict = graphmodel.VerificationProved
+		case compile.PredictionStatusResolvedFalse:
+			verdict.Verdict = graphmodel.VerificationDisproved
+		case compile.PredictionStatusStaleUnresolved:
+			verdict.Verdict = graphmodel.VerificationUnverifiable
+		case compile.PredictionStatusUnresolved:
+			verdict.Verdict = graphmodel.VerificationPending
+		default:
+			continue
+		}
+		if err := s.ApplyVerifyVerdictToContentSubgraph(ctx, record.Source, record.ExternalID, verdict); err != nil {
+			return err
+		}
+	}
+	return nil
+}

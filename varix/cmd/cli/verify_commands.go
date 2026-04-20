@@ -126,6 +126,10 @@ func runVerifyRun(args []string, projectRoot string, stdout, stderr io.Writer) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if err := store.ApplyVerificationRecordToContentSubgraph(ctx, verifyRecord); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 
 	payload, err := json.MarshalIndent(verifyRecord, "", "  ")
 	if err != nil {

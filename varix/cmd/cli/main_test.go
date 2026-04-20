@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -2593,6 +2594,75 @@ func TestRunVerifyRunAndShowUseSeparateVerificationStore(t *testing.T) {
 	}
 	if len(shown.Verification.FactChecks) != 1 || shown.Verification.FactChecks[0].Reason != "supported" {
 		t.Fatalf("shown verification = %#v", shown)
+	}
+}
+
+func TestRunVerifyRunAlsoAppliesVerificationToGraphFirstContentSubgraph(t *testing.T) {
+	prevBuildApp := buildApp
+	prevBuildCompileClient := buildCompileClient
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		buildCompileClient = prevBuildCompileClient
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	var dbPath string
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		dbPath = filepath.Join(t.TempDir(), "content.db")
+		app.Settings.ContentDBPath = dbPath
+		return app, nil
+	}
+	buildCompileClient = func(projectRoot string) compileClient {
+		return compileClientStub{
+			verifyDetailed: func(ctx context.Context, bundle c.Bundle, output c.Output) (c.Verification, error) {
+				return c.Verification{
+					FactChecks:       []c.FactCheck{{NodeID: "n1", Status: c.FactStatusClearlyTrue, Reason: "supported"}},
+					PredictionChecks: []c.PredictionCheck{{NodeID: "n2", Status: c.PredictionStatusResolvedTrue, Reason: "resolved", AsOf: time.Now().UTC()}},
+					VerifiedAt:       time.Now().UTC(),
+				}, nil
+			},
+		}
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		raw := types.RawContent{Source: "weibo", ExternalID: "Q-verify-graph", URL: "https://weibo.com/123/Q-verify-graph", Content: "root body", AuthorName: "alice", PostedAt: time.Now().UTC()}
+		if err := store.UpsertRawCapture(context.Background(), raw); err != nil {
+			return nil, err
+		}
+		record := c.Record{UnitID: "weibo:Q-verify-graph", Source: "weibo", ExternalID: "Q-verify-graph", RootExternalID: "Q-verify-graph", Model: c.Qwen36PlusModel, Output: c.Output{Summary: "一句话", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodePrediction, "预测B")}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}}, CompiledAt: time.Now().UTC()}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"verify", "run", "--platform", "weibo", "--id", "Q-verify-graph", "--force"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify run graph-first code = %d, stderr = %s", code, stderr.String())
+	}
+	reopen, err := contentstore.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(reopen) error = %v", err)
+	}
+	defer reopen.Close()
+	got, err := reopen.GetContentSubgraph(context.Background(), "weibo", "Q-verify-graph")
+	if err != nil {
+		t.Fatalf("GetContentSubgraph() error = %v", err)
+	}
+	statuses := map[string]string{}
+	for _, node := range got.Nodes {
+		statuses[node.ID] = string(node.VerificationStatus) + ":" + node.VerificationReason
+	}
+	if statuses["n1"] != "proved:supported" {
+		t.Fatalf("n1 status = %q, want proved:supported", statuses["n1"])
+	}
+	if statuses["n2"] != "proved:resolved" {
+		t.Fatalf("n2 status = %q, want proved:resolved", statuses["n2"])
 	}
 }
 
@@ -5228,4 +5298,29 @@ func TestRunVerifyShowFallsBackToGraphFirstVerificationState(t *testing.T) {
 	if len(shown.Verification.PredictionChecks) != 1 || shown.Verification.PredictionChecks[0].Reason != "waiting" {
 		t.Fatalf("fallback prediction checks = %#v", shown)
 	}
+}
+
+type compileClientStub struct {
+	compile        func(context.Context, c.Bundle) (c.Record, error)
+	verify         func(context.Context, c.Bundle, c.Output) (c.Verification, error)
+	verifyDetailed func(context.Context, c.Bundle, c.Output) (c.Verification, error)
+}
+
+func (s compileClientStub) Compile(ctx context.Context, bundle c.Bundle) (c.Record, error) {
+	if s.compile != nil {
+		return s.compile(ctx, bundle)
+	}
+	return c.Record{}, nil
+}
+func (s compileClientStub) Verify(ctx context.Context, bundle c.Bundle, output c.Output) (c.Verification, error) {
+	if s.verify != nil {
+		return s.verify(ctx, bundle, output)
+	}
+	return c.Verification{}, nil
+}
+func (s compileClientStub) VerifyDetailed(ctx context.Context, bundle c.Bundle, output c.Output) (c.Verification, error) {
+	if s.verifyDetailed != nil {
+		return s.verifyDetailed(ctx, bundle, output)
+	}
+	return c.Verification{}, nil
 }
