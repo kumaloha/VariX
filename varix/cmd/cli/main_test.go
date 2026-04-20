@@ -2372,6 +2372,17 @@ func TestRunCompilePipelineV2UsesV2Client(t *testing.T) {
 	}
 }
 
+func TestRunCompileRejectsUnknownPipeline(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "run", "--pipeline", "bogus", "--platform", "weibo", "--id", "x"}, "/tmp/project", &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run() code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "unsupported compile pipeline") {
+		t.Fatalf("stderr = %q, want unsupported compile pipeline", stderr.String())
+	}
+}
+
 func TestSelectCompileClientKeepsLegacyPipelineIsolated(t *testing.T) {
 	prevBuildCompileClient := buildCompileClient
 	prevBuildCompileClientNoVerify := buildCompileClientNoVerify

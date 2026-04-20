@@ -70,6 +70,7 @@ func stage1Extract(ctx context.Context, rt runtimeChat, model string, bundle com
 }
 
 func stage2Dedup(state graphState) graphState {
+	state = normalizeStage1State(state)
 	seen := map[string]graphNode{}
 	redirect := map[string]string{}
 	for _, n := range state.Nodes {
@@ -106,6 +107,56 @@ func stage2Dedup(state graphState) graphState {
 	}
 	state.Nodes = nodes
 	state.Edges = edges
+	return state
+}
+
+func normalizeStage1State(state graphState) graphState {
+	nodes := make([]graphNode, 0, len(state.Nodes))
+	for _, n := range state.Nodes {
+		n.ID = strings.TrimSpace(n.ID)
+		n.Text = strings.TrimSpace(n.Text)
+		n.SourceQuote = strings.TrimSpace(n.SourceQuote)
+		if n.Text == "" {
+			continue
+		}
+		nodes = append(nodes, n)
+	}
+	state.Nodes = nodes
+
+	validIDs := map[string]struct{}{}
+	for _, n := range state.Nodes {
+		validIDs[n.ID] = struct{}{}
+	}
+	edges := make([]graphEdge, 0, len(state.Edges))
+	for _, e := range state.Edges {
+		e.From = strings.TrimSpace(e.From)
+		e.To = strings.TrimSpace(e.To)
+		if e.From == "" || e.To == "" || e.From == e.To {
+			continue
+		}
+		if _, ok := validIDs[e.From]; !ok {
+			continue
+		}
+		if _, ok := validIDs[e.To]; !ok {
+			continue
+		}
+		edges = append(edges, e)
+	}
+	state.Edges = edges
+
+	off := make([]offGraphItem, 0, len(state.OffGraph))
+	for _, o := range state.OffGraph {
+		o.Text = strings.TrimSpace(o.Text)
+		if o.Text == "" {
+			continue
+		}
+		o.Role = strings.TrimSpace(o.Role)
+		if o.Role == "" {
+			o.Role = "supplementary"
+		}
+		off = append(off, o)
+	}
+	state.OffGraph = off
 	return state
 }
 
@@ -558,34 +609,6 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
-
-const stage1SystemPrompt = `You are a causal graph extractor for financial analysis articles. Extract atomic nodes, causal edges, and off-graph items. Return JSON only.`
-
-const stage1UserPrompt = `Extract a causal graph from this article. Keep node text in the article's original language. Split mixed cause/effect clauses into atomic nodes. Return JSON with keys nodes, edges, off_graph.
-
-Article:
-%s`
-
-const stage3SystemPrompt = `You are an ontology classifier for financial market outcomes. Return JSON only.`
-
-const stage3UserPrompt = `Decide whether the node below is a market outcome.
-Node: %s
-Source quote: %s
-
-Return JSON:
-{"is_market_outcome": true|false, "category":"price|flow|decision|none"}`
-
-const stage5TranslateSystemPrompt = `You are a financial-Chinese translator. Translate each item into concise professional Chinese. Keep already-Chinese items unchanged. Return JSON only.`
-
-const stage5TranslateUserPrompt = `Translate the following id/text pairs into Chinese. Return {"translations":[{"id":"...","text":"..."}]} only.
-
-%s`
-
-const stage5SummarySystemPrompt = `Produce a one-sentence Chinese summary of the thesis package. Return JSON only.`
-
-const stage5SummaryUserPrompt = `Summarize this thesis package in one Chinese sentence. Return {"summary":"..."} only.
-
-%s`
 
 func max(a, b int) int {
 	if a > b {
