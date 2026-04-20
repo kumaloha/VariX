@@ -2210,11 +2210,15 @@ func stringValue(v any) string {
 func TestRunCompileWritesCompiledRecordJSON(t *testing.T) {
 	prevBuildApp := buildApp
 	prevBuildCompileClient := buildCompileClient
+	prevBuildCompileClientNoVerify := buildCompileClientNoVerify
+	prevBuildCompileClientNoVerifyNoValidate := buildCompileClientNoVerifyNoValidate
 	prevBuildCompileClientV2 := buildCompileClientV2
 	prevOpenSQLiteStore := openSQLiteStore
 	t.Cleanup(func() {
 		buildApp = prevBuildApp
 		buildCompileClient = prevBuildCompileClient
+		buildCompileClientNoVerify = prevBuildCompileClientNoVerify
+		buildCompileClientNoVerifyNoValidate = prevBuildCompileClientNoVerifyNoValidate
 		buildCompileClientV2 = prevBuildCompileClientV2
 		openSQLiteStore = prevOpenSQLiteStore
 	})
@@ -2294,11 +2298,15 @@ func TestRunCompileWritesCompiledRecordJSON(t *testing.T) {
 func TestRunCompilePipelineV2UsesV2Client(t *testing.T) {
 	prevBuildApp := buildApp
 	prevBuildCompileClient := buildCompileClient
+	prevBuildCompileClientNoVerify := buildCompileClientNoVerify
+	prevBuildCompileClientNoVerifyNoValidate := buildCompileClientNoVerifyNoValidate
 	prevBuildCompileClientV2 := buildCompileClientV2
 	prevOpenSQLiteStore := openSQLiteStore
 	t.Cleanup(func() {
 		buildApp = prevBuildApp
 		buildCompileClient = prevBuildCompileClient
+		buildCompileClientNoVerify = prevBuildCompileClientNoVerify
+		buildCompileClientNoVerifyNoValidate = prevBuildCompileClientNoVerifyNoValidate
 		buildCompileClientV2 = prevBuildCompileClientV2
 		openSQLiteStore = prevOpenSQLiteStore
 	})
@@ -2316,13 +2324,13 @@ func TestRunCompilePipelineV2UsesV2Client(t *testing.T) {
 			}},
 		}
 		app.Dispatcher = dispatcher.New(
-				func(raw string) (types.ParsedURL, error) {
-					return types.ParsedURL{Platform: types.PlatformWeb, ContentType: types.ContentTypePost, PlatformID: "v2-id", CanonicalURL: raw}, nil
-				},
-				[]dispatcher.ItemSource{src},
-				nil,
-				nil,
-			)
+			func(raw string) (types.ParsedURL, error) {
+				return types.ParsedURL{Platform: types.PlatformWeb, ContentType: types.ContentTypePost, PlatformID: "v2-id", CanonicalURL: raw}, nil
+			},
+			[]dispatcher.ItemSource{src},
+			nil,
+			nil,
+		)
 		return app, nil
 	}
 	buildCompileClient = func(projectRoot string) compileClient {
@@ -2361,6 +2369,118 @@ func TestRunCompilePipelineV2UsesV2Client(t *testing.T) {
 	}
 	if got.Output.Summary != "v2 summary" {
 		t.Fatalf("Summary = %q, want v2 summary", got.Output.Summary)
+	}
+}
+
+func TestSelectCompileClientKeepsLegacyPipelineIsolated(t *testing.T) {
+	prevBuildCompileClient := buildCompileClient
+	prevBuildCompileClientNoVerify := buildCompileClientNoVerify
+	prevBuildCompileClientNoVerifyNoValidate := buildCompileClientNoVerifyNoValidate
+	prevBuildCompileClientV2 := buildCompileClientV2
+	t.Cleanup(func() {
+		buildCompileClient = prevBuildCompileClient
+		buildCompileClientNoVerify = prevBuildCompileClientNoVerify
+		buildCompileClientNoVerifyNoValidate = prevBuildCompileClientNoVerifyNoValidate
+		buildCompileClientV2 = prevBuildCompileClientV2
+	})
+
+	legacyCalls := 0
+	noVerifyCalls := 0
+	noVerifyNoValidateCalls := 0
+	v2Calls := 0
+	buildCompileClient = func(projectRoot string) compileClient {
+		legacyCalls++
+		return fakeCompileClient{}
+	}
+	buildCompileClientNoVerify = func(projectRoot string) compileClient {
+		noVerifyCalls++
+		return fakeCompileClient{}
+	}
+	buildCompileClientNoVerifyNoValidate = func(projectRoot string) compileClient {
+		noVerifyNoValidateCalls++
+		return fakeCompileClient{}
+	}
+	buildCompileClientV2 = func(projectRoot string) compileClient {
+		v2Calls++
+		return fakeCompileClient{}
+	}
+
+	if _, err := selectCompileClient("/tmp/project", "", false, false); err != nil {
+		t.Fatalf("selectCompileClient(default legacy) error = %v", err)
+	}
+	if _, err := selectCompileClient("/tmp/project", "legacy", false, false); err != nil {
+		t.Fatalf("selectCompileClient(explicit legacy) error = %v", err)
+	}
+	if _, err := selectCompileClient("/tmp/project", "legacy", true, false); err != nil {
+		t.Fatalf("selectCompileClient(no verify) error = %v", err)
+	}
+	if _, err := selectCompileClient("/tmp/project", "legacy", true, true); err != nil {
+		t.Fatalf("selectCompileClient(no verify + no validate) error = %v", err)
+	}
+
+	if legacyCalls != 2 {
+		t.Fatalf("legacy builder calls = %d, want 2", legacyCalls)
+	}
+	if noVerifyCalls != 1 {
+		t.Fatalf("no-verify builder calls = %d, want 1", noVerifyCalls)
+	}
+	if noVerifyNoValidateCalls != 1 {
+		t.Fatalf("no-verify/no-validate builder calls = %d, want 1", noVerifyNoValidateCalls)
+	}
+	if v2Calls != 0 {
+		t.Fatalf("v2 builder calls = %d, want 0 for legacy pipeline selections", v2Calls)
+	}
+}
+
+func TestSelectCompileClientUsesV2OnlyWhenRequested(t *testing.T) {
+	prevBuildCompileClient := buildCompileClient
+	prevBuildCompileClientNoVerify := buildCompileClientNoVerify
+	prevBuildCompileClientNoVerifyNoValidate := buildCompileClientNoVerifyNoValidate
+	prevBuildCompileClientV2 := buildCompileClientV2
+	t.Cleanup(func() {
+		buildCompileClient = prevBuildCompileClient
+		buildCompileClientNoVerify = prevBuildCompileClientNoVerify
+		buildCompileClientNoVerifyNoValidate = prevBuildCompileClientNoVerifyNoValidate
+		buildCompileClientV2 = prevBuildCompileClientV2
+	})
+
+	legacyCalls := 0
+	v2Calls := 0
+	buildCompileClient = func(projectRoot string) compileClient {
+		legacyCalls++
+		return fakeCompileClient{}
+	}
+	buildCompileClientNoVerify = func(projectRoot string) compileClient {
+		t.Fatal("legacy no-verify builder should not be used for v2 pipeline")
+		return nil
+	}
+	buildCompileClientNoVerifyNoValidate = func(projectRoot string) compileClient {
+		t.Fatal("legacy no-verify/no-validate builder should not be used for v2 pipeline")
+		return nil
+	}
+	buildCompileClientV2 = func(projectRoot string) compileClient {
+		v2Calls++
+		return fakeCompileClient{}
+	}
+
+	if _, err := selectCompileClient("/tmp/project", "v2", false, false); err != nil {
+		t.Fatalf("selectCompileClient(v2) error = %v", err)
+	}
+	if v2Calls != 1 {
+		t.Fatalf("v2 builder calls = %d, want 1", v2Calls)
+	}
+	if legacyCalls != 0 {
+		t.Fatalf("legacy builder calls = %d, want 0 for v2 selection", legacyCalls)
+	}
+
+	if _, err := selectCompileClient("/tmp/project", "v2", true, false); err == nil {
+		t.Fatal("selectCompileClient(v2, --no-verify) error = nil, want unsupported flag error")
+	}
+	if _, err := selectCompileClient("/tmp/project", "v2", false, true); err == nil {
+		t.Fatal("selectCompileClient(v2, --no-validate) error = nil, want unsupported flag error")
+	}
+	if v2Calls != 1 {
+		t.Fatalf("v2 builder calls after unsupported flag checks = %d, want 1", v2Calls)
 	}
 }
 

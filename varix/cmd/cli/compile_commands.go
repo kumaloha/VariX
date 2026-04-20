@@ -25,12 +25,41 @@ var buildCompileClient = func(projectRoot string) compileClient {
 	return c.NewClientFromConfig(projectRoot, nil)
 }
 
+var buildCompileClientNoVerify = func(projectRoot string) compileClient {
+	return c.NewClientFromConfigNoVerify(projectRoot, nil)
+}
+
+var buildCompileClientNoVerifyNoValidate = func(projectRoot string) compileClient {
+	return c.NewClientFromConfigNoVerifyNoValidate(projectRoot, nil)
+}
+
 var buildCompileClientV2 = func(projectRoot string) compileClient {
 	return cv2.NewClientFromConfig(projectRoot, nil)
 }
 
 var openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
 	return contentstore.NewSQLiteStore(path)
+}
+
+func selectCompileClient(projectRoot, pipeline string, noVerify, noValidate bool) (compileClient, error) {
+	switch strings.TrimSpace(pipeline) {
+	case "", "legacy":
+		switch {
+		case noVerify && noValidate:
+			return buildCompileClientNoVerifyNoValidate(projectRoot), nil
+		case noVerify:
+			return buildCompileClientNoVerify(projectRoot), nil
+		default:
+			return buildCompileClient(projectRoot), nil
+		}
+	case "v2":
+		if noVerify || noValidate {
+			return nil, fmt.Errorf("--no-verify/--no-validate are not supported with --pipeline v2")
+		}
+		return buildCompileClientV2(projectRoot), nil
+	default:
+		return nil, fmt.Errorf("unsupported compile pipeline")
+	}
 }
 
 func runCompileCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -86,23 +115,9 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	if !*noVerify {
 		c.EnableFactWebVerification()
 	}
-	var client compileClient
-	switch strings.TrimSpace(*pipeline) {
-	case "", "legacy":
-		client = buildCompileClient(projectRoot)
-		if *noVerify && *noValidate {
-			client = c.NewClientFromConfigNoVerifyNoValidate(projectRoot, nil)
-		} else if *noVerify {
-			client = c.NewClientFromConfigNoVerify(projectRoot, nil)
-		}
-	case "v2":
-		client = buildCompileClientV2(projectRoot)
-		if *noVerify || *noValidate {
-			fmt.Fprintln(stderr, "--no-verify/--no-validate are not supported with --pipeline v2")
-			return 2
-		}
-	default:
-		fmt.Fprintln(stderr, "unsupported compile pipeline")
+	client, err := selectCompileClient(projectRoot, *pipeline, *noVerify, *noValidate)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	if client == nil {
