@@ -1237,6 +1237,7 @@ func runMemoryEventEvidence(args []string, projectRoot string, stdout, stderr io
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
 	eventGraphID := fs.String("event-graph-id", "", "optional filter on one event graph id")
+	card := fs.Bool("card", false, "render a readable event-evidence view")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -1273,6 +1274,10 @@ func runMemoryEventEvidence(args []string, projectRoot string, stdout, stderr io
 		fmt.Fprintln(stdout, "No event evidence matched")
 		return 0
 	}
+	if *card {
+		fmt.Fprint(stdout, formatEventEvidenceCards(links))
+		return 0
+	}
 	payload, err := json.MarshalIndent(links, "", "  ")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -1287,6 +1292,7 @@ func runMemoryParadigmEvidence(args []string, projectRoot string, stdout, stderr
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
 	paradigmID := fs.String("paradigm-id", "", "optional filter on one paradigm id")
+	card := fs.Bool("card", false, "render a readable paradigm-evidence view")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -1323,6 +1329,10 @@ func runMemoryParadigmEvidence(args []string, projectRoot string, stdout, stderr
 		fmt.Fprintln(stdout, "No paradigm evidence matched")
 		return 0
 	}
+	if *card {
+		fmt.Fprint(stdout, formatParadigmEvidenceCards(links))
+		return 0
+	}
 	payload, err := json.MarshalIndent(links, "", "  ")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -1330,4 +1340,20 @@ func runMemoryParadigmEvidence(args []string, projectRoot string, stdout, stderr
 	}
 	fmt.Fprintln(stdout, string(payload))
 	return 0
+}
+
+func formatEventEvidenceCards(items []contentstore.EventGraphEvidenceLink) string {
+	var b strings.Builder
+	for _, item := range items {
+		fmt.Fprintf(&b, "Event Evidence\n- event_graph_id: %s\n- subgraph_id: %s\n- node_id: %s\n\n", item.EventGraphID, item.SubgraphID, item.NodeID)
+	}
+	return b.String()
+}
+
+func formatParadigmEvidenceCards(items []contentstore.ParadigmEvidenceLink) string {
+	var b strings.Builder
+	for _, item := range items {
+		fmt.Fprintf(&b, "Paradigm Evidence\n- paradigm_id: %s\n- event_graph_id: %s\n- subgraph_id: %s\n\n", item.ParadigmID, item.EventGraphID, item.SubgraphID)
+	}
+	return b.String()
 }

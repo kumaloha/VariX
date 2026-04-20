@@ -46,8 +46,10 @@ Current organizer contract:
 Useful memory commands:
 - `memory event-evidence --user <user>` to inspect persisted event evidence links
 - `memory event-evidence --event-graph-id <id> --user <user>` to inspect links for one event graph (prints a no-match message when empty)
+- `memory event-evidence --card --user <user>` to render a readable event-evidence view
 - `memory paradigm-evidence --user <user>` to inspect persisted paradigm evidence links
 - `memory paradigm-evidence --paradigm-id <id> --user <user>` to inspect links for one paradigm (prints a no-match message when empty)
+- `memory paradigm-evidence --card --user <user>` to render a readable paradigm-evidence view
 - `memory global-v2-organize-run --user <user>` now refreshes event/paradigm projections before building the global view
 - `memory project-all --user <user>` to manually reproject event, paradigm, and global-v2 layers from current graph-first content memory
 - `memory content-graphs --user <user>` to inspect graph-first content memory

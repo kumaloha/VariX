@@ -5324,3 +5324,71 @@ func (s compileClientStub) VerifyDetailed(ctx context.Context, bundle c.Bundle, 
 	}
 	return c.Verification{}, nil
 }
+
+func TestRunMemoryEventEvidenceCardPrintsReadableSections(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() { buildApp = prevBuildApp; openSQLiteStore = prevOpenSQLiteStore })
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		sg := graphmodel.ContentSubgraph{ID: "event-evi-card", ArticleID: "event-evi-card", SourcePlatform: "twitter", SourceExternalID: "event-evi-card", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "event-evi-card", SourcePlatform: "twitter", SourceExternalID: "event-evi-card", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "event-evi-card", SourcePlatform: "twitter", SourceExternalID: "event-evi-card", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-evi-card", sg, now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-evidence", "--card", "--user", "u-event-evi-card"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-evidence --card code = %d, stderr = %s", code, stderr.String())
+	}
+	for _, want := range []string{"Event Evidence", "event_graph_id", "subgraph_id"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestRunMemoryParadigmEvidenceCardPrintsReadableSections(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() { buildApp = prevBuildApp; openSQLiteStore = prevOpenSQLiteStore })
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		sg := graphmodel.ContentSubgraph{ID: "paradigm-evi-card", ArticleID: "paradigm-evi-card", SourcePlatform: "twitter", SourceExternalID: "paradigm-evi-card", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "paradigm-evi-card", SourcePlatform: "twitter", SourceExternalID: "paradigm-evi-card", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "paradigm-evi-card", SourcePlatform: "twitter", SourceExternalID: "paradigm-evi-card", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-evi-card", sg, now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "paradigm-evidence", "--card", "--user", "u-paradigm-evi-card"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("paradigm-evidence --card code = %d, stderr = %s", code, stderr.String())
+	}
+	for _, want := range []string{"Paradigm Evidence", "paradigm_id", "subgraph_id"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
+		}
+	}
+}
