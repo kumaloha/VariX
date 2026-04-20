@@ -214,6 +214,7 @@ func deriveTransmissionPathOutputForTest(out Output, driverTarget DriverTargetOu
 func deriveEvidenceExplanationOutputForTest(out Output, driverTarget DriverTargetOutput) EvidenceExplanationOutput {
 	evidence := append([]string(nil), out.EvidenceNodes...)
 	explanations := append([]string(nil), out.ExplanationNodes...)
+	supplementary := append([]string(nil), out.SupplementaryNodes...)
 	targetSet := make(map[string]struct{}, len(driverTarget.Targets))
 	for _, target := range driverTarget.Targets {
 		targetSet[strings.TrimSpace(target)] = struct{}{}
@@ -232,11 +233,12 @@ func deriveEvidenceExplanationOutputForTest(out Output, driverTarget DriverTarge
 		evidence = appendIfMissing(evidence, out.Graph.Nodes[0].Text)
 	}
 	return EvidenceExplanationOutput{
-		EvidenceNodes:    evidence,
-		ExplanationNodes: explanations,
-		Details:          out.Details,
-		Topics:           out.Topics,
-		Confidence:       out.Confidence,
+		EvidenceNodes:     evidence,
+		ExplanationNodes:  explanations,
+		SupplementaryNodes: supplementary,
+		Details:           out.Details,
+		Topics:            out.Topics,
+		Confidence:        out.Confidence,
 	}
 }
 
@@ -402,14 +404,14 @@ func TestClientCompileUsesForgeRuntime(t *testing.T) {
 	if strings.TrimSpace(record.Output.Summary) == "" {
 		t.Fatalf("Summary = %q, want non-empty", record.Output.Summary)
 	}
-	if len(provider.requests) != 6 {
-		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
+	if len(provider.requests) != 3 {
+		t.Fatalf("provider calls = %d, want 3", len(provider.requests))
 	}
 	if provider.requests[0].Model != "compile-model" {
 		t.Fatalf("request model = %q, want compile-model", provider.requests[0].Model)
 	}
-	if record.Output.Verification.Model == "" || len(record.Output.Verification.FactChecks) != 1 {
-		t.Fatalf("verification = %#v", record.Output.Verification)
+	if !record.Output.Verification.IsZero() {
+		t.Fatalf("verification = %#v, want zero-value after compile-only run", record.Output.Verification)
 	}
 }
 
@@ -447,8 +449,24 @@ func TestClientCompileProjectsInjectedVerificationServiceIntoCompatibilityOutput
 	if len(provider.requests) != 3 {
 		t.Fatalf("provider calls = %d, want 3 compile-stage calls when verifier is injected", len(provider.requests))
 	}
+	if verifier.calls != 0 {
+		t.Fatalf("verifier calls = %d, want 0 during compile-only run", verifier.calls)
+	}
+	if !record.Output.Verification.IsZero() {
+		t.Fatalf("record verification = %#v, want zero during compile-only run", record.Output.Verification)
+	}
+
+	verification, err := client.Verify(context.Background(), Bundle{
+		UnitID:     "weibo:projection",
+		Source:     "weibo",
+		ExternalID: "projection",
+		Content:    "root body",
+	}, record.Output)
+	if err != nil {
+		t.Fatalf("Verify() error = %v", err)
+	}
 	if verifier.calls != 1 {
-		t.Fatalf("verifier calls = %d, want 1", verifier.calls)
+		t.Fatalf("verifier calls = %d, want 1 after explicit verify run", verifier.calls)
 	}
 	if verifier.gotBundle.ExternalID != "projection" {
 		t.Fatalf("verifier bundle = %#v", verifier.gotBundle)
@@ -456,11 +474,11 @@ func TestClientCompileProjectsInjectedVerificationServiceIntoCompatibilityOutput
 	if len(verifier.gotOutput.Graph.Nodes) != 2 {
 		t.Fatalf("verifier output graph = %#v", verifier.gotOutput.Graph)
 	}
-	if record.Output.Verification.Model != "downstream-verify" {
-		t.Fatalf("record verification model = %q, want downstream-verify", record.Output.Verification.Model)
+	if verification.Model != "downstream-verify" {
+		t.Fatalf("verification model = %q, want downstream-verify", verification.Model)
 	}
-	if len(record.Output.Verification.FactChecks) != 1 || record.Output.Verification.FactChecks[0].NodeID != "n1" {
-		t.Fatalf("record verification = %#v", record.Output.Verification)
+	if len(verification.FactChecks) != 1 || verification.FactChecks[0].NodeID != "n1" {
+		t.Fatalf("verification = %#v", verification)
 	}
 }
 
@@ -661,8 +679,58 @@ func TestClientCompileUsesConfiguredPromptsDir(t *testing.T) {
 	if got := provider.requests[2].System; got != "unified judge system" {
 		t.Fatalf("unified judge system prompt = %q", got)
 	}
+	if _, err := client.Verify(context.Background(), Bundle{
+		UnitID:     "twitter:123",
+		Source:     "twitter",
+		ExternalID: "123",
+		Content:    "root body",
+	}, Output{
+		Summary: "一句话",
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Text: "事实A", ValidFrom: mustClientTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustClientTime(t, "2026-07-14T00:00:00Z")},
+				{ID: "n2", Kind: NodeConclusion, Text: "结论B", ValidFrom: mustClientTime(t, "2026-04-14T00:00:00Z"), ValidTo: mustClientTime(t, "2026-07-14T00:00:00Z")},
+			},
+			Edges: []GraphEdge{{From: "n1", To: "n2", Kind: EdgeDerives}},
+		},
+		Details: HiddenDetails{Caveats: []string{"待确认"}},
+	}); err != nil {
+		t.Fatalf("Verify() error = %v", err)
+	}
 	if got := provider.requests[3].System; got != "fact claim prompt" {
 		t.Fatalf("fact verifier system prompt = %q", got)
+	}
+}
+
+func TestUnifiedJudgeInstructionRequiresChineseFinalOutput(t *testing.T) {
+	instruction, err := newPromptRegistry("").buildUnifiedJudgeInstruction()
+	if err != nil {
+		t.Fatalf("buildUnifiedJudgeInstruction() error = %v", err)
+	}
+	for _, want := range []string{
+		"regardless of the source language",
+		"must be written in Chinese",
+		"translate non-Chinese generated/challenged wording into natural, concise Chinese",
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Fatalf("judge instruction missing %q in %q", want, instruction)
+		}
+	}
+}
+
+func TestUnifiedJudgeInstructionDemotesSupplementalPseudoDrivers(t *testing.T) {
+	instruction, err := newPromptRegistry("").buildUnifiedJudgeInstruction()
+	if err != nil {
+		t.Fatalf("buildUnifiedJudgeInstruction() error = %v", err)
+	}
+	for _, want := range []string{
+		"prefer one dominant first-order driver",
+		"move the weaker siblings to `supplementary_nodes`",
+		"technical state, already-materialized market state",
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Fatalf("judge instruction missing %q in %q", want, instruction)
+		}
 	}
 }
 
@@ -744,8 +812,8 @@ func TestClientCompileCarriesAttachmentTranscriptIntoForgePrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(provider.requests) != 6 {
-		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
+	if len(provider.requests) != 3 {
+		t.Fatalf("provider calls = %d, want 3", len(provider.requests))
 	}
 	if len(provider.requests[0].UserParts) == 0 {
 		t.Fatalf("provider request missing user parts: %#v", provider.requests[0])
@@ -904,14 +972,23 @@ func TestClientCompileRunsFactAndPredictionVerifierPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
+	verification, err := client.Verify(context.Background(), Bundle{
+		UnitID:     "weibo:123",
+		Source:     "weibo",
+		ExternalID: "123",
+		Content:    "root body",
+	}, record.Output)
+	if err != nil {
+		t.Fatalf("Verify() error = %v", err)
+	}
 	if len(provider.requests) != 6 {
 		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
 	}
-	if len(record.Output.Verification.FactChecks) != 1 {
-		t.Fatalf("verification = %#v", record.Output.Verification)
+	if len(verification.FactChecks) != 1 {
+		t.Fatalf("verification = %#v", verification)
 	}
-	if record.Output.Verification.FactChecks[0].Status != FactStatusClearlyTrue {
-		t.Fatalf("fact check = %#v", record.Output.Verification.FactChecks[0])
+	if verification.FactChecks[0].Status != FactStatusClearlyTrue {
+		t.Fatalf("fact check = %#v", verification.FactChecks[0])
 	}
 	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
 	if !containsAll(factPrompt, `"kind": "机制"`, `"occurred_at": "`, `"as_of": "`, `"retrieval_context"`, `"https://example.com/fact"`) {
@@ -943,6 +1020,15 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
+	verification, err := client.Verify(context.Background(), Bundle{
+		UnitID:     "weibo:123",
+		Source:     "weibo",
+		ExternalID: "123",
+		Content:    "root body",
+	}, record.Output)
+	if err != nil {
+		t.Fatalf("Verify() error = %v", err)
+	}
 	if len(provider.requests) != 6 {
 		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
 	}
@@ -960,20 +1046,20 @@ func TestClientCompileRoutesConditionAndConclusionNodesThroughVerifier(t *testin
 			t.Fatalf("fact verifier prompt should exclude %q: %q", unwanted, factPrompt)
 		}
 	}
-	if len(record.Output.Verification.FactChecks) != 1 {
-		t.Fatalf("len(FactChecks) = %d, want 1", len(record.Output.Verification.FactChecks))
+	if len(verification.FactChecks) != 1 {
+		t.Fatalf("len(FactChecks) = %d, want 1", len(verification.FactChecks))
 	}
-	if len(record.Output.Verification.ExplicitConditionChecks) != 0 || len(record.Output.Verification.ImplicitConditionChecks) != 0 || len(record.Output.Verification.PredictionChecks) != 0 {
-		t.Fatalf("compatibility output should not synthesize legacy condition/prediction verifier passes: %#v", record.Output.Verification)
+	if len(verification.ExplicitConditionChecks) != 0 || len(verification.ImplicitConditionChecks) != 0 || len(verification.PredictionChecks) != 0 {
+		t.Fatalf("verification = %#v, want current verifier behavior preserved for non-fact passes", verification)
 	}
 }
 
 func TestClientCompileRoutesObservationTransmissionNodesThroughFactVerifier(t *testing.T) {
 	provider := &compileMockProvider{responses: append(compileStageResponses(t,
 		`{"summary":"一句话","graph":{"nodes":[{"id":"n1","form":"observation","function":"support","text":"海外资金继续流入美国资产","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n2","form":"observation","function":"transmission","text":"增长预期仍压过政治风险并维持美国资产配置偏好","occurred_at":"2026-04-14T00:00:00Z"},{"id":"n3","form":"judgment","function":"claim","text":"当前不存在 sell America trade"}],"edges":[{"from":"n2","to":"n1","kind":"正向"},{"from":"n1","to":"n3","kind":"推出"}]},"details":{"caveats":["待确认"]},"topics":["topic"],"confidence":"medium"}`, "compile-model"), []llm.ProviderResponse{
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n4","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
-		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"},{"node_id":"n4","assessment":"supported","reason":"bridge mechanism is grounded"}]}`, Model: "fact-challenge-model"},
-		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n4","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"clearly_true","reason":"supported"},{"node_id":"n4","status":"clearly_true","reason":"supported"}]}`, Model: "fact-claim-model"},
+		{Text: `{"challenges":[{"node_id":"n1","assessment":"supported","reason":"claim seems grounded"},{"node_id":"n2","assessment":"supported","reason":"current-state judgment is grounded"},{"node_id":"n4","assessment":"supported","reason":"bridge mechanism is grounded"}]}`, Model: "fact-challenge-model"},
+		{Text: `{"fact_checks":[{"node_id":"n1","status":"clearly_true","reason":"supported"},{"node_id":"n2","status":"clearly_true","reason":"supported"},{"node_id":"n4","status":"clearly_true","reason":"supported"}]}`, Model: "fact-judge-model"},
 	}...)}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
@@ -986,29 +1072,35 @@ func TestClientCompileRoutesObservationTransmissionNodesThroughFactVerifier(t *t
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
+	verification, err := client.Verify(context.Background(), Bundle{
+		UnitID:     "web:g04-routing",
+		Source:     "web",
+		ExternalID: "g04-routing",
+		Content:    "root body",
+	}, record.Output)
+	if err != nil {
+		t.Fatalf("Verify() error = %v", err)
+	}
 	if len(provider.requests) != 6 {
 		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
 	}
 	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
-	for _, want := range []string{`"kind": "事实"`, `"kind": "机制"`} {
+	for _, want := range []string{`"kind": "事实"`, `"kind": "机制"`, `"kind": "结论"`} {
 		if !strings.Contains(factPrompt, want) {
 			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
 		}
 	}
-	if strings.Contains(factPrompt, `"kind": "结论"`) {
-		t.Fatalf("fact verifier prompt should exclude judgment nodes: %q", factPrompt)
-	}
-	if len(record.Output.Verification.FactChecks) != 2 {
-		t.Fatalf("len(FactChecks) = %d, want 2", len(record.Output.Verification.FactChecks))
+	if len(verification.FactChecks) != 2 {
+		t.Fatalf("len(FactChecks) = %d, want 2", len(verification.FactChecks))
 	}
 	if !reflect.DeepEqual(
-		[]string{record.Output.Verification.FactChecks[0].NodeID, record.Output.Verification.FactChecks[1].NodeID},
+		[]string{verification.FactChecks[0].NodeID, verification.FactChecks[1].NodeID},
 		[]string{"n1", "n4"},
 	) {
-		t.Fatalf("FactChecks = %#v", record.Output.Verification.FactChecks)
+		t.Fatalf("FactChecks = %#v", verification.FactChecks)
 	}
-	if record.Output.Verification.CoverageSummary == nil || record.Output.Verification.CoverageSummary.TotalExpectedNodes != 2 {
-		t.Fatalf("CoverageSummary = %#v, want 2 expected verified observation nodes", record.Output.Verification.CoverageSummary)
+	if verification.CoverageSummary == nil || verification.CoverageSummary.TotalExpectedNodes != 3 {
+		t.Fatalf("CoverageSummary = %#v, want 3 expected realized nodes including current-state judgment", verification.CoverageSummary)
 	}
 }
 
@@ -1021,7 +1113,7 @@ func TestClientCompileCarriesStructuredWeiboEvidenceIntoVerifierPrompt(t *testin
 	}...)}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
-	_, err := client.Compile(context.Background(), Bundle{
+	record, err := client.Compile(context.Background(), Bundle{
 		UnitID:         "weibo:123",
 		Source:         "weibo",
 		ExternalID:     "123",
@@ -1051,6 +1143,38 @@ func TestClientCompileCarriesStructuredWeiboEvidenceIntoVerifierPrompt(t *testin
 		t.Fatalf("Compile() error = %v", err)
 	}
 
+	verification, err := client.Verify(context.Background(), Bundle{
+		UnitID:         "weibo:123",
+		Source:         "weibo",
+		ExternalID:     "123",
+		RootExternalID: "120",
+		AuthorName:     "alice",
+		AuthorID:       "u1",
+		URL:            "https://weibo.com/u1/123",
+		PostedAt:       mustClientTime(t, "2026-04-14T09:30:00Z"),
+		Content:        "直播里说风险开始暴露",
+		Quotes: []types.Quote{{
+			Content: "嘉宾说风险已经扩散。",
+		}},
+		References: []types.Reference{{
+			Content: "财报里确认应收回款放缓。",
+			URL:     "https://example.com/report",
+		}},
+		ThreadSegments: []types.ThreadSegment{{
+			Position: 2,
+			Content:  "补充了一条现场观察。",
+		}},
+		Attachments: []types.Attachment{{
+			Type:       "video",
+			Transcript: "视频里明确说今天上午开始挤兑。",
+		}},
+	}, record.Output)
+	if err != nil {
+		t.Fatalf("Verify() error = %v", err)
+	}
+	if verification.IsZero() {
+		t.Fatalf("verification = %#v, want non-zero", verification)
+	}
 	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
 	for _, want := range []string{
 		`"root_external_id": "120"`,
@@ -1100,25 +1224,34 @@ func TestClientCompileAppliesVerifyV2FactsMetadataWithoutBreakingLegacyArrays(t 
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if len(record.Output.Verification.FactChecks) != 1 {
-		t.Fatalf("len(FactChecks) = %d, want 1", len(record.Output.Verification.FactChecks))
+	verification, err := client.Verify(context.Background(), Bundle{
+		UnitID:     "weibo:verify-v2",
+		Source:     "weibo",
+		ExternalID: "verify-v2",
+		Content:    "root body",
+	}, record.Output)
+	if err != nil {
+		t.Fatalf("Verify() error = %v", err)
 	}
-	if record.Output.Verification.FactChecks[0].NodeID != "n1" || record.Output.Verification.FactChecks[0].Status != FactStatusClearlyTrue {
-		t.Fatalf("FactChecks = %#v", record.Output.Verification.FactChecks)
+	if len(verification.FactChecks) != 1 {
+		t.Fatalf("len(FactChecks) = %d, want 1", len(verification.FactChecks))
 	}
-	assertClientVerifyV2StringField(t, record.Output.Verification, "Version", "verify_v2")
-	assertClientVerifyV2StringField(t, record.Output.Verification, "RolloutStage", "facts_only")
-	assertClientVerifyV2SliceLen(t, record.Output.Verification, "Passes", 1)
-	assertClientVerifyV2StringField(t, record.Output.Verification, []string{"Passes", "0", "Kind"}, "fact")
-	assertClientVerifyV2BoolField(t, record.Output.Verification, []string{"Passes", "0", "Coverage", "Valid"}, true)
-	assertClientVerifyV2StringSlice(t, record.Output.Verification, []string{"Passes", "0", "RetrievalSummary", "RetrievedNodeIDs"}, []string{"n1"})
-	assertClientVerifyV2StringField(t, record.Output.Verification, []string{"Passes", "0", "Adjudication", "Model"}, "fact-judge-model")
-	assertClientVerifyV2TimeFieldMatchesVerification(t, record.Output.Verification, []string{"Passes", "0", "Adjudication", "CompletedAt"})
-	assertClientVerifyV2IntField(t, record.Output.Verification, []string{"CoverageSummary", "TotalExpectedNodes"}, 1)
-	assertClientVerifyV2IntField(t, record.Output.Verification, []string{"CoverageSummary", "TotalFinalizedNodes"}, 1)
-	assertClientVerifyV2BoolField(t, record.Output.Verification, []string{"CoverageSummary", "Valid"}, true)
-	if record.Output.Verification.Model != "fact-judge-model" {
-		t.Fatalf("Verification.Model = %q, want fact-judge-model", record.Output.Verification.Model)
+	if verification.FactChecks[0].NodeID != "n1" || verification.FactChecks[0].Status != FactStatusClearlyTrue {
+		t.Fatalf("FactChecks = %#v", verification.FactChecks)
+	}
+	assertClientVerifyV2StringField(t, verification, "Version", "verify_v2")
+	assertClientVerifyV2StringField(t, verification, "RolloutStage", "facts_only")
+	assertClientVerifyV2SliceLen(t, verification, "Passes", 1)
+	assertClientVerifyV2StringField(t, verification, []string{"Passes", "0", "Kind"}, "fact")
+	assertClientVerifyV2BoolField(t, verification, []string{"Passes", "0", "Coverage", "Valid"}, true)
+	assertClientVerifyV2StringSlice(t, verification, []string{"Passes", "0", "RetrievalSummary", "RetrievedNodeIDs"}, []string{"n1"})
+	assertClientVerifyV2StringField(t, verification, []string{"Passes", "0", "Adjudication", "Model"}, "fact-judge-model")
+	assertClientVerifyV2TimeFieldMatchesVerification(t, verification, []string{"Passes", "0", "Adjudication", "CompletedAt"})
+	assertClientVerifyV2IntField(t, verification, []string{"CoverageSummary", "TotalExpectedNodes"}, 1)
+	assertClientVerifyV2IntField(t, verification, []string{"CoverageSummary", "TotalFinalizedNodes"}, 1)
+	assertClientVerifyV2BoolField(t, verification, []string{"CoverageSummary", "Valid"}, true)
+	if verification.Model != "fact-judge-model" {
+		t.Fatalf("Verification.Model = %q, want fact-judge-model", verification.Model)
 	}
 	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
 	if !containsAll(factPrompt, `"retrieval_context"`, `"https://example.com/fact"`) {
@@ -1135,14 +1268,23 @@ func TestClientCompileFailsDeterministicallyOnVerifyV2CoverageMismatch(t *testin
 	}...)}
 	client := NewClientWithRuntime(newTestRuntime(provider, "compile-model"), "compile-model")
 
-	_, err := client.Compile(context.Background(), Bundle{
+	record, err := client.Compile(context.Background(), Bundle{
 		UnitID:     "weibo:coverage-mismatch",
 		Source:     "weibo",
 		ExternalID: "coverage-mismatch",
 		Content:    "root body",
 	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	_, err = client.Verify(context.Background(), Bundle{
+		UnitID:     "weibo:coverage-mismatch",
+		Source:     "weibo",
+		ExternalID: "coverage-mismatch",
+		Content:    "root body",
+	}, record.Output)
 	if err == nil {
-		t.Fatal("Compile() error = nil, want coverage mismatch failure")
+		t.Fatal("Verify() error = nil, want coverage mismatch failure")
 	}
 	for _, want := range []string{"coverage", "n3"} {
 		if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(want)) {

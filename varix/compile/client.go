@@ -174,11 +174,6 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	verification, err := c.verifier.Verify(ctx, bundle, output)
-	if err != nil {
-		return Record{}, err
-	}
-	output = projectVerification(output, verification)
 	return Record{
 		UnitID:         bundle.UnitID,
 		Source:         bundle.Source,
@@ -188,6 +183,26 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 		Output:         output,
 		CompiledAt:     time.Now().UTC(),
 	}, nil
+}
+
+func (c *Client) Verify(ctx context.Context, bundle Bundle, output Output) (Verification, error) {
+	if c == nil {
+		return Verification{}, fmt.Errorf("verify client is nil")
+	}
+	if c.verifier == nil {
+		return Verification{}, nil
+	}
+	return c.verifier.Verify(ctx, bundle, output)
+}
+
+func (c *Client) VerifyDetailed(ctx context.Context, bundle Bundle, output Output) (Verification, error) {
+	if c == nil || c.runtime == nil {
+		return Verification{}, fmt.Errorf("verify client is nil")
+	}
+	if c.prompts == nil {
+		c.prompts = newPromptRegistry("")
+	}
+	return runDetailedVerifier(ctx, c.runtime, c.model, c.prompts, bundle, output)
 }
 
 func (c *Client) compileDirect(ctx context.Context, bundle Bundle) (Output, error) {
@@ -291,6 +306,13 @@ func (c *Client) buildUnifiedAttempt(ctx context.Context, bundle Bundle, stageNa
 	out, err := ParseUnifiedCompileOutput(resp.Text)
 	if err != nil {
 		debugCompileStage(bundle, stageName, "parse_error: "+err.Error())
+		if strings.TrimSpace(os.Getenv("COMPILE_STAGE_DEBUG")) != "" {
+			snippet := resp.Text
+			if len(snippet) > 4000 {
+				snippet = snippet[:4000]
+			}
+			fmt.Fprintf(os.Stderr, "[compile-stage] %s raw_response_begin\n%s\n[compile-stage] %s raw_response_end\n", stageName, snippet, stageName)
+		}
 		return UnifiedCompileOutput{}, err
 	}
 	debugCompileStage(bundle, stageName, fmt.Sprintf("done drivers=%d targets=%d paths=%d evidence=%d explanation=%d", len(out.Drivers), len(out.Targets), len(out.TransmissionPaths), len(out.EvidenceNodes), len(out.ExplanationNodes)))
@@ -326,6 +348,7 @@ func mergeUnifiedCompileOutput(bundle Bundle, final UnifiedCompileOutput) Output
 	aux := EvidenceExplanationOutput{
 		EvidenceNodes:    final.EvidenceNodes,
 		ExplanationNodes: final.ExplanationNodes,
+		SupplementaryNodes: final.SupplementaryNodes,
 		Details:          final.Details,
 		Topics:           final.Topics,
 		Confidence:       final.Confidence,
@@ -338,6 +361,7 @@ func mergeUnifiedCompileOutput(bundle Bundle, final UnifiedCompileOutput) Output
 		TransmissionPaths: paths.TransmissionPaths,
 		EvidenceNodes:     aux.EvidenceNodes,
 		ExplanationNodes:  aux.ExplanationNodes,
+		SupplementaryNodes: aux.SupplementaryNodes,
 		Graph:             graph,
 		Details:           final.Details,
 		Topics:            final.Topics,
@@ -373,6 +397,7 @@ func sanitizeUnifiedGeneratorOrJudgeOutput(out UnifiedCompileOutput) UnifiedComp
 			sanitizedPaths = append(sanitizedPaths, path)
 		}
 	}
+	sanitizedPaths = alignTransmissionPathDrivers(out.Drivers, sanitizedPaths)
 	if len(sanitizedPaths) == 0 && len(out.Drivers) > 0 && len(out.Targets) > 0 {
 		sanitizedPaths = append(sanitizedPaths, TransmissionPath{
 			Driver: out.Drivers[0],
@@ -384,12 +409,87 @@ func sanitizeUnifiedGeneratorOrJudgeOutput(out UnifiedCompileOutput) UnifiedComp
 	return out
 }
 
+func alignTransmissionPathDrivers(drivers []string, paths []TransmissionPath) []TransmissionPath {
+	if len(drivers) == 0 || len(paths) == 0 {
+		return paths
+	}
+	driverIndex := make(map[string]string, len(drivers))
+	for _, driver := range drivers {
+		driverIndex[normalizeLooseText(driver)] = strings.TrimSpace(driver)
+	}
+	aligned := make([]TransmissionPath, 0, len(paths))
+	for _, path := range paths {
+		normalizedPathDriver := normalizeLooseText(path.Driver)
+		if exact, ok := driverIndex[normalizedPathDriver]; ok {
+			path.Driver = exact
+			aligned = append(aligned, path)
+			continue
+		}
+		matches := make([]string, 0, len(drivers))
+		for _, driver := range drivers {
+			if pathDriverContainsDriver(path.Driver, driver) {
+				matches = append(matches, strings.TrimSpace(driver))
+			}
+		}
+		if len(matches) == 0 {
+			aligned = append(aligned, path)
+			continue
+		}
+		for _, driver := range matches {
+			cloned := path
+			cloned.Driver = driver
+			cloned.Steps = cloneStrings(path.Steps)
+			aligned = append(aligned, cloned)
+		}
+	}
+	return dedupeTransmissionPaths(aligned)
+}
+
+func pathDriverContainsDriver(pathDriver, driver string) bool {
+	pathDriver = strings.TrimSpace(pathDriver)
+	driver = strings.TrimSpace(driver)
+	if pathDriver == "" || driver == "" {
+		return false
+	}
+	if normalizeLooseText(pathDriver) == normalizeLooseText(driver) {
+		return true
+	}
+	if !containsParallelConnector(pathDriver) {
+		return false
+	}
+	return strings.Contains(normalizeLooseText(pathDriver), normalizeLooseText(driver))
+}
+
+func containsParallelConnector(text string) bool {
+	for _, connector := range []string{"以及", "并且", "同时", "和", "及", "与", "且", " and "} {
+		if strings.Contains(strings.ToLower(text), strings.ToLower(connector)) {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupeTransmissionPaths(paths []TransmissionPath) []TransmissionPath {
+	seen := map[string]struct{}{}
+	out := make([]TransmissionPath, 0, len(paths))
+	for _, path := range paths {
+		key := normalizeLooseText(path.Driver) + "|" + normalizeLooseText(path.Target) + "|" + normalizeLooseText(strings.Join(path.Steps, " "))
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, path)
+	}
+	return out
+}
+
 func sanitizeUnifiedCommonOutput(out UnifiedCompileOutput) UnifiedCompileOutput {
 	out.Summary = strings.TrimSpace(out.Summary)
 	out.Drivers = normalizeStringList(out.Drivers)
 	out.Targets = normalizeStringList(out.Targets)
 	out.EvidenceNodes = normalizeStringList(out.EvidenceNodes)
 	out.ExplanationNodes = normalizeStringList(out.ExplanationNodes)
+	out.SupplementaryNodes = normalizeStringList(out.SupplementaryNodes)
 	if out.Details.IsEmpty() {
 		out.Details = HiddenDetails{Caveats: []string{"model omitted details"}}
 	}
@@ -515,6 +615,13 @@ func buildCompatibilityGraph(bundle Bundle, driverTarget DriverTargetOutput, pat
 		explanationID := addNode(NodeConclusion, explanation)
 		if primaryTargetID != "" {
 			addEdge(explanationID, primaryTargetID, EdgeExplains)
+		}
+	}
+
+	for _, supplementary := range aux.SupplementaryNodes {
+		supplementaryID := addNode(NodeConclusion, supplementary)
+		if primaryTargetID != "" {
+			addEdge(supplementaryID, primaryTargetID, EdgeExplains)
 		}
 	}
 

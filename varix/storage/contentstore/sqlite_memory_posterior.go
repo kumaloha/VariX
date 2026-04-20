@@ -137,6 +137,11 @@ func (s *SQLiteStore) RunPosteriorVerification(ctx context.Context, req memory.P
 		if err != nil {
 			return memory.PosteriorRunResult{}, err
 		}
+		verifyRecord, err := getVerificationResultTx(ctx, tx, scope.sourcePlatform, scope.sourceExternalID)
+		if err != nil && err != sql.ErrNoRows {
+			return memory.PosteriorRunResult{}, err
+		}
+		verification := effectiveVerification(record, verifyRecord)
 		graphNodesByID := make(map[string]compile.GraphNode, len(record.Output.Graph.Nodes))
 		for _, node := range record.Output.Graph.Nodes {
 			graphNodesByID[node.ID] = node
@@ -145,7 +150,7 @@ func (s *SQLiteStore) RunPosteriorVerification(ctx context.Context, req memory.P
 
 		mutatedForScope := make([]memory.PosteriorStateRecord, 0, len(scopedStates))
 		for _, state := range scopedStates {
-			next := evaluatePosteriorState(state.node, state.current, graphNodesByID, predecessors, record, allUserNodes, now)
+			next := evaluatePosteriorState(state.node, state.current, graphNodesByID, predecessors, verification, record, allUserNodes, now)
 			materiallyChanged := posteriorMateriallyChanged(state.current, next)
 			evaluationChanged := !state.current.LastEvaluatedAt.Equal(next.LastEvaluatedAt)
 			if materiallyChanged || evaluationChanged {
@@ -489,6 +494,7 @@ func evaluatePosteriorState(
 	current memory.PosteriorStateRecord,
 	graphNodesByID map[string]compile.GraphNode,
 	predecessors map[string][]string,
+	verification compile.Verification,
 	record compile.Record,
 	allUserNodes []memory.AcceptedNode,
 	now time.Time,
@@ -504,7 +510,7 @@ func evaluatePosteriorState(
 		next.State = memory.PosteriorStatePending
 	}
 
-	blockedBy, blockedReason := blockedByConditions(node.NodeID, graphNodesByID, predecessors, record)
+	blockedBy, blockedReason := blockedByConditions(node.NodeID, graphNodesByID, predecessors, verification)
 	if len(blockedBy) > 0 {
 		next.State = memory.PosteriorStateBlocked
 		next.DiagnosisCode = ""
@@ -517,9 +523,9 @@ func evaluatePosteriorState(
 	next.BlockedByNodeIDs = nil
 	switch strings.TrimSpace(node.NodeKind) {
 	case string(compile.NodePrediction):
-		evaluatePredictionPosterior(node, &next, graphNodesByID[node.NodeID], record, now)
+		evaluatePredictionPosterior(node, &next, graphNodesByID[node.NodeID], verification, record, now)
 	case string(compile.NodeConclusion):
-		evaluateConclusionPosterior(node, &next, graphNodesByID, predecessors, record, allUserNodes, now)
+		evaluateConclusionPosterior(node, &next, graphNodesByID, predecessors, verification, record, allUserNodes, now)
 	default:
 		next.State = memory.PosteriorStatePending
 		next.DiagnosisCode = ""
@@ -540,9 +546,9 @@ func finalizePosteriorTransition(current, next memory.PosteriorStateRecord, now 
 	return next
 }
 
-func evaluatePredictionPosterior(node memory.AcceptedNode, state *memory.PosteriorStateRecord, graphNode compile.GraphNode, record compile.Record, now time.Time) {
-	checks := predictionStatusMap(record)
-	for _, check := range record.Output.Verification.PredictionChecks {
+func evaluatePredictionPosterior(node memory.AcceptedNode, state *memory.PosteriorStateRecord, graphNode compile.GraphNode, verification compile.Verification, record compile.Record, now time.Time) {
+	checks := predictionStatusMap(verification)
+	for _, check := range verification.PredictionChecks {
 		if check.NodeID != node.NodeID {
 			continue
 		}
@@ -593,11 +599,12 @@ func evaluateConclusionPosterior(
 	state *memory.PosteriorStateRecord,
 	graphNodesByID map[string]compile.GraphNode,
 	predecessors map[string][]string,
+	verification compile.Verification,
 	record compile.Record,
 	allUserNodes []memory.AcceptedNode,
 	now time.Time,
 ) {
-	factStatuses := factStatusMap(record)
+	factStatuses := factStatusMap(verification)
 	for _, ancestorID := range collectAncestorNodeIDs(node.NodeID, predecessors) {
 		ancestor, ok := graphNodesByID[ancestorID]
 		if !ok {
@@ -629,8 +636,8 @@ func evaluateConclusionPosterior(
 	state.LastEvidenceAt = time.Time{}
 }
 
-func blockedByConditions(nodeID string, graphNodesByID map[string]compile.GraphNode, predecessors map[string][]string, record compile.Record) ([]string, string) {
-	explicitStatuses := explicitConditionStatusMap(record)
+func blockedByConditions(nodeID string, graphNodesByID map[string]compile.GraphNode, predecessors map[string][]string, verification compile.Verification) ([]string, string) {
+	explicitStatuses := explicitConditionStatusMap(verification)
 	blockedBy := make([]string, 0)
 	reasons := make([]string, 0)
 	for _, ancestorID := range collectAncestorNodeIDs(nodeID, predecessors) {

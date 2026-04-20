@@ -67,9 +67,14 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 	if err != nil {
 		return memory.OrganizationOutput{}, err
 	}
-	factStatusByNode := factStatusMap(record)
-	explicitConditionStatusByNode := explicitConditionStatusMap(record)
-	predictionStatusByNode := predictionStatusMap(record)
+	verifyRecord, err := getVerificationResultTx(ctx, tx, job.SourcePlatform, job.SourceExternalID)
+	if err != nil && err != sql.ErrNoRows {
+		return memory.OrganizationOutput{}, err
+	}
+	verification := effectiveVerification(record, verifyRecord)
+	factStatusByNode := factStatusMap(verification)
+	explicitConditionStatusByNode := explicitConditionStatusMap(verification)
+	predictionStatusByNode := predictionStatusMap(verification)
 	graphNodesByID := map[string]compile.GraphNode{}
 	for _, node := range record.Output.Graph.Nodes {
 		graphNodesByID[node.ID] = node
@@ -112,7 +117,7 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 	}
 	dedupeGroups := buildDedupeGroups(active, factStatusByNode, predictionStatusByNode)
 	contradictionGroups := buildContradictionGroups(active)
-	hierarchy := buildHierarchy(active, record)
+	hierarchy := buildHierarchy(active, record, verification)
 	nodeHints := buildNodeHints(derivedNodes, active, dedupeGroups, contradictionGroups, hierarchy, factStatusByNode, explicitConditionStatusByNode, predictionStatusByNode)
 	dominantDriver := buildDominantDriverSummary(active, nodeHints)
 	nodeHints = applyDominantDriverRoles(nodeHints, dominantDriver)
@@ -129,9 +134,9 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 		DedupeGroups:        dedupeGroups,
 		ContradictionGroups: contradictionGroups,
 		Hierarchy:           hierarchy,
-		PredictionStatuses:  extractPredictionStatuses(nodes, record),
-		FactVerifications:   extractFactVerifications(active, record),
-		OpenQuestions:       buildOpenQuestions(active, record),
+		PredictionStatuses:  extractPredictionStatuses(nodes, verification),
+		FactVerifications:   extractFactVerifications(active, verification),
+		OpenQuestions:       buildOpenQuestions(active, verification),
 		NodeHints:           nodeHints,
 		DominantDriver:      dominantDriver,
 		Feedback:            feedback,
@@ -379,17 +384,14 @@ func groupNodesByCanonicalText(nodes []memory.AcceptedNode) []canonicalNodeGroup
 	return out
 }
 
-func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record) []memory.HierarchyLink {
+func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record, verification compile.Verification) []memory.HierarchyLink {
 	active := map[string]struct{}{}
 	nodeKindByID := map[string]string{}
 	for _, node := range nodes {
 		active[node.NodeID] = struct{}{}
 		nodeKindByID[node.NodeID] = node.NodeKind
 	}
-	factStatusByNode := map[string]compile.FactStatus{}
-	for _, check := range record.Output.Verification.FactChecks {
-		factStatusByNode[check.NodeID] = check.Status
-	}
+	factStatusByNode := factStatusMap(verification)
 	out := make([]memory.HierarchyLink, 0)
 	seen := map[string]struct{}{}
 	for _, edge := range record.Output.Graph.Edges {
@@ -510,13 +512,13 @@ func hierarchyTransitionAllowed(parentKind, childKind string) bool {
 	}
 }
 
-func extractPredictionStatuses(nodes []memory.AcceptedNode, record compile.Record) []memory.PredictionStatus {
+func extractPredictionStatuses(nodes []memory.AcceptedNode, verification compile.Verification) []memory.PredictionStatus {
 	accepted := map[string]struct{}{}
 	for _, node := range nodes {
 		accepted[node.NodeID] = struct{}{}
 	}
 	out := make([]memory.PredictionStatus, 0)
-	for _, check := range record.Output.Verification.PredictionChecks {
+	for _, check := range verification.PredictionChecks {
 		if _, ok := accepted[check.NodeID]; !ok {
 			continue
 		}
@@ -529,13 +531,13 @@ func extractPredictionStatuses(nodes []memory.AcceptedNode, record compile.Recor
 	return out
 }
 
-func extractFactVerifications(nodes []memory.AcceptedNode, record compile.Record) []memory.FactVerification {
+func extractFactVerifications(nodes []memory.AcceptedNode, verification compile.Verification) []memory.FactVerification {
 	active := map[string]struct{}{}
 	for _, node := range nodes {
 		active[node.NodeID] = struct{}{}
 	}
 	out := make([]memory.FactVerification, 0)
-	for _, check := range record.Output.Verification.FactChecks {
+	for _, check := range verification.FactChecks {
 		if _, ok := active[check.NodeID]; !ok {
 			continue
 		}
@@ -545,7 +547,7 @@ func extractFactVerifications(nodes []memory.AcceptedNode, record compile.Record
 			Reason: check.Reason,
 		})
 	}
-	for _, check := range record.Output.Verification.ImplicitConditionChecks {
+	for _, check := range verification.ImplicitConditionChecks {
 		if _, ok := active[check.NodeID]; !ok {
 			continue
 		}
@@ -561,7 +563,7 @@ func extractFactVerifications(nodes []memory.AcceptedNode, record compile.Record
 	return out
 }
 
-func buildOpenQuestions(nodes []memory.AcceptedNode, record compile.Record) []string {
+func buildOpenQuestions(nodes []memory.AcceptedNode, verification compile.Verification) []string {
 	questions := make([]string, 0)
 	for _, node := range nodes {
 		if node.ValidFrom.IsZero() && node.ValidTo.IsZero() && node.NodeKind != string(compile.NodeExplicitCondition) && node.NodeKind != string(compile.NodeConclusion) {
@@ -584,17 +586,17 @@ func buildOpenQuestions(nodes []memory.AcceptedNode, record compile.Record) []st
 			}
 		}
 	}
-	for _, check := range record.Output.Verification.FactChecks {
+	for _, check := range verification.FactChecks {
 		if check.Status == compile.FactStatusUnverifiable {
 			questions = append(questions, fmt.Sprintf("fact node %s remains unverifiable", check.NodeID))
 		}
 	}
-	for _, check := range record.Output.Verification.ImplicitConditionChecks {
+	for _, check := range verification.ImplicitConditionChecks {
 		if check.Status == compile.FactStatusUnverifiable {
 			questions = append(questions, fmt.Sprintf("implicit condition node %s remains unverifiable", check.NodeID))
 		}
 	}
-	for _, check := range record.Output.Verification.ExplicitConditionChecks {
+	for _, check := range verification.ExplicitConditionChecks {
 		if check.Status == compile.ExplicitConditionStatusUnknown {
 			questions = append(questions, fmt.Sprintf("explicit condition node %s remains probability-unknown", check.NodeID))
 		}
@@ -634,31 +636,38 @@ func isAcceptedNodeActiveAt(node memory.AcceptedNode, now time.Time) bool {
 	}
 }
 
-func factStatusMap(record compile.Record) map[string]compile.FactStatus {
-	out := make(map[string]compile.FactStatus, len(record.Output.Verification.FactChecks)+len(record.Output.Verification.ImplicitConditionChecks))
-	for _, check := range record.Output.Verification.FactChecks {
+func factStatusMap(verification compile.Verification) map[string]compile.FactStatus {
+	out := make(map[string]compile.FactStatus, len(verification.FactChecks)+len(verification.ImplicitConditionChecks))
+	for _, check := range verification.FactChecks {
 		out[check.NodeID] = check.Status
 	}
-	for _, check := range record.Output.Verification.ImplicitConditionChecks {
-		out[check.NodeID] = check.Status
-	}
-	return out
-}
-
-func explicitConditionStatusMap(record compile.Record) map[string]compile.ExplicitConditionStatus {
-	out := make(map[string]compile.ExplicitConditionStatus, len(record.Output.Verification.ExplicitConditionChecks))
-	for _, check := range record.Output.Verification.ExplicitConditionChecks {
+	for _, check := range verification.ImplicitConditionChecks {
 		out[check.NodeID] = check.Status
 	}
 	return out
 }
 
-func predictionStatusMap(record compile.Record) map[string]compile.PredictionStatus {
-	out := make(map[string]compile.PredictionStatus, len(record.Output.Verification.PredictionChecks))
-	for _, check := range record.Output.Verification.PredictionChecks {
+func explicitConditionStatusMap(verification compile.Verification) map[string]compile.ExplicitConditionStatus {
+	out := make(map[string]compile.ExplicitConditionStatus, len(verification.ExplicitConditionChecks))
+	for _, check := range verification.ExplicitConditionChecks {
 		out[check.NodeID] = check.Status
 	}
 	return out
+}
+
+func predictionStatusMap(verification compile.Verification) map[string]compile.PredictionStatus {
+	out := make(map[string]compile.PredictionStatus, len(verification.PredictionChecks))
+	for _, check := range verification.PredictionChecks {
+		out[check.NodeID] = check.Status
+	}
+	return out
+}
+
+func effectiveVerification(record compile.Record, verifyRecord compile.VerificationRecord) compile.Verification {
+	if !verifyRecord.VerifiedAt.IsZero() || verifyRecord.Verification.VerifiedAt.After(time.Time{}) || len(verifyRecord.Verification.Passes) > 0 || len(verifyRecord.Verification.FactChecks) > 0 || len(verifyRecord.Verification.ExplicitConditionChecks) > 0 || len(verifyRecord.Verification.ImplicitConditionChecks) > 0 || len(verifyRecord.Verification.PredictionChecks) > 0 {
+		return verifyRecord.Verification
+	}
+	return record.Output.Verification
 }
 
 func ensureNodeSet(m map[string]map[string]struct{}, key string) map[string]struct{} {

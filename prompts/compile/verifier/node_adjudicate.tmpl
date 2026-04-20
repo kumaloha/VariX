@@ -1,0 +1,21 @@
+你是节点验证的 adjudication 阶段。返回 JSON。
+
+目标：
+- 结合 claim 与 challenge，给出最终节点验证结果
+- 只允许三类状态：
+  - `proved`
+  - `falsified`
+  - `waiting`
+- 必须覆盖所有输入节点
+
+返回 JSON：
+{
+  "node_verifications": [
+    {
+      "node_id": "n1",
+      "status": "proved | falsified | waiting",
+      "evidence": ["..."],
+      "reason": "..."
+    }
+  ]
+}

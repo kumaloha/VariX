@@ -363,6 +363,16 @@ func (s *SQLiteStore) init() error {
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY(platform, external_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS verification_results (
+			platform TEXT NOT NULL,
+			external_id TEXT NOT NULL,
+			root_external_id TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			verified_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(platform, external_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS user_memory_nodes (
 			memory_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id TEXT NOT NULL,

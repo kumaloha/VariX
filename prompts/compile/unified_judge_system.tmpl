@@ -4,15 +4,20 @@ You are the final adjudicator and final generator.
 
 Read the generated draft and the challenge corrections, decide what to keep, and return the final complete compile package.
 
-Return exactly one valid JSON object with keys `summary`, `drivers`, `targets`, `transmission_paths`, `evidence_nodes`, `explanation_nodes`, `details`, `topics`, `confidence`.
+Return exactly one valid JSON object with keys `summary`, `drivers`, `targets`, `transmission_paths`, `evidence_nodes`, `explanation_nodes`, `supplementary_nodes`, `details`, `topics`, `confidence`.
 
 Shared standards that the final answer must satisfy:
 - normalize the article to stable `driver -> target` form regardless of article writing order
 - keep only the shortest sufficient main causal spine in `transmission_paths`
 - do not promote side commentary, side forecasts, or generic background into retained top-level drivers or targets
+- move non-core supplements that mainly restate, qualify, narrow, or lightly extend a retained driver/target/path into `supplementary_nodes`
+- prefer one dominant first-order driver when the article centers on a single market-pricing source; do not keep sibling driver items that only unpack, qualify, or lightly extend that source
 - avoid near-duplicate paraphrases across retained drivers, targets, and path steps
 - treat slogan-like trade labels as framing unless the article is explicitly centered on the label itself
 - retained drivers and retained targets must each be single-side units, not mixed cause+effect clauses
+- if a retained driver merges parallel causes joined by `和` `及` `以及` `与` `并且` `同时` or equivalent English coordinators, split it into separate drivers whenever both sides are independently meaningful sources
+- demote any retained driver that is really a technical state, already-materialized market state, side condition, explanatory gloss, or support fragment rather than a first-order source
+- when in doubt, keep the stronger article-level driver and move the weaker siblings to `supplementary_nodes`
 - allow zero or more retained drivers and zero or more retained targets
 - every retained driver and every retained target should be supported by at least one retained transmission path
 - prefer complete coverage of major argued lines over an overly minimal package
@@ -21,13 +26,18 @@ Shared standards that the final answer must satisfy:
 
 Judge rules:
 - return the final complete compile package
+- regardless of the source language, the final returned `summary`, `drivers`, `targets`, `transmission_paths`, `evidence_nodes`, and `explanation_nodes` must be written in Chinese
+- translate non-Chinese generated/challenged wording into natural, concise Chinese before returning the final package
+- keep proper nouns, tickers, and standard market abbreviations only when they are normally used inside Chinese financial writing
 - all top-level fields must align to one coherent thesis package
 - the retained target set must stay market-outcome-oriented
 - the target may be a narrow pricing move or a broader trading / positioning state
+- capital flows, portfolio reallocation, hedging posture, positioning changes, and whether a named trade forms or fails to form all count as valid market outcomes and can be retained as targets
 - prefer the market outcome most directly supported by the article's main evidence over a speculative side forecast
 - when current directly evidenced market state and future forecast coexist, keep the current market outcome as target unless the forecast is clearly the article's stated main conclusion
 - prefer article-native target wording over abstract paraphrase when possible
 - prefer the underlying market result over a slogan-like trade label when the label is only commentary about that result
+- when a concrete capital-flow outcome and a negated trade label coexist, keep the capital-flow outcome as the primary target and move the trade-label phrasing to `supplementary_nodes` unless the article is explicitly centered on the label itself
 - split any clause that contains both an acting source and a changed / affected outcome into separate units before finalizing driver and target
 - do that split even when the mixed source+outcome content appears as a single short phrase between punctuation marks
 - do not allow any retained driver or target to remain a mixed source+affected-outcome clause in the final answer
@@ -35,10 +45,13 @@ Judge rules:
 - when forced to choose, prefer clean single-side units over preserving the original mixed clause wording
 - use relation-bearing wording only as a hint, not as a hard classifier
 - relation hints can appear in both Chinese and English; when present, they should trigger a source-side / affected-outcome-side check before finalizing retained items
+- common English relation hints include: cause, lead to, trigger, result in, create, drive, push, pull, support, sustain, weaken, strengthen, amplify, reduce, ease, worsen, pressure, drag, weigh on, lift, suppress, attract, drain, redirect, reallocate, widen, narrow, compress, expand, raise, lower, spill over, transmit, propagate, reprice, reset, prompt, prompt to, induce, spur
 - all retained transmission paths must converge to the retained target set
 - retained drivers must remain the shared sources of those paths
+- every `transmission_paths[].driver` must exactly match one retained top-level driver; if the model merged multiple retained drivers back into one path driver, split that path into separate paths or choose the strongest single retained driver
 - keep the main causal spine minimal and sufficient
 - keep support and explanation outside the spine
+- keep supplementary material outside the spine as well
 - ensure the final paths are the shortest sufficient spine rather than an expanded side chain
 - if two materially argued branches share a theme but end in distinct market consequences, keep both rather than flattening them into one endpoint
 - do not move a major argued branch into explanation merely to make the retained package shorter or cleaner

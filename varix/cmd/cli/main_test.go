@@ -2169,6 +2169,7 @@ type fakeCompileClient struct {
 	record    c.Record
 	err       error
 	compileFn func(context.Context, c.Bundle) (c.Record, error)
+	verifyFn  func(context.Context, c.Bundle, c.Output) (c.Verification, error)
 }
 
 func (f fakeCompileClient) Compile(ctx context.Context, bundle c.Bundle) (c.Record, error) {
@@ -2176,6 +2177,17 @@ func (f fakeCompileClient) Compile(ctx context.Context, bundle c.Bundle) (c.Reco
 		return f.compileFn(ctx, bundle)
 	}
 	return f.record, f.err
+}
+
+func (f fakeCompileClient) Verify(ctx context.Context, bundle c.Bundle, output c.Output) (c.Verification, error) {
+	if f.verifyFn != nil {
+		return f.verifyFn(ctx, bundle, output)
+	}
+	return c.Verification{}, f.err
+}
+
+func (f fakeCompileClient) VerifyDetailed(ctx context.Context, bundle c.Bundle, output c.Output) (c.Verification, error) {
+	return f.Verify(ctx, bundle, output)
 }
 
 func testGraphNode(id string, kind c.NodeKind, text string) c.GraphNode {
@@ -2274,6 +2286,106 @@ func TestRunCompileWritesCompiledRecordJSON(t *testing.T) {
 	}
 	if got.Output.Summary != "一句话" {
 		t.Fatalf("Summary = %q", got.Output.Summary)
+	}
+}
+
+func TestRunVerifyRunAndShowUseSeparateVerificationStore(t *testing.T) {
+	prevBuildApp := buildApp
+	prevBuildCompileClient := buildCompileClient
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		buildCompileClient = prevBuildCompileClient
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	buildCompileClient = func(projectRoot string) compileClient {
+		return fakeCompileClient{
+			verifyFn: func(ctx context.Context, bundle c.Bundle, output c.Output) (c.Verification, error) {
+				return c.Verification{
+					Model: "verify-model",
+					FactChecks: []c.FactCheck{{
+						NodeID: "n1",
+						Status: c.FactStatusClearlyTrue,
+						Reason: "supported",
+					}},
+					VerifiedAt: time.Now().UTC(),
+				}, nil
+			},
+		}
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		raw := types.RawContent{
+			Source:     "weibo",
+			ExternalID: "Q-verify",
+			URL:        "https://weibo.com/123/Q-verify",
+			Content:    "root body",
+			AuthorName: "alice",
+			PostedAt:   time.Now().UTC(),
+		}
+		if err := store.UpsertRawCapture(context.Background(), raw); err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:Q-verify",
+			Source:         "weibo",
+			ExternalID:     "Q-verify",
+			RootExternalID: "Q-verify",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"verify", "run", "--platform", "weibo", "--id", "Q-verify"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify run code = %d, stderr = %s", code, stderr.String())
+	}
+	var verifyRecord c.VerificationRecord
+	if err := json.Unmarshal(stdout.Bytes(), &verifyRecord); err != nil {
+		t.Fatalf("json.Unmarshal(verify run) error = %v", err)
+	}
+	if verifyRecord.Model != "qwen3.6-plus" {
+		t.Fatalf("verify record model = %q, want compile model persistence surface", verifyRecord.Model)
+	}
+	if len(verifyRecord.Verification.FactChecks) != 1 || verifyRecord.Verification.FactChecks[0].NodeID != "n1" {
+		t.Fatalf("verify record = %#v", verifyRecord)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"verify", "show", "--platform", "weibo", "--id", "Q-verify"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify show code = %d, stderr = %s", code, stderr.String())
+	}
+	var shown c.VerificationRecord
+	if err := json.Unmarshal(stdout.Bytes(), &shown); err != nil {
+		t.Fatalf("json.Unmarshal(verify show) error = %v", err)
+	}
+	if len(shown.Verification.FactChecks) != 1 || shown.Verification.FactChecks[0].Reason != "supported" {
+		t.Fatalf("shown verification = %#v", shown)
 	}
 }
 

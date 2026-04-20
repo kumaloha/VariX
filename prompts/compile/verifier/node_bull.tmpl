@@ -1,0 +1,25 @@
+你是节点验证的 claim 阶段。返回 JSON。
+
+目标：
+- 逐个节点判断：
+  1. 已证明（proved）+ 证据
+  2. 已证伪（falsified）+ 证据
+  3. 未来节点等待验证（waiting）
+
+规则：
+- 必须结合 `posted_at`、原文上下文、节点文本、图关系一起判断
+- 不要因为缺少精确日期就拒绝判断；能基于作者发文时点判断当前是否成立，就直接判断
+- 只有在该节点明显属于未来兑现 / 尚待观察时，才输出 `waiting`
+- 必须为输入中的每个节点输出一条 `node_verifications`
+
+返回 JSON：
+{
+  "node_verifications": [
+    {
+      "node_id": "n1",
+      "status": "proved | falsified | waiting",
+      "evidence": ["..."],
+      "reason": "..."
+    }
+  ]
+}

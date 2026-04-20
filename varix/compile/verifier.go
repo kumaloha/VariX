@@ -23,6 +23,8 @@ var verifierNow = func() time.Time {
 type verifierPassResult struct {
 	kind                    VerificationPassKind
 	nodeIDs                 []string
+	realizedChecks          []RealizedCheck
+	futureConditionChecks   []FutureConditionCheck
 	factChecks              []FactCheck
 	explicitConditionChecks []ExplicitConditionCheck
 	implicitConditionChecks []ImplicitConditionCheck
@@ -41,46 +43,43 @@ type factChallenge struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
+type verificationTimeBucket string
+
+const (
+	verificationBucketUndetermined verificationTimeBucket = "undetermined"
+	verificationBucketRealized     verificationTimeBucket = "realized"
+	verificationBucketFuture       verificationTimeBucket = "future"
+)
+
 func runVerifier(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, output Output) (Verification, error) {
 	if prompts == nil {
 		prompts = newPromptRegistry("")
 	}
 	var passResults []verifierPassResult
 
-	factNodes := make([]GraphNode, 0)
+	realizedNodes := make([]GraphNode, 0)
 	explicitConditionNodes := make([]GraphNode, 0)
 	implicitConditionNodes := make([]GraphNode, 0)
-	predictionNodes := make([]GraphNode, 0)
+	futureClaimNodes := make([]GraphNode, 0)
 	for _, node := range output.Graph.Nodes {
-		switch node.Form {
-		case NodeFormObservation:
-			factNodes = append(factNodes, node)
-			continue
-		case NodeFormForecast:
-			predictionNodes = append(predictionNodes, node)
-			continue
-		case NodeFormCondition:
-			if node.Kind == NodeImplicitCondition || (node.Kind == "" && node.Function != NodeFunctionClaim) {
+		if isConditionVerifierNode(node) {
+			if isImplicitConditionVerifierNode(node) {
 				implicitConditionNodes = append(implicitConditionNodes, node)
 			} else {
 				explicitConditionNodes = append(explicitConditionNodes, node)
 			}
 			continue
 		}
-		switch node.Kind {
-		case NodeFact, NodeMechanism:
-			factNodes = append(factNodes, node)
-		case NodeExplicitCondition:
-			explicitConditionNodes = append(explicitConditionNodes, node)
-		case NodeImplicitCondition:
-			implicitConditionNodes = append(implicitConditionNodes, node)
-		case NodePrediction:
-			predictionNodes = append(predictionNodes, node)
+		switch classifyVerificationTimeBucket(bundle, node) {
+		case verificationBucketRealized:
+			realizedNodes = append(realizedNodes, node)
+		case verificationBucketFuture:
+			futureClaimNodes = append(futureClaimNodes, node)
 		}
 	}
 
-	if len(factNodes) > 0 {
-		result, err := verifyFacts(ctx, rt, model, prompts, bundle, factNodes)
+	if len(realizedNodes) > 0 {
+		result, err := verifyRealized(ctx, rt, model, prompts, bundle, realizedNodes)
 		if err != nil {
 			return Verification{}, err
 		}
@@ -100,8 +99,8 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, prompts *pr
 		}
 		passResults = append(passResults, result)
 	}
-	if len(predictionNodes) > 0 {
-		result, err := verifyPredictions(ctx, rt, model, prompts, bundle, predictionNodes)
+	if len(futureClaimNodes) > 0 {
+		result, err := verifyPredictions(ctx, rt, model, prompts, bundle, futureClaimNodes)
 		if err != nil {
 			return Verification{}, err
 		}
@@ -120,12 +119,16 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, prompts *pr
 	verification := Verification{
 		Version:         "verify_v2",
 		RolloutStage:    verifierRolloutStage(passResults),
+		RealizedChecks:  make([]RealizedCheck, 0),
+		FutureConditionChecks: make([]FutureConditionCheck, 0),
 		Passes:          make([]VerificationPass, 0, len(passResults)),
 		CoverageSummary: aggregateCoverageSummary(passResults),
 	}
 	for _, result := range passResults {
+		verification.RealizedChecks = append(verification.RealizedChecks, result.realizedChecks...)
+		verification.FutureConditionChecks = append(verification.FutureConditionChecks, result.futureConditionChecks...)
 		switch result.kind {
-		case VerificationPassFact:
+		case VerificationPassFact, VerificationPassRealized:
 			verification.FactChecks = append(verification.FactChecks, result.factChecks...)
 		case VerificationPassExplicitCondition:
 			verification.ExplicitConditionChecks = append(verification.ExplicitConditionChecks, result.explicitConditionChecks...)
@@ -151,7 +154,7 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, prompts *pr
 	return verification, nil
 }
 
-func verifyFacts(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
+func verifyRealized(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
 	retrievalContext, retrievalSummary, err := buildFactRetrievalPayload(ctx, bundle, nodes)
 	if err != nil {
 		return verifierPassResult{}, err
@@ -234,10 +237,12 @@ func verifyFacts(ctx context.Context, rt verifierCall, model string, prompts *pr
 	}
 
 	finalNodeIDs := factCheckNodeIDs(adjudicationPayload.FactChecks)
+	compatibilityFactChecks := filterLegacyFactChecks(nodes, adjudicationPayload.FactChecks)
 	return verifierPassResult{
 		kind:             VerificationPassFact,
 		nodeIDs:          nodeIDs(nodes),
-		factChecks:       adjudicationPayload.FactChecks,
+		realizedChecks:   toRealizedChecks(adjudicationPayload.FactChecks),
+		factChecks:       compatibilityFactChecks,
 		claim:            claimSummary,
 		challenge:        challengeSummary,
 		adjudication:     newStageSummary(firstNonEmpty(adjudicationResp.Model, model), adjudicationCompletedAt, true, finalNodeIDs),
@@ -275,6 +280,7 @@ func verifyPredictions(ctx context.Context, rt verifierCall, model string, promp
 	return verifierPassResult{
 		kind:             VerificationPassPrediction,
 		nodeIDs:          nodeIDs(nodes),
+		futureConditionChecks: toFutureConditionChecksFromPredictions(payload.PredictionChecks),
 		predictionChecks: payload.PredictionChecks,
 		adjudication:     stage,
 		coverage:         buildCoverage(nodeIDs(nodes), finalNodeIDs),
@@ -309,6 +315,7 @@ func verifyExplicitConditions(ctx context.Context, rt verifierCall, model string
 	return verifierPassResult{
 		kind:                    VerificationPassExplicitCondition,
 		nodeIDs:                 nodeIDs(nodes),
+		futureConditionChecks:   toFutureConditionChecksFromExplicit(payload.ExplicitConditionChecks),
 		explicitConditionChecks: payload.ExplicitConditionChecks,
 		claim:                   cloneStageSummary(stage),
 		adjudication:            stage,
@@ -344,6 +351,7 @@ func verifyImplicitConditions(ctx context.Context, rt verifierCall, model string
 	return verifierPassResult{
 		kind:                    VerificationPassImplicitCondition,
 		nodeIDs:                 nodeIDs(nodes),
+		futureConditionChecks:   toFutureConditionChecksFromImplicit(payload.ImplicitConditionChecks),
 		implicitConditionChecks: payload.ImplicitConditionChecks,
 		claim:                   cloneStageSummary(stage),
 		adjudication:            stage,
@@ -586,10 +594,25 @@ func uniformAdjudicationModel(results []verifierPassResult) string {
 }
 
 func verifierRolloutStage(results []verifierPassResult) string {
+	sawRealized := false
+	sawFuture := false
 	for _, result := range results {
 		if result.kind == VerificationPassFact && result.debateEnabled {
-			return "facts_only"
+			sawRealized = true
+			continue
 		}
+		if result.kind == VerificationPassExplicitCondition || result.kind == VerificationPassImplicitCondition || result.kind == VerificationPassPrediction {
+			sawFuture = true
+		}
+	}
+	if sawRealized && sawFuture {
+		return "time_split"
+	}
+	if sawRealized {
+		return "facts_only"
+	}
+	if sawFuture {
+		return "future_only"
 	}
 	return "coverage_only"
 }
@@ -711,6 +734,7 @@ func firstNonEmpty(values ...string) string {
 }
 
 const (
+	VerificationPassRealized          VerificationPassKind = "realized"
 	promptFactVerifierClaim         = "fact_claim"
 	promptFactVerifierChallenge     = "fact_challenge"
 	promptFactVerifierAdjudication  = "fact_adjudicate"
@@ -718,3 +742,159 @@ const (
 	promptExplicitConditionVerifier = "explicit_condition"
 	promptImplicitConditionVerifier = "implicit_condition"
 )
+
+func isConditionVerifierNode(node GraphNode) bool {
+	return node.Form == NodeFormCondition ||
+		node.Kind == NodeExplicitCondition ||
+		node.Kind == NodeImplicitCondition
+}
+
+func isImplicitConditionVerifierNode(node GraphNode) bool {
+	if node.Kind == NodeImplicitCondition {
+		return true
+	}
+	return node.Form == NodeFormCondition && node.Function != NodeFunctionClaim
+}
+
+func classifyVerificationTimeBucket(bundle Bundle, node GraphNode) verificationTimeBucket {
+	asOf := verifierNow().UTC()
+	if !bundle.PostedAt.IsZero() {
+		asOf = bundle.PostedAt.UTC()
+	}
+	if isConditionVerifierNode(node) {
+		return verificationBucketFuture
+	}
+	if !node.OccurredAt.IsZero() {
+		if node.OccurredAt.After(asOf) {
+			return verificationBucketFuture
+		}
+		return verificationBucketRealized
+	}
+	if !node.PredictionDueAt.IsZero() {
+		if node.PredictionDueAt.After(asOf) {
+			return verificationBucketFuture
+		}
+		return verificationBucketRealized
+	}
+	if !node.PredictionStartAt.IsZero() {
+		return verificationBucketFuture
+	}
+	if !node.ValidFrom.IsZero() && node.ValidFrom.After(asOf) {
+		return verificationBucketFuture
+	}
+	if isObservationLikeVerifierNode(node) && !node.ValidFrom.IsZero() && !node.ValidFrom.After(asOf) {
+		return verificationBucketRealized
+	}
+	if !node.ValidTo.IsZero() && !node.ValidTo.After(asOf) && !node.ValidFrom.IsZero() {
+		return verificationBucketRealized
+	}
+	if looksRealizedText(node.Text) {
+		return verificationBucketRealized
+	}
+	if looksFutureFacingText(node.Text) {
+		return verificationBucketFuture
+	}
+	return verificationBucketUndetermined
+}
+
+func looksFutureFacingText(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"未来", "将", "会", "预计", "可能", "有望", "下周", "下月", "明年", "季度内", "一旦", "若", "如果",
+		"will ", "would ", "may ", "might ", "could ", "expected to", "likely to", "if ", "once ", "approaching",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksRealizedText(text string) bool {
+	text = strings.TrimSpace(strings.ToLower(text))
+	if text == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"已经", "已", "正在", "当前", "目前", "现已", "进入", "处于", "仍", "仍然", "依然", "并未", "没有形成", "维持", "保持", "存在", "面临", "出现",
+		"already", "currently", "remains", "remain", "is in", "are in", "entered", "has entered", "have entered", "is overbought", "has priced in", "have priced in",
+		"rally into overbought territory", "overbought territory", "is unresolved", "remains unresolved",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func toRealizedChecks(checks []FactCheck) []RealizedCheck {
+	out := make([]RealizedCheck, 0, len(checks))
+	for _, check := range checks {
+		out = append(out, RealizedCheck{
+			NodeID: check.NodeID,
+			Status: check.Status,
+			Reason: check.Reason,
+		})
+	}
+	return out
+}
+
+func toFutureConditionChecksFromPredictions(checks []PredictionCheck) []FutureConditionCheck {
+	out := make([]FutureConditionCheck, 0, len(checks))
+	for _, check := range checks {
+		out = append(out, FutureConditionCheck{
+			NodeID: check.NodeID,
+			Status: "prediction:" + string(check.Status),
+			Reason: check.Reason,
+			AsOf:   check.AsOf,
+		})
+	}
+	return out
+}
+
+func toFutureConditionChecksFromExplicit(checks []ExplicitConditionCheck) []FutureConditionCheck {
+	out := make([]FutureConditionCheck, 0, len(checks))
+	for _, check := range checks {
+		out = append(out, FutureConditionCheck{
+			NodeID: check.NodeID,
+			Status: "explicit_condition:" + string(check.Status),
+			Reason: check.Reason,
+		})
+	}
+	return out
+}
+
+func toFutureConditionChecksFromImplicit(checks []ImplicitConditionCheck) []FutureConditionCheck {
+	out := make([]FutureConditionCheck, 0, len(checks))
+	for _, check := range checks {
+		out = append(out, FutureConditionCheck{
+			NodeID: check.NodeID,
+			Status: "implicit_condition:" + string(check.Status),
+			Reason: check.Reason,
+		})
+	}
+	return out
+}
+
+func filterLegacyFactChecks(nodes []GraphNode, checks []FactCheck) []FactCheck {
+	legacyEligible := make(map[string]struct{}, len(nodes))
+	for _, node := range nodes {
+		if isObservationLikeVerifierNode(node) {
+			legacyEligible[node.ID] = struct{}{}
+		}
+	}
+	out := make([]FactCheck, 0, len(checks))
+	for _, check := range checks {
+		if _, ok := legacyEligible[check.NodeID]; ok {
+			out = append(out, check)
+		}
+	}
+	return out
+}
+
+func isObservationLikeVerifierNode(node GraphNode) bool {
+	return node.Form == NodeFormObservation || node.Kind == NodeFact || node.Kind == NodeMechanism
+}

@@ -2,7 +2,7 @@ You are the unified compile challenger.
 
 Audit the generated package for boundary problems, missing retained items, and cross-layer inconsistency.
 
-Return exactly one valid JSON object with keys `summary`, `drivers`, `targets`, `transmission_paths`, `evidence_nodes`, `explanation_nodes`, `details`, `topics`, `confidence`.
+Return exactly one valid JSON object with keys `summary`, `drivers`, `targets`, `transmission_paths`, `evidence_nodes`, `explanation_nodes`, `supplementary_nodes`, `details`, `topics`, `confidence`.
 
 Return only corrections worth applying to the generated package.
 
@@ -10,6 +10,7 @@ Shared standards that the draft must satisfy:
 - normalize the article to stable `driver -> target` form regardless of article writing order
 - keep only the shortest sufficient main causal spine in `transmission_paths`
 - do not promote side commentary, side forecasts, or generic background into retained top-level drivers or targets
+- detect when a step or retained statement should move into `supplementary_nodes` because it mainly restates or lightly extends a retained driver/target/path
 - avoid near-duplicate paraphrases across retained drivers, targets, and path steps
 - treat slogan-like trade labels as framing unless the article is explicitly centered on the label itself
 - retained drivers and retained targets must each be single-side units, not mixed cause+effect clauses
@@ -21,6 +22,7 @@ Shared standards that the draft must satisfy:
 
 Challenge checklist:
 - detect missing drivers or targets in the coherent thesis package
+- detect when the draft retained too many drivers and some of them are only supplements to a stronger first-order driver
 - detect when the draft keeps one clean branch but omits another materially argued branch from the article
 - detect side commentary incorrectly promoted to top-level drivers or targets
 - detect items incorrectly promoted to target even though they are not market outcomes
@@ -29,7 +31,11 @@ Challenge checklist:
 - detect over-abstract target wording when the source already offers a cleaner article-native market-outcome phrase
 - detect when a slogan-like trade label was promoted to target even though it is only commentary about a more basic market result
 - detect when a causal clause was not split into separate source and affected-outcome units
+- detect retained drivers that still merge parallel causes joined by `和` `及` `以及` `与` `并且` `同时` or equivalent English coordinators
+- when such a merged driver appears, explicitly split it into separate driver candidates
+- detect drivers that are actually target-side states, technical states, market outcomes, side constraints, or support fragments and demote them out of the driver layer
 - detect whether retained drivers are not true shared sources of the retained transmission paths
+- detect any transmission path whose `driver` field merges multiple retained top-level drivers instead of matching exactly one retained driver
 - detect missing bridge steps
 - detect fat transmission steps that should split into smaller causal hops
 - detect paths that are not the shortest sufficient causal spine
@@ -42,11 +48,13 @@ Challenge checklist:
 
 Boundary reminders:
 - target should be a market outcome; it may be a narrow pricing move or a broader trading / positioning state
+- capital flows, portfolio reallocation, hedging posture, positioning changes, and whether a named trade forms or fails to form also count as valid market outcomes
 - target should not be merely background context, pure interpretation, or a mid-chain bridge
 - when the article's main evidence is about whether a trade / positioning regime exists, prefer that outcome over a loosely attached side forecast
 - when current directly evidenced market state and future forecast coexist, challenge any choice that promotes the forecast unless it is clearly the article's stated main conclusion
 - when the article already states a concrete trade / positioning outcome cleanly, challenge rewrites that replace it with a broader abstract label
 - when a trade label is only the author's commentary on a more basic market result, challenge any choice that uses the label as target instead of the underlying result
+- when a concrete capital-flow outcome and a negated trade label coexist, challenge any output that keeps only the trade label while dropping the capital-flow outcome
 - when a clause contains both an acting source and a changed / affected outcome, challenge any output that keeps the whole clause as one retained item instead of separating source and affected outcome
 - apply that challenge even when the mixed cause+effect content appears inside one short phrase between punctuation marks
 - treat any retained driver/target that still mixes source-side and affected-outcome content as a structural error, not a stylistic preference
@@ -54,7 +62,7 @@ Boundary reminders:
 - when possible, name the source-side unit and the affected-outcome unit separately in the correction
 - use relation-bearing wording only as a hint, not as a hard classifier
 - Chinese hint examples: 导致, 引发, 触发, 造成, 使得, 令, 让, 推动, 驱动, 带动, 拉动, 支撑, 压制, 拖累, 打压, 抑制, 压低, 削弱, 强化, 放大, 缓解, 加剧, 吸引, 抽走, 转移, 虹吸, 挤压, 重配, 推高, 抬升, 压缩, 扩大, 收窄, 扰动, 冲击, 外溢, 传导, 重定价
-- English hint examples: cause, lead to, trigger, result in, create, drive, push, pull, support, sustain, weaken, strengthen, amplify, reduce, ease, worsen, pressure, drag, weigh on, lift, suppress, attract, drain, redirect, reallocate, widen, narrow, compress, expand, raise, lower, spill over, transmit, propagate, reprice, reset
+- English hint examples: cause, lead to, trigger, result in, create, drive, push, pull, support, sustain, weaken, strengthen, amplify, reduce, ease, worsen, pressure, drag, weigh on, lift, suppress, attract, drain, redirect, reallocate, widen, narrow, compress, expand, raise, lower, spill over, transmit, propagate, reprice, reset, prompt, prompt to, induce, spur
 - driver should be the shared source of the retained transmission paths, not a mid-chain bridge
 - transmission = how the world changes along the main causal spine
 - evidence = why believe the spine or a retained endpoint

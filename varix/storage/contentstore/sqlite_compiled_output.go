@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kumaloha/VariX/varix/compile"
@@ -42,7 +43,31 @@ func (s *SQLiteStore) UpsertCompiledOutput(ctx context.Context, record compile.R
 		record.CompiledAt.UTC().Format(time.RFC3339Nano),
 		now,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if !record.Output.Verification.IsZero() {
+		model := strings.TrimSpace(record.Output.Verification.Model)
+		if model == "" {
+			model = record.Model
+		}
+		verifiedAt := record.Output.Verification.VerifiedAt
+		if verifiedAt.IsZero() {
+			verifiedAt = time.Now().UTC()
+		}
+		if err := s.UpsertVerificationResult(ctx, compile.VerificationRecord{
+			UnitID:         record.UnitID,
+			Source:         record.Source,
+			ExternalID:     record.ExternalID,
+			RootExternalID: record.RootExternalID,
+			Model:          model,
+			Verification:   record.Output.Verification,
+			VerifiedAt:     verifiedAt,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *SQLiteStore) GetCompiledOutput(ctx context.Context, platform, externalID string) (compile.Record, error) {
@@ -71,11 +96,11 @@ func marshalStoredCompileRecord(record compile.Record) ([]byte, error) {
 		TransmissionPaths []compile.TransmissionPath `json:"transmission_paths,omitempty"`
 		EvidenceNodes     []string                   `json:"evidence_nodes,omitempty"`
 		ExplanationNodes  []string                   `json:"explanation_nodes,omitempty"`
+		SupplementaryNodes []string                  `json:"supplementary_nodes,omitempty"`
 		Graph             compile.ReasoningGraph     `json:"graph,omitempty"`
 		Details           compile.HiddenDetails      `json:"details,omitempty"`
 		Topics            []string                   `json:"topics,omitempty"`
 		Confidence        string                     `json:"confidence,omitempty"`
-		Verification      compile.Verification       `json:"verification,omitempty"`
 	}
 	type storedRecord struct {
 		UnitID         string       `json:"unit_id"`
@@ -99,11 +124,11 @@ func marshalStoredCompileRecord(record compile.Record) ([]byte, error) {
 			TransmissionPaths: record.Output.TransmissionPaths,
 			EvidenceNodes:     record.Output.EvidenceNodes,
 			ExplanationNodes:  record.Output.ExplanationNodes,
+			SupplementaryNodes: record.Output.SupplementaryNodes,
 			Graph:             record.Output.Graph,
 			Details:           record.Output.Details,
 			Topics:            record.Output.Topics,
 			Confidence:        record.Output.Confidence,
-			Verification:      record.Output.Verification,
 		},
 		CompiledAt: record.CompiledAt,
 	})

@@ -18,6 +18,11 @@ var compileCommands = []string{
 	"card",
 }
 
+var verifyCommands = []string{
+	"run",
+	"show",
+}
+
 var memoryCommands = []string{
 	"accept",
 	"accept-batch",
@@ -47,10 +52,11 @@ func isIngestCommand(name string) bool {
 
 func usageText() string {
 	return strings.Join([]string{
-		"usage: varix <ingest|compile|memory>",
+		"usage: varix <ingest|compile|verify|memory>",
 		"",
 		"ingest: " + strings.Join(ingestCommands, "|"),
 		"compile: " + strings.Join(compileCommands, "|"),
+		"verify: " + strings.Join(verifyCommands, "|"),
 		"memory: " + strings.Join(memoryCommands, "|"),
 	}, "\n")
 }

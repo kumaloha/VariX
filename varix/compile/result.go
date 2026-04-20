@@ -372,6 +372,55 @@ type PredictionCheck struct {
 	AsOf   time.Time        `json:"as_of,omitempty"`
 }
 
+type RealizedCheck struct {
+	NodeID string     `json:"node_id"`
+	Status FactStatus `json:"status"`
+	Reason string     `json:"reason,omitempty"`
+}
+
+type FutureConditionCheck struct {
+	NodeID string    `json:"node_id"`
+	Status string    `json:"status,omitempty"`
+	Reason string    `json:"reason,omitempty"`
+	AsOf   time.Time `json:"as_of,omitempty"`
+}
+
+type NodeVerificationStatus string
+
+const (
+	NodeVerificationProved    NodeVerificationStatus = "proved"
+	NodeVerificationFalsified NodeVerificationStatus = "falsified"
+	NodeVerificationWaiting   NodeVerificationStatus = "waiting"
+)
+
+type NodeVerification struct {
+	NodeID    string                 `json:"node_id"`
+	Status    NodeVerificationStatus `json:"status"`
+	Evidence  []string               `json:"evidence,omitempty"`
+	Reason    string                 `json:"reason,omitempty"`
+	AsOf      time.Time              `json:"as_of,omitempty"`
+	NodeText  string                 `json:"node_text,omitempty"`
+	NodeKind  string                 `json:"node_kind,omitempty"`
+}
+
+type PathVerificationStatus string
+
+const (
+	PathVerificationSound   PathVerificationStatus = "sound"
+	PathVerificationProblem PathVerificationStatus = "problem"
+)
+
+type PathVerification struct {
+	Driver       string                 `json:"driver"`
+	Target       string                 `json:"target"`
+	Steps        []string               `json:"steps,omitempty"`
+	Status       PathVerificationStatus `json:"status"`
+	Complete     bool                   `json:"complete"`
+	Rigorous     bool                   `json:"rigorous"`
+	Reason       string                 `json:"reason,omitempty"`
+	MissingLinks []string               `json:"missing_links,omitempty"`
+}
+
 type VerificationPassKind string
 
 const (
@@ -429,12 +478,33 @@ type Verification struct {
 	Model                   string                       `json:"model,omitempty"`
 	Version                 string                       `json:"version,omitempty"`
 	RolloutStage            string                       `json:"rollout_stage,omitempty"`
+	NodeVerifications       []NodeVerification           `json:"node_verifications,omitempty"`
+	PathVerifications       []PathVerification           `json:"path_verifications,omitempty"`
+	RealizedChecks          []RealizedCheck              `json:"realized_checks,omitempty"`
+	FutureConditionChecks   []FutureConditionCheck       `json:"future_condition_checks,omitempty"`
 	FactChecks              []FactCheck                  `json:"fact_checks,omitempty"`
 	ExplicitConditionChecks []ExplicitConditionCheck     `json:"explicit_condition_checks,omitempty"`
 	ImplicitConditionChecks []ImplicitConditionCheck     `json:"implicit_condition_checks,omitempty"`
 	PredictionChecks        []PredictionCheck            `json:"prediction_checks,omitempty"`
 	Passes                  []VerificationPass           `json:"passes,omitempty"`
 	CoverageSummary         *VerificationCoverageSummary `json:"coverage_summary,omitempty"`
+}
+
+func (v Verification) IsZero() bool {
+	return v.VerifiedAt.IsZero() &&
+		v.Model == "" &&
+		v.Version == "" &&
+		v.RolloutStage == "" &&
+		len(v.NodeVerifications) == 0 &&
+		len(v.PathVerifications) == 0 &&
+		len(v.RealizedChecks) == 0 &&
+		len(v.FutureConditionChecks) == 0 &&
+		len(v.FactChecks) == 0 &&
+		len(v.ExplicitConditionChecks) == 0 &&
+		len(v.ImplicitConditionChecks) == 0 &&
+		len(v.PredictionChecks) == 0 &&
+		len(v.Passes) == 0 &&
+		v.CoverageSummary == nil
 }
 
 type Output struct {
@@ -444,6 +514,7 @@ type Output struct {
 	TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
 	EvidenceNodes     []string           `json:"evidence_nodes,omitempty"`
 	ExplanationNodes  []string           `json:"explanation_nodes,omitempty"`
+	SupplementaryNodes []string          `json:"supplementary_nodes,omitempty"`
 	Graph             ReasoningGraph     `json:"graph,omitempty"`
 	Details           HiddenDetails      `json:"details,omitempty"`
 	Topics            []string           `json:"topics,omitempty"`
@@ -459,10 +530,15 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
 		EvidenceNodes     []string           `json:"evidence_nodes,omitempty"`
 		ExplanationNodes  []string           `json:"explanation_nodes,omitempty"`
+		SupplementaryNodes []string          `json:"supplementary_nodes,omitempty"`
 		Details           HiddenDetails      `json:"details,omitempty"`
 		Topics            []string           `json:"topics,omitempty"`
 		Confidence        string             `json:"confidence,omitempty"`
-		Verification      Verification       `json:"verification,omitempty"`
+		Verification      *Verification      `json:"verification,omitempty"`
+	}
+	var verification *Verification
+	if !o.Verification.IsZero() {
+		verification = &o.Verification
 	}
 	return json.Marshal(publicOutput{
 		Summary:           o.Summary,
@@ -471,10 +547,11 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		TransmissionPaths: o.TransmissionPaths,
 		EvidenceNodes:     o.EvidenceNodes,
 		ExplanationNodes:  o.ExplanationNodes,
+		SupplementaryNodes: o.SupplementaryNodes,
 		Details:           o.Details,
 		Topics:            o.Topics,
 		Confidence:        o.Confidence,
-		Verification:      o.Verification,
+		Verification:      verification,
 	})
 }
 
@@ -520,6 +597,7 @@ type TransmissionPathOutput struct {
 type EvidenceExplanationOutput struct {
 	EvidenceNodes    []string      `json:"evidence_nodes,omitempty"`
 	ExplanationNodes []string      `json:"explanation_nodes,omitempty"`
+	SupplementaryNodes []string    `json:"supplementary_nodes,omitempty"`
 	Details          HiddenDetails `json:"details,omitempty"`
 	Topics           []string      `json:"topics,omitempty"`
 	Confidence       string        `json:"confidence,omitempty"`
@@ -532,6 +610,7 @@ type UnifiedCompileOutput struct {
 	TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
 	EvidenceNodes     []string           `json:"evidence_nodes,omitempty"`
 	ExplanationNodes  []string           `json:"explanation_nodes,omitempty"`
+	SupplementaryNodes []string          `json:"supplementary_nodes,omitempty"`
 	Details           HiddenDetails      `json:"details,omitempty"`
 	Topics            []string           `json:"topics,omitempty"`
 	Confidence        string             `json:"confidence,omitempty"`
@@ -569,6 +648,9 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
 		return err
 	}
+	if err := validateStringListEntries("supplementary_nodes", o.SupplementaryNodes); err != nil {
+		return err
+	}
 	if len(o.Graph.Nodes) < minNodes {
 		return fmt.Errorf("graph must contain at least %d nodes", minNodes)
 	}
@@ -593,6 +675,21 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
 		default:
 			return fmt.Errorf("unsupported fact status: %s", check.Status)
+		}
+	}
+	for _, check := range o.Verification.RealizedChecks {
+		if _, ok := nodeIDs[check.NodeID]; !ok {
+			return fmt.Errorf("realized check references unknown node: %s", check.NodeID)
+		}
+		switch check.Status {
+		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
+		default:
+			return fmt.Errorf("unsupported realized status: %s", check.Status)
+		}
+	}
+	for _, check := range o.Verification.FutureConditionChecks {
+		if _, ok := nodeIDs[check.NodeID]; !ok {
+			return fmt.Errorf("future condition check references unknown node: %s", check.NodeID)
 		}
 	}
 	for _, check := range o.Verification.ExplicitConditionChecks {
@@ -752,13 +849,16 @@ func (o TransmissionPathOutput) ValidateChallenge() error {
 }
 
 func (o EvidenceExplanationOutput) ValidateGeneratorOrJudge() error {
-	if len(o.EvidenceNodes) == 0 && len(o.ExplanationNodes) == 0 {
-		return fmt.Errorf("evidence_nodes and explanation_nodes must not both be empty")
+	if len(o.EvidenceNodes) == 0 && len(o.ExplanationNodes) == 0 && len(o.SupplementaryNodes) == 0 {
+		return fmt.Errorf("evidence_nodes, explanation_nodes, and supplementary_nodes must not all be empty")
 	}
 	if err := validateStringListEntries("evidence_nodes", o.EvidenceNodes); err != nil {
 		return err
 	}
 	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("supplementary_nodes", o.SupplementaryNodes); err != nil {
 		return err
 	}
 	if o.Details.IsEmpty() {
@@ -772,6 +872,9 @@ func (o EvidenceExplanationOutput) ValidateChallenge() error {
 		return err
 	}
 	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("supplementary_nodes", o.SupplementaryNodes); err != nil {
 		return err
 	}
 	return nil
@@ -802,6 +905,9 @@ func (o UnifiedCompileOutput) ValidateGeneratorOrJudge() error {
 	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
 		return err
 	}
+	if err := validateStringListEntries("supplementary_nodes", o.SupplementaryNodes); err != nil {
+		return err
+	}
 	if o.Details.IsEmpty() {
 		return fmt.Errorf("details must not be empty")
 	}
@@ -809,7 +915,7 @@ func (o UnifiedCompileOutput) ValidateGeneratorOrJudge() error {
 }
 
 func (o UnifiedCompileOutput) ValidateChallenge() error {
-	if strings.TrimSpace(o.Summary) == "" && len(o.Drivers) == 0 && len(o.Targets) == 0 && len(o.TransmissionPaths) == 0 && len(o.EvidenceNodes) == 0 && len(o.ExplanationNodes) == 0 {
+	if strings.TrimSpace(o.Summary) == "" && len(o.Drivers) == 0 && len(o.Targets) == 0 && len(o.TransmissionPaths) == 0 && len(o.EvidenceNodes) == 0 && len(o.ExplanationNodes) == 0 && len(o.SupplementaryNodes) == 0 {
 		return fmt.Errorf("challenge output must not be entirely empty")
 	}
 	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
@@ -825,6 +931,9 @@ func (o UnifiedCompileOutput) ValidateChallenge() error {
 		return err
 	}
 	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
+		return err
+	}
+	if err := validateStringListEntries("supplementary_nodes", o.SupplementaryNodes); err != nil {
 		return err
 	}
 	return nil

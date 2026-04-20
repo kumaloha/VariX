@@ -14,9 +14,10 @@ import (
 func TestUsageTextShowsDistinctCommandGroups(t *testing.T) {
 	got := usageText()
 	for _, want := range []string{
-		"usage: varix <ingest|compile|memory>",
+		"usage: varix <ingest|compile|verify|memory>",
 		"ingest: fetch|follow|list-follows|poll|provenance-run",
 		"compile: run|show|summary|compare|card",
+		"verify: run|show",
 		"memory: accept|accept-batch|list|show-source|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare",
 	} {
 		if !strings.Contains(got, want) {

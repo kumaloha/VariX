@@ -30,6 +30,9 @@ func run(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if args[0] == "compile" {
 		return runCompileCommand(args[1:], projectRoot, stdout, stderr)
 	}
+	if args[0] == "verify" {
+		return runVerifyCommand(args[1:], projectRoot, stdout, stderr)
+	}
 	if args[0] == "memory" {
 		return runMemoryCommand(args[1:], projectRoot, stdout, stderr)
 	}

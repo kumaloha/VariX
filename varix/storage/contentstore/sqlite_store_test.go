@@ -248,3 +248,67 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 		t.Fatalf("RootExternalID = %q", got.RootExternalID)
 	}
 }
+
+func TestSQLiteStore_UpsertCompiledOutputBridgesLegacyEmbeddedVerificationToVerificationTable(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "twitter:legacy-verify",
+		Source:         "twitter",
+		ExternalID:     "legacy-verify",
+		RootExternalID: "legacy-root",
+		Model:          "qwen3.6-plus",
+		Output: compile.Output{
+			Summary: "summary text",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					testCompileGraphNode("n1", compile.NodeFact, "fact"),
+					testCompileGraphNode("n2", compile.NodeConclusion, "conclusion"),
+				},
+				Edges: []compile.GraphEdge{
+					{From: "n1", To: "n2", Kind: compile.EdgePositive},
+				},
+			},
+			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+			Verification: compile.Verification{
+				Model: "verify-model",
+				FactChecks: []compile.FactCheck{{
+					NodeID: "n1",
+					Status: compile.FactStatusClearlyTrue,
+					Reason: "supported",
+				}},
+				VerifiedAt: time.Now().UTC(),
+			},
+		},
+		CompiledAt: time.Now().UTC(),
+	}
+
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+
+	gotCompile, err := store.GetCompiledOutput(context.Background(), "twitter", "legacy-verify")
+	if err != nil {
+		t.Fatalf("GetCompiledOutput() error = %v", err)
+	}
+	if !gotCompile.Output.Verification.IsZero() {
+		t.Fatalf("compiled output verification = %#v, want compile store decoupled from verification payload", gotCompile.Output.Verification)
+	}
+
+	gotVerify, err := store.GetVerificationResult(context.Background(), "twitter", "legacy-verify")
+	if err != nil {
+		t.Fatalf("GetVerificationResult() error = %v", err)
+	}
+	if gotVerify.Model != "verify-model" {
+		t.Fatalf("verification model = %q, want verify-model", gotVerify.Model)
+	}
+	if len(gotVerify.Verification.FactChecks) != 1 || gotVerify.Verification.FactChecks[0].NodeID != "n1" {
+		t.Fatalf("verification = %#v, want bridged fact check", gotVerify.Verification)
+	}
+}

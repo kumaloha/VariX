@@ -16,6 +16,8 @@ import (
 
 type compileClient interface {
 	Compile(ctx context.Context, bundle c.Bundle) (c.Record, error)
+	Verify(ctx context.Context, bundle c.Bundle, output c.Output) (c.Verification, error)
+	VerifyDetailed(ctx context.Context, bundle c.Bundle, output c.Output) (c.Verification, error)
 }
 
 var buildCompileClient = func(projectRoot string) compileClient {
