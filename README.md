@@ -94,7 +94,7 @@ Useful memory commands:
 Useful verify commands:
 - `verify queue --limit N` to inspect the current queue across statuses
 - `verify queue --status queued|running|retry|done --limit N` to narrow the queue view by status
-- `verify queue --summary` to inspect status counts, `due_count`, and `oldest_scheduled_at` at a glance
+- `verify queue --summary` to inspect status counts, object-type counts, `due_count`, and `oldest_scheduled_at` at a glance
 - `verify sweep --limit N` to process due queue items using current graph state
 
 See `docs/memory-organization.md` for the organizer output contract.

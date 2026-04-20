@@ -641,3 +641,26 @@ func TestSQLiteStore_GetVerifyQueueSummaryIncludesDueAndOldestScheduledAt(t *tes
 		t.Fatalf("OldestScheduledAt = %q, want %q", summary.OldestScheduledAt, now.Add(-time.Hour).Format(time.RFC3339))
 	}
 }
+
+func TestSQLiteStore_GetVerifyQueueSummaryIncludesObjectTypeBreakdown(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+	now := time.Now().UTC()
+	if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{ID: "q-type-1", ObjectType: graphmodel.VerifyQueueObjectNode, ObjectID: "n1", SourceArticleID: "u1", Priority: 10, ScheduledAt: now.Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued}); err != nil {
+		t.Fatalf("EnqueueVerifyQueueItem() error = %v", err)
+	}
+	if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{ID: "q-type-2", ObjectType: graphmodel.VerifyQueueObjectEdge, ObjectID: "e1", SourceArticleID: "u1", Priority: 10, ScheduledAt: now.Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued}); err != nil {
+		t.Fatalf("EnqueueVerifyQueueItem() error = %v", err)
+	}
+	summary, err := store.GetVerifyQueueSummaryDetailed(context.Background(), now)
+	if err != nil {
+		t.Fatalf("GetVerifyQueueSummaryDetailed() error = %v", err)
+	}
+	if summary.ObjectTypes[graphmodel.VerifyQueueObjectNode] != 1 || summary.ObjectTypes[graphmodel.VerifyQueueObjectEdge] != 1 {
+		t.Fatalf("summary object types = %#v, want node=1 edge=1", summary.ObjectTypes)
+	}
+}

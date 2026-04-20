@@ -4860,8 +4860,8 @@ func TestRunVerifyQueueSummaryPrintsCounts(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("verify queue --summary code = %d, stderr = %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "queued") || !strings.Contains(stdout.String(), "running") || !strings.Contains(stdout.String(), "due_count") {
-		t.Fatalf("stdout = %q, want queued/running summary with due_count", stdout.String())
+	if !strings.Contains(stdout.String(), "queued") || !strings.Contains(stdout.String(), "running") || !strings.Contains(stdout.String(), "due_count") || !strings.Contains(stdout.String(), "object_types") {
+		t.Fatalf("stdout = %q, want queued/running summary with due_count and object_types", stdout.String())
 	}
 }
 

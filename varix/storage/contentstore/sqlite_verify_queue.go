@@ -275,9 +275,10 @@ type VerifyQueueSweepResult struct {
 }
 
 type VerifyQueueSummaryDetailed struct {
-	Counts            map[graphmodel.VerifyQueueStatus]int `json:"counts"`
-	DueCount          int                                  `json:"due_count"`
-	OldestScheduledAt string                               `json:"oldest_scheduled_at,omitempty"`
+	Counts            map[graphmodel.VerifyQueueStatus]int     `json:"counts"`
+	ObjectTypes       map[graphmodel.VerifyQueueObjectType]int `json:"object_types"`
+	DueCount          int                                      `json:"due_count"`
+	OldestScheduledAt string                                   `json:"oldest_scheduled_at,omitempty"`
 }
 
 func (s *SQLiteStore) RetryVerifyQueueItem(ctx context.Context, queueID string, nextAt time.Time, lastError string, now time.Time) error {
@@ -373,7 +374,24 @@ func (s *SQLiteStore) GetVerifyQueueSummaryDetailed(ctx context.Context, now tim
 	if err := s.db.QueryRowContext(ctx, `SELECT scheduled_at FROM verify_queue ORDER BY scheduled_at ASC LIMIT 1`).Scan(&oldest); err != nil && err != sql.ErrNoRows {
 		return VerifyQueueSummaryDetailed{}, err
 	}
-	out := VerifyQueueSummaryDetailed{Counts: counts, DueCount: dueCount}
+	typeRows, err := s.db.QueryContext(ctx, `SELECT object_type, COUNT(*) FROM verify_queue GROUP BY object_type`)
+	if err != nil {
+		return VerifyQueueSummaryDetailed{}, err
+	}
+	defer typeRows.Close()
+	objectTypes := map[graphmodel.VerifyQueueObjectType]int{}
+	for typeRows.Next() {
+		var objectType string
+		var count int
+		if err := typeRows.Scan(&objectType, &count); err != nil {
+			return VerifyQueueSummaryDetailed{}, err
+		}
+		objectTypes[graphmodel.VerifyQueueObjectType(objectType)] = count
+	}
+	if err := typeRows.Err(); err != nil {
+		return VerifyQueueSummaryDetailed{}, err
+	}
+	out := VerifyQueueSummaryDetailed{Counts: counts, ObjectTypes: objectTypes, DueCount: dueCount}
 	if oldest.Valid {
 		out.OldestScheduledAt = parseSQLiteTime(oldest.String).UTC().Format(time.RFC3339)
 	}
