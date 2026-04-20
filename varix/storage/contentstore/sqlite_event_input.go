@@ -116,7 +116,7 @@ func (s *SQLiteStore) BuildEventInputCandidates(ctx context.Context, userID stri
 			}
 			candidate.SourceSubgraphIDs = append(candidate.SourceSubgraphIDs, subgraph.ID)
 			candidate.SourceArticleIDs = append(candidate.SourceArticleIDs, subgraph.ArticleID)
-			candidate.NodeIDs = append(candidate.NodeIDs, node.ID)
+			candidate.NodeIDs = append(candidate.NodeIDs, subgraph.ID+"::"+node.ID)
 		}
 	}
 	if err := rows.Err(); err != nil {

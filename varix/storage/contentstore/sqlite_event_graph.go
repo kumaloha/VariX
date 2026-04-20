@@ -228,7 +228,7 @@ func (s *SQLiteStore) eventVerificationStatusIndex(ctx context.Context, userID s
 			return nil, fmt.Errorf("decode memory_content_graph payload: %w", err)
 		}
 		for _, node := range subgraph.Nodes {
-			out[node.ID] = node.VerificationStatus
+			out[subgraph.ID+"::"+node.ID] = node.VerificationStatus
 		}
 	}
 	return out, rows.Err()
@@ -263,7 +263,7 @@ func (s *SQLiteStore) eventNodeChangeIndex(ctx context.Context, userID string) (
 			return nil, fmt.Errorf("decode memory_content_graph payload: %w", err)
 		}
 		for _, node := range subgraph.Nodes {
-			out[node.ID] = strings.TrimSpace(node.ChangeText)
+			out[subgraph.ID+"::"+node.ID] = strings.TrimSpace(node.ChangeText)
 		}
 	}
 	return out, rows.Err()
@@ -298,7 +298,7 @@ func (s *SQLiteStore) eventNodeTraceabilityIndex(ctx context.Context, userID str
 			return nil, fmt.Errorf("decode memory_content_graph payload: %w", err)
 		}
 		for _, node := range subgraph.Nodes {
-			out[node.ID] = subgraph.ID
+			out[subgraph.ID+"::"+node.ID] = subgraph.ID
 		}
 	}
 	return out, rows.Err()
@@ -311,7 +311,12 @@ func eventTraceabilityMap(nodeIDs []string, sourceByNodeID map[string]string) ma
 		if sourceID == "" {
 			continue
 		}
-		out[sourceID] = append(out[sourceID], nodeID)
+		parts := strings.SplitN(nodeID, "::", 2)
+		localID := nodeID
+		if len(parts) == 2 {
+			localID = parts[1]
+		}
+		out[sourceID] = append(out[sourceID], localID)
 	}
 	for sourceID, ids := range out {
 		out[sourceID] = uniqueStrings(ids)
