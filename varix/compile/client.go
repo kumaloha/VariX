@@ -196,8 +196,11 @@ func (c *Client) Verify(ctx context.Context, bundle Bundle, output Output) (Veri
 }
 
 func (c *Client) VerifyDetailed(ctx context.Context, bundle Bundle, output Output) (Verification, error) {
-	if c == nil || c.runtime == nil {
+	if c == nil {
 		return Verification{}, fmt.Errorf("verify client is nil")
+	}
+	if c.runtime == nil {
+		return Verification{}, fmt.Errorf("verify client runtime unavailable")
 	}
 	if c.prompts == nil {
 		c.prompts = newPromptRegistry("")
@@ -346,26 +349,26 @@ func mergeUnifiedCompileOutput(bundle Bundle, final UnifiedCompileOutput) Output
 		Confidence:        final.Confidence,
 	}
 	aux := EvidenceExplanationOutput{
-		EvidenceNodes:    final.EvidenceNodes,
-		ExplanationNodes: final.ExplanationNodes,
+		EvidenceNodes:      final.EvidenceNodes,
+		ExplanationNodes:   final.ExplanationNodes,
 		SupplementaryNodes: final.SupplementaryNodes,
-		Details:          final.Details,
-		Topics:           final.Topics,
-		Confidence:       final.Confidence,
+		Details:            final.Details,
+		Topics:             final.Topics,
+		Confidence:         final.Confidence,
 	}
 	graph := buildCompatibilityGraph(bundle, driverTarget, paths, aux)
 	return Output{
-		Summary:           strings.TrimSpace(final.Summary),
-		Drivers:           driverTarget.Drivers,
-		Targets:           driverTarget.Targets,
-		TransmissionPaths: paths.TransmissionPaths,
-		EvidenceNodes:     aux.EvidenceNodes,
-		ExplanationNodes:  aux.ExplanationNodes,
+		Summary:            strings.TrimSpace(final.Summary),
+		Drivers:            driverTarget.Drivers,
+		Targets:            driverTarget.Targets,
+		TransmissionPaths:  paths.TransmissionPaths,
+		EvidenceNodes:      aux.EvidenceNodes,
+		ExplanationNodes:   aux.ExplanationNodes,
 		SupplementaryNodes: aux.SupplementaryNodes,
-		Graph:             graph,
-		Details:           final.Details,
-		Topics:            final.Topics,
-		Confidence:        final.Confidence,
+		Graph:              graph,
+		Details:            final.Details,
+		Topics:             final.Topics,
+		Confidence:         final.Confidence,
 	}
 }
 

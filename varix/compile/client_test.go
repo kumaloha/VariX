@@ -233,12 +233,12 @@ func deriveEvidenceExplanationOutputForTest(out Output, driverTarget DriverTarge
 		evidence = appendIfMissing(evidence, out.Graph.Nodes[0].Text)
 	}
 	return EvidenceExplanationOutput{
-		EvidenceNodes:     evidence,
-		ExplanationNodes:  explanations,
+		EvidenceNodes:      evidence,
+		ExplanationNodes:   explanations,
 		SupplementaryNodes: supplementary,
-		Details:           out.Details,
-		Topics:            out.Topics,
-		Confidence:        out.Confidence,
+		Details:            out.Details,
+		Topics:             out.Topics,
+		Confidence:         out.Confidence,
 	}
 }
 
@@ -1458,4 +1458,12 @@ func mustClientTime(t *testing.T, raw string) time.Time {
 		t.Fatalf("time.Parse(%q) error = %v", raw, err)
 	}
 	return parsed
+}
+
+func TestClientVerifyDetailedReportsMissingRuntimeClearly(t *testing.T) {
+	client := &Client{}
+	_, err := client.VerifyDetailed(context.Background(), Bundle{}, Output{})
+	if err == nil || err.Error() != "verify client runtime unavailable" {
+		t.Fatalf("VerifyDetailed() error = %v, want verify client runtime unavailable", err)
+	}
 }
