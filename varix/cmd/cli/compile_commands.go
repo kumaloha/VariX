@@ -10,6 +10,7 @@ import (
 	"time"
 
 	c "github.com/kumaloha/VariX/varix/compile"
+	cv2 "github.com/kumaloha/VariX/varix/compilev2"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
@@ -22,6 +23,10 @@ type compileClient interface {
 
 var buildCompileClient = func(projectRoot string) compileClient {
 	return c.NewClientFromConfig(projectRoot, nil)
+}
+
+var buildCompileClientV2 = func(projectRoot string) compileClient {
+	return cv2.NewClientFromConfig(projectRoot, nil)
 }
 
 var openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
@@ -60,6 +65,7 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	force := fs.Bool("force", false, "force recompilation even if compiled output already exists")
 	noVerify := fs.Bool("no-verify", false, "skip compile-time verification and retrieval")
 	noValidate := fs.Bool("no-validate", false, "skip compile output validation (evaluation/debug only)")
+	pipeline := fs.String("pipeline", "legacy", "compile pipeline: legacy | v2")
 	timeout := fs.Duration("timeout", 10*time.Minute, "compile timeout")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -80,11 +86,24 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	if !*noVerify {
 		c.EnableFactWebVerification()
 	}
-	client := buildCompileClient(projectRoot)
-	if *noVerify && *noValidate {
-		client = c.NewClientFromConfigNoVerifyNoValidate(projectRoot, nil)
-	} else if *noVerify {
-		client = c.NewClientFromConfigNoVerify(projectRoot, nil)
+	var client compileClient
+	switch strings.TrimSpace(*pipeline) {
+	case "", "legacy":
+		client = buildCompileClient(projectRoot)
+		if *noVerify && *noValidate {
+			client = c.NewClientFromConfigNoVerifyNoValidate(projectRoot, nil)
+		} else if *noVerify {
+			client = c.NewClientFromConfigNoVerify(projectRoot, nil)
+		}
+	case "v2":
+		client = buildCompileClientV2(projectRoot)
+		if *noVerify || *noValidate {
+			fmt.Fprintln(stderr, "--no-verify/--no-validate are not supported with --pipeline v2")
+			return 2
+		}
+	default:
+		fmt.Fprintln(stderr, "unsupported compile pipeline")
+		return 2
 	}
 	if client == nil {
 		fmt.Fprintln(stderr, "compile client config missing")

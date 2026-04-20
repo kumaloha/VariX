@@ -734,6 +734,21 @@ func TestUnifiedJudgeInstructionDemotesSupplementalPseudoDrivers(t *testing.T) {
 	}
 }
 
+func TestUnifiedJudgeInstructionKeepsOnlyOneCanonicalMeaningInMainStructure(t *testing.T) {
+	instruction, err := newPromptRegistry("").buildUnifiedJudgeInstruction()
+	if err != nil {
+		t.Fatalf("buildUnifiedJudgeInstruction() error = %v", err)
+	}
+	for _, want := range []string{
+		"single most direct article-native formulation",
+		"move the others to `supplementary_nodes`",
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Fatalf("judge instruction missing %q in %q", want, instruction)
+		}
+	}
+}
+
 func TestClientCompileConfiguredPromptsDirFallsBackToDefaultForMissingThreeStageTemplates(t *testing.T) {
 	root := t.TempDir()
 	settings := config.DefaultSettings(root)
@@ -1085,7 +1100,7 @@ func TestClientCompileRoutesObservationTransmissionNodesThroughFactVerifier(t *t
 		t.Fatalf("provider calls = %d, want 6", len(provider.requests))
 	}
 	factPrompt := provider.requests[3].UserParts[len(provider.requests[3].UserParts)-1].Text
-	for _, want := range []string{`"kind": "事实"`, `"kind": "机制"`, `"kind": "结论"`} {
+	for _, want := range []string{`"kind": "机制"`, `"kind": "结论"`} {
 		if !strings.Contains(factPrompt, want) {
 			t.Fatalf("fact verifier prompt missing %q in %q", want, factPrompt)
 		}

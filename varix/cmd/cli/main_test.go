@@ -2210,10 +2210,12 @@ func stringValue(v any) string {
 func TestRunCompileWritesCompiledRecordJSON(t *testing.T) {
 	prevBuildApp := buildApp
 	prevBuildCompileClient := buildCompileClient
+	prevBuildCompileClientV2 := buildCompileClientV2
 	prevOpenSQLiteStore := openSQLiteStore
 	t.Cleanup(func() {
 		buildApp = prevBuildApp
 		buildCompileClient = prevBuildCompileClient
+		buildCompileClientV2 = prevBuildCompileClientV2
 		openSQLiteStore = prevOpenSQLiteStore
 	})
 
@@ -2286,6 +2288,79 @@ func TestRunCompileWritesCompiledRecordJSON(t *testing.T) {
 	}
 	if got.Output.Summary != "一句话" {
 		t.Fatalf("Summary = %q", got.Output.Summary)
+	}
+}
+
+func TestRunCompilePipelineV2UsesV2Client(t *testing.T) {
+	prevBuildApp := buildApp
+	prevBuildCompileClient := buildCompileClient
+	prevBuildCompileClientV2 := buildCompileClientV2
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		buildCompileClient = prevBuildCompileClient
+		buildCompileClientV2 = prevBuildCompileClientV2
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		src := fakeItemSource{
+			items: []types.RawContent{{
+				Source:     "web",
+				ExternalID: "v2-id",
+				Content:    "hello",
+				URL:        "https://example.com/v2",
+			}},
+		}
+		app.Dispatcher = dispatcher.New(
+				func(raw string) (types.ParsedURL, error) {
+					return types.ParsedURL{Platform: types.PlatformWeb, ContentType: types.ContentTypePost, PlatformID: "v2-id", CanonicalURL: raw}, nil
+				},
+				[]dispatcher.ItemSource{src},
+				nil,
+				nil,
+			)
+		return app, nil
+	}
+	buildCompileClient = func(projectRoot string) compileClient {
+		t.Fatal("legacy compile client should not be used")
+		return nil
+	}
+	buildCompileClientV2 = func(projectRoot string) compileClient {
+		return fakeCompileClient{record: c.Record{
+			UnitID:     "web:v2-id",
+			Source:     "web",
+			ExternalID: "v2-id",
+			Model:      "qwen3.6-plus",
+			Output: c.Output{
+				Summary: "v2 summary",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}}
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		return contentstore.NewSQLiteStore(path)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "run", "--pipeline", "v2", "--url", "https://example.com/v2"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	var got c.Record
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(stdout) error = %v", err)
+	}
+	if got.Output.Summary != "v2 summary" {
+		t.Fatalf("Summary = %q, want v2 summary", got.Output.Summary)
 	}
 }
 

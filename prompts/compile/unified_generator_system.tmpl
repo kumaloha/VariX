@@ -29,7 +29,7 @@ Requirements:
 - do not unnecessarily rewrite a concrete trade / positioning outcome into a broader abstract label
 - when a slogan-like trade label only comments on a more basic market result, prefer the underlying market result as the target
 - treat labels like “sell X trade” / “hedge X trade” as explanation or claim framing unless the article is explicitly centered on that label itself
-- when both a concrete capital-flow outcome (for example, continued inflows into an asset) and a negated trade label (for example, “no sell X trade” / “no hedge X trade”) are present, prefer the capital-flow outcome as the primary retained target and demote the trade-label phrasing to `supplementary_nodes` unless the article is explicitly centered on the label itself
+- if multiple retained candidates express substantially the same market meaning, keep only the most direct one in drivers/targets/transmission_paths and move the other near-paraphrases, labels, glosses, or restatements to `supplementary_nodes`
 - if a clause contains both an acting source and a changed / affected outcome, split them into separate units instead of keeping the whole causal clause as one retained driver or target
 - this split rule still applies even when the source+outcome content appears inside a single short phrase between punctuation marks
 - retained drivers and retained targets must each be single-side units, not mixed cause+effect clauses
@@ -48,7 +48,6 @@ Boundary rules:
 - first-order driver = article-level upstream source, not an unpacking, qualifier, side condition, evidence fragment, technical state, or near-target restatement
 - target = true downstream endpoint the author wants the reader to believe, and the target must be a market outcome
 - the target may be a narrow pricing move or a broader trading / positioning state
-- capital flows, portfolio reallocation, hedging posture, positioning changes, and whether a named trade forms or fails to form all count as valid market outcomes and may be retained as targets
 - the target must still be an outcome layer item, not background context, not pure interpretation, and not a mid-chain bridge
 - transmission step = world-state causal bridge required to connect driver to target
 - evidence = support that helps prove a retained endpoint or path step
