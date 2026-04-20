@@ -80,3 +80,24 @@ func (s *SQLiteStore) ListMemoryContentGraphsBySubject(ctx context.Context, user
 	}
 	return out, rows.Err()
 }
+
+func (s *SQLiteStore) ListMemoryContentGraphsBySourceAndSubject(ctx context.Context, userID, sourcePlatform, sourceExternalID, subject string) ([]graphmodel.ContentSubgraph, error) {
+	items, err := s.ListMemoryContentGraphsBySource(ctx, userID, sourcePlatform, sourceExternalID)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]graphmodel.ContentSubgraph, 0, len(items))
+	for _, item := range items {
+		matched := false
+		for _, node := range item.Nodes {
+			if node.SubjectText == strings.TrimSpace(subject) || node.SubjectCanonical == strings.TrimSpace(subject) {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
+}

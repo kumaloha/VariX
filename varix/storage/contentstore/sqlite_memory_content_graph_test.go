@@ -299,3 +299,28 @@ func TestSQLiteStore_ListMemoryContentGraphsBySubjectFiltersSnapshots(t *testing
 		t.Fatalf("filtered content graphs = %#v, want 美联储 snapshot only", items)
 	}
 }
+
+func TestSQLiteStore_ListMemoryContentGraphsBySourceAndSubjectUsesIntersection(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	for _, sg := range []graphmodel.ContentSubgraph{
+		{ID: "cg-ss-1", ArticleID: "cg-ss-1", SourcePlatform: "twitter", SourceExternalID: "cg-ss-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "cg-ss-1", SourcePlatform: "twitter", SourceExternalID: "cg-ss-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+		{ID: "cg-ss-2", ArticleID: "cg-ss-2", SourcePlatform: "twitter", SourceExternalID: "cg-ss-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "cg-ss-2", SourcePlatform: "twitter", SourceExternalID: "cg-ss-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+	} {
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-cg-ss", sg, now); err != nil {
+			t.Fatalf("PersistMemoryContentGraph(%s) error = %v", sg.ID, err)
+		}
+	}
+	items, err := store.ListMemoryContentGraphsBySourceAndSubject(context.Background(), "u-cg-ss", "twitter", "cg-ss-2", "美联储")
+	if err != nil {
+		t.Fatalf("ListMemoryContentGraphsBySourceAndSubject() error = %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("items = %#v, want empty intersection", items)
+	}
+}
