@@ -15,7 +15,7 @@ import (
 
 func runVerifyCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: varix verify <run|show> ...")
+		fmt.Fprintln(stderr, "usage: varix verify <run|show|queue|sweep> ...")
 		return 2
 	}
 
@@ -24,8 +24,12 @@ func runVerifyCommand(args []string, projectRoot string, stdout, stderr io.Write
 		return runVerifyRun(args[1:], projectRoot, stdout, stderr)
 	case "show":
 		return runVerifyShow(args[1:], projectRoot, stdout, stderr)
+	case "queue":
+		return runVerifyQueue(args[1:], projectRoot, stdout, stderr)
+	case "sweep":
+		return runVerifySweep(args[1:], projectRoot, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: varix verify <run|show> ...")
+		fmt.Fprintln(stderr, "usage: varix verify <run|show|queue|sweep> ...")
 		return 2
 	}
 }
@@ -172,8 +176,11 @@ func runVerifyShow(args []string, projectRoot string, stdout, stderr io.Writer) 
 	defer store.Close()
 	record, err := store.GetVerificationResult(context.Background(), *platform, *externalID)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
+		record, err = store.BuildVerificationRecordFromContentSubgraph(context.Background(), *platform, *externalID)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 	}
 	payload, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
@@ -189,4 +196,84 @@ func firstVerificationTime(v c.Verification) time.Time {
 		return v.VerifiedAt
 	}
 	return time.Now().UTC()
+}
+
+func runVerifyQueue(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("verify queue", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	limit := fs.Int("limit", 20, "max items")
+	status := fs.String("status", "", "optional filter: queued, running, retry, done")
+	summary := fs.Bool("summary", false, "print queue status counts instead of items")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	if *summary {
+		counts, err := store.GetVerifyQueueSummary(context.Background())
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		payload, err := json.MarshalIndent(counts, "", "  ")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(payload))
+		return 0
+	}
+	items, err := store.ListVerifyQueueItemsByStatus(context.Background(), strings.TrimSpace(*status), *limit)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	payload, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func runVerifySweep(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("verify sweep", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	limit := fs.Int("limit", 20, "max items")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	result, err := store.RunVerifyQueueSweepFromContentGraphState(context.Background(), time.Now().UTC(), *limit)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	payload, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
 }

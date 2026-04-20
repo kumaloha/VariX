@@ -21,6 +21,8 @@ var compileCommands = []string{
 var verifyCommands = []string{
 	"run",
 	"show",
+	"queue",
+	"sweep",
 }
 
 var memoryCommands = []string{
@@ -28,6 +30,7 @@ var memoryCommands = []string{
 	"accept-batch",
 	"list",
 	"show-source",
+	"content-graphs",
 	"jobs",
 	"posterior-run",
 	"organize-run",
@@ -39,6 +42,11 @@ var memoryCommands = []string{
 	"global-card",
 	"global-v2-card",
 	"global-compare",
+	"event-graphs",
+	"event-evidence",
+	"paradigms",
+	"paradigm-evidence",
+	"project-all",
 }
 
 func isIngestCommand(name string) bool {

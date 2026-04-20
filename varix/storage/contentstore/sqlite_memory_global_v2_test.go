@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kumaloha/VariX/varix/compile"
+	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
 )
 
@@ -962,5 +963,201 @@ func TestSQLiteStore_RunGlobalMemoryOrganizationV2ReattachesSameSourceSingletons
 	}
 	if len(out.CognitiveConclusions) != 1 {
 		t.Fatalf("len(CognitiveConclusions) = %d, want 1", len(out.CognitiveConclusions))
+	}
+}
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2ReusesPersistedEventAndParadigmProjectionsWhenAvailable(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	sg := graphmodel.ContentSubgraph{
+		ID:               "reuse-v2",
+		ArticleID:        "reuse-v2",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "reuse-v2",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{
+			{ID: "n1", SourceArticleID: "reuse-v2", SourcePlatform: "twitter", SourceExternalID: "reuse-v2", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "n2", SourceArticleID: "reuse-v2", SourcePlatform: "twitter", SourceExternalID: "reuse-v2", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"},
+		},
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-reuse-v2", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	if _, err := store.RunEventGraphProjection(context.Background(), "u-reuse-v2", now); err != nil {
+		t.Fatalf("RunEventGraphProjection() error = %v", err)
+	}
+	if _, err := store.RunParadigmProjection(context.Background(), "u-reuse-v2", now); err != nil {
+		t.Fatalf("RunParadigmProjection() error = %v", err)
+	}
+
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-reuse-v2", now)
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.DriverAggregates) == 0 || len(out.TargetAggregates) == 0 {
+		t.Fatalf("global v2 output = %#v, want aggregates derived from persisted event/paradigm projections", out)
+	}
+}
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2BuildsTopItemsFromPersistedParadigmsFallback(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	sg := graphmodel.ContentSubgraph{
+		ID:               "reuse-v2-top",
+		ArticleID:        "reuse-v2-top",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "reuse-v2-top",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{
+			{ID: "n1", SourceArticleID: "reuse-v2-top", SourcePlatform: "twitter", SourceExternalID: "reuse-v2-top", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "n2", SourceArticleID: "reuse-v2-top", SourcePlatform: "twitter", SourceExternalID: "reuse-v2-top", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"},
+		},
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-reuse-v2-top", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	if _, err := store.RunParadigmProjection(context.Background(), "u-reuse-v2-top", now); err != nil {
+		t.Fatalf("RunParadigmProjection() error = %v", err)
+	}
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-reuse-v2-top", now)
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.TopMemoryItems) == 0 {
+		t.Fatalf("TopMemoryItems = %#v, want fallback top item from paradigm", out.TopMemoryItems)
+	}
+	if out.TopMemoryItems[0].ItemType != memory.TopMemoryItemConclusion {
+		t.Fatalf("TopMemoryItems[0].ItemType = %q, want conclusion", out.TopMemoryItems[0].ItemType)
+	}
+}
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2BuildsCardsFromPersistedEventGraphsFallback(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	sg := graphmodel.ContentSubgraph{
+		ID:               "reuse-v2-card",
+		ArticleID:        "reuse-v2-card",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "reuse-v2-card",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{
+			{ID: "n1", SourceArticleID: "reuse-v2-card", SourcePlatform: "twitter", SourceExternalID: "reuse-v2-card", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "n2", SourceArticleID: "reuse-v2-card", SourcePlatform: "twitter", SourceExternalID: "reuse-v2-card", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"},
+		},
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-reuse-v2-card", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	if _, err := store.RunEventGraphProjection(context.Background(), "u-reuse-v2-card", now); err != nil {
+		t.Fatalf("RunEventGraphProjection() error = %v", err)
+	}
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-reuse-v2-card", now)
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.CognitiveCards) == 0 {
+		t.Fatalf("CognitiveCards = %#v, want fallback card from persisted event graphs", out.CognitiveCards)
+	}
+}
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2BuildsTopItemsFromPersistedEventGraphsFallback(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	sg := graphmodel.ContentSubgraph{
+		ID:               "reuse-v2-top-event",
+		ArticleID:        "reuse-v2-top-event",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "reuse-v2-top-event",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{
+			{ID: "n1", SourceArticleID: "reuse-v2-top-event", SourcePlatform: "twitter", SourceExternalID: "reuse-v2-top-event", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "n2", SourceArticleID: "reuse-v2-top-event", SourcePlatform: "twitter", SourceExternalID: "reuse-v2-top-event", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+		},
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-reuse-v2-top-event", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	if _, err := store.RunEventGraphProjection(context.Background(), "u-reuse-v2-top-event", now); err != nil {
+		t.Fatalf("RunEventGraphProjection() error = %v", err)
+	}
+	if _, err := store.db.Exec(`DELETE FROM paradigms WHERE user_id = ?`, "u-reuse-v2-top-event"); err != nil {
+		t.Fatalf("DELETE paradigms error = %v", err)
+	}
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-reuse-v2-top-event", now)
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.TopMemoryItems) == 0 {
+		t.Fatalf("TopMemoryItems = %#v, want fallback top item from event graph", out.TopMemoryItems)
+	}
+}
+
+func TestSQLiteStore_RunGlobalMemoryOrganizationV2RefreshesPersistedEventAndParadigmLayersFirst(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	sg := graphmodel.ContentSubgraph{ID: "refresh-v2", ArticleID: "refresh-v2", SourcePlatform: "twitter", SourceExternalID: "refresh-v2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "refresh-v2", SourcePlatform: "twitter", SourceExternalID: "refresh-v2", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "refresh-v2", SourcePlatform: "twitter", SourceExternalID: "refresh-v2", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-refresh-v2", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	if _, err := store.db.Exec(`DELETE FROM event_graphs WHERE user_id = ?`, "u-refresh-v2"); err != nil {
+		t.Fatalf("DELETE event_graphs error = %v", err)
+	}
+	if _, err := store.db.Exec(`DELETE FROM paradigms WHERE user_id = ?`, "u-refresh-v2"); err != nil {
+		t.Fatalf("DELETE paradigms error = %v", err)
+	}
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), "u-refresh-v2", now)
+	if err != nil {
+		t.Fatalf("RunGlobalMemoryOrganizationV2() error = %v", err)
+	}
+	if len(out.DriverAggregates) == 0 || len(out.TopMemoryItems) == 0 {
+		t.Fatalf("output = %#v, want regenerated projections included", out)
+	}
+	var eventCount, paradigmCount int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM event_graphs WHERE user_id = ?`, "u-refresh-v2").Scan(&eventCount); err != nil {
+		t.Fatalf("QueryRow(event_graphs) error = %v", err)
+	}
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM paradigms WHERE user_id = ?`, "u-refresh-v2").Scan(&paradigmCount); err != nil {
+		t.Fatalf("QueryRow(paradigms) error = %v", err)
+	}
+	if eventCount == 0 || paradigmCount == 0 {
+		t.Fatalf("eventCount/paradigmCount = %d/%d, want regenerated rows", eventCount, paradigmCount)
 	}
 }

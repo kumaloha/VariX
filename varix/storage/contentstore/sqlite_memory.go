@@ -144,6 +144,10 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 	if err != nil {
 		return memory.AcceptResult{}, err
 	}
+	if err := persistMemoryContentGraphTx(ctx, tx, req.UserID, record, now); err != nil {
+		return memory.AcceptResult{}, err
+	}
+
 	event := memory.AcceptanceEvent{
 		EventID:           eventID,
 		UserID:            req.UserID,
@@ -187,6 +191,12 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 	}
 
 	if err := tx.Commit(); err != nil {
+		return memory.AcceptResult{}, err
+	}
+	if _, err := s.RunEventGraphProjection(ctx, req.UserID, now); err != nil {
+		return memory.AcceptResult{}, err
+	}
+	if _, err := s.RunParadigmProjection(ctx, req.UserID, now); err != nil {
 		return memory.AcceptResult{}, err
 	}
 

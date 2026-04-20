@@ -20,11 +20,20 @@ func (s *SQLiteStore) RunGlobalMemoryOrganizationV2(ctx context.Context, userID 
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	// refresh graph-first persisted projections first so global-v2 sees the freshest event/paradigm layers
+	if _, err := s.RunEventGraphProjection(ctx, strings.TrimSpace(userID), now); err != nil {
+		return memory.GlobalMemoryV2Output{}, err
+	}
+	if _, err := s.RunParadigmProjection(ctx, strings.TrimSpace(userID), now); err != nil {
+		return memory.GlobalMemoryV2Output{}, err
+	}
 
 	nodes, err := s.ListUserMemory(ctx, strings.TrimSpace(userID))
 	if err != nil {
 		return memory.GlobalMemoryV2Output{}, err
 	}
+	persistedEventGraphs, _ := s.ListEventGraphs(ctx, strings.TrimSpace(userID))
+	persistedParadigms, _ := s.ListParadigms(ctx, strings.TrimSpace(userID))
 	activeNodes := make([]memory.AcceptedNode, 0, len(nodes))
 	nodesByID := make(map[string]memory.AcceptedNode, len(nodes))
 	for _, node := range nodes {
@@ -60,6 +69,25 @@ func (s *SQLiteStore) RunGlobalMemoryOrganizationV2(ctx context.Context, userID 
 	relationProjection, err := s.buildRelationFirstProjection(ctx, now, causalTheses, cognitiveConclusions)
 	if err != nil {
 		return memory.GlobalMemoryV2Output{}, err
+	}
+
+	if len(relationProjection.driverAggregates) == 0 && len(persistedEventGraphs) > 0 {
+		relationProjection.driverAggregates = buildDriverAggregatesFromEventGraphs(persistedEventGraphs, now)
+	}
+	if len(relationProjection.targetAggregates) == 0 && len(persistedEventGraphs) > 0 {
+		relationProjection.targetAggregates = buildTargetAggregatesFromEventGraphs(persistedEventGraphs, now)
+	}
+	if len(cognitiveCards) == 0 && len(persistedEventGraphs) > 0 {
+		cognitiveCards = buildCardsFromEventGraphs(persistedEventGraphs, now)
+	}
+	if len(cognitiveConclusions) == 0 && len(persistedParadigms) > 0 {
+		cognitiveConclusions = buildConclusionsFromParadigms(persistedParadigms, now)
+	}
+	if len(topMemoryItems) == 0 && len(persistedParadigms) > 0 {
+		topMemoryItems = buildTopItemsFromParadigms(persistedParadigms, now)
+	}
+	if len(topMemoryItems) == 0 && len(persistedEventGraphs) > 0 {
+		topMemoryItems = buildTopItemsFromEventGraphs(persistedEventGraphs, now)
 	}
 
 	output := memory.GlobalMemoryV2Output{
@@ -252,4 +280,68 @@ func conflictSupportPriority(kind compile.NodeKind) int {
 	default:
 		return 99
 	}
+}
+
+func buildDriverAggregatesFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memory.DriverAggregate {
+	out := make([]memory.DriverAggregate, 0)
+	for _, graph := range graphs {
+		if graph.Scope != "driver" {
+			continue
+		}
+		out = append(out, memory.DriverAggregate{AggregateID: graph.EventGraphID, DriverEntityID: relationEntityID(memory.CanonicalEntityDriver, graph.AnchorSubject), TargetEntityIDs: nil, CoverageScore: float64(graph.PrimaryNodeCount), ConflictCount: 0, TraceabilityStatus: memory.TraceabilityPartial, AsOf: now, CreatedAt: now})
+	}
+	return out
+}
+
+func buildTargetAggregatesFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memory.TargetAggregate {
+	out := make([]memory.TargetAggregate, 0)
+	for _, graph := range graphs {
+		if graph.Scope != "target" {
+			continue
+		}
+		out = append(out, memory.TargetAggregate{AggregateID: graph.EventGraphID, TargetEntityID: relationEntityID(memory.CanonicalEntityTarget, graph.AnchorSubject), DriverEntityIDs: nil, CoverageScore: float64(graph.PrimaryNodeCount), ConflictCount: 0, TraceabilityStatus: memory.TraceabilityPartial, AsOf: now, CreatedAt: now})
+	}
+	return out
+}
+
+func buildConclusionsFromParadigms(items []ParadigmRecord, now time.Time) []memory.CognitiveConclusion {
+	out := make([]memory.CognitiveConclusion, 0, len(items))
+	for _, item := range items {
+		out = append(out, memory.CognitiveConclusion{ConclusionID: item.ParadigmID + "-conclusion", SourceType: "paradigm", SourceID: item.ParadigmID, Headline: item.DriverSubject + " -> " + item.TargetSubject, Subheadline: item.CredibilityState, TraceabilityStatus: memory.TraceabilityPartial, AsOf: now, CreatedAt: now})
+	}
+	return out
+}
+
+func buildTopItemsFromParadigms(items []ParadigmRecord, now time.Time) []memory.TopMemoryItem {
+	out := make([]memory.TopMemoryItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, memory.TopMemoryItem{ItemID: item.ParadigmID + "-top", ItemType: memory.TopMemoryItemConclusion, Headline: item.DriverSubject + " -> " + item.TargetSubject, BackingObjectID: item.ParadigmID, SignalStrength: memory.SignalMedium, AsOf: now, UpdatedAt: now})
+	}
+	return out
+}
+
+func buildCardsFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memory.CognitiveCard {
+	out := make([]memory.CognitiveCard, 0, len(graphs))
+	for _, graph := range graphs {
+		out = append(out, memory.CognitiveCard{
+			CardID:         graph.EventGraphID + "-card",
+			RelationID:     graph.EventGraphID,
+			AsOf:           now,
+			CardType:       "event_graph",
+			Title:          graph.AnchorSubject,
+			Summary:        graph.Scope + " / " + graph.TimeBucket,
+			MechanismChain: append([]string(nil), graph.RepresentativeChanges...),
+			SourceRefs:     append([]string(nil), graph.SourceSubgraphIDs...),
+			CreatedAt:      now,
+		})
+	}
+	return out
+}
+
+func buildTopItemsFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memory.TopMemoryItem {
+	out := make([]memory.TopMemoryItem, 0, len(graphs))
+	for _, graph := range graphs {
+		out = append(out, memory.TopMemoryItem{ItemID: graph.EventGraphID + "-top", ItemType: memory.TopMemoryItemCard, Headline: graph.AnchorSubject, Subheadline: graph.Scope + " / " + graph.TimeBucket, BackingObjectID: graph.EventGraphID, SignalStrength: memory.SignalMedium, AsOf: now, UpdatedAt: now})
+	}
+	return out
 }

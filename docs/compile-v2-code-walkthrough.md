@@ -675,11 +675,11 @@ func (c *Client) Compile(ctx context.Context, bundle compile.Bundle) (compile.Re
 }
 
 func (c *Client) Verify(ctx context.Context, bundle compile.Bundle, output compile.Output) (compile.Verification, error) {
-	return compile.Verification{}, fmt.Errorf("compile v2 client does not implement verify")
+	return legacy.Verify(ctx, bundle, output) // delegated to legacy verifier implementation
 }
 
 func (c *Client) VerifyDetailed(ctx context.Context, bundle compile.Bundle, output compile.Output) (compile.Verification, error) {
-	return compile.Verification{}, fmt.Errorf("compile v2 client does not implement verify")
+	return legacy.Verify(ctx, bundle, output) // delegated to legacy verifier implementation
 }
 
 func firstConfiguredValue(projectRoot string, keys ...string) string {

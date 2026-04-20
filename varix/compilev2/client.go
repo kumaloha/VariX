@@ -150,11 +150,25 @@ func (c *Client) Compile(ctx context.Context, bundle compile.Bundle) (compile.Re
 }
 
 func (c *Client) Verify(ctx context.Context, bundle compile.Bundle, output compile.Output) (compile.Verification, error) {
-	return compile.Verification{}, fmt.Errorf("compile v2 client does not implement verify")
+	if c == nil {
+		return compile.Verification{}, fmt.Errorf("verify client is nil")
+	}
+	legacy := compile.NewClientFromConfig(c.projectRoot, nil)
+	if legacy == nil {
+		return compile.Verification{}, fmt.Errorf("verify client config missing")
+	}
+	return legacy.Verify(ctx, bundle, output)
 }
 
 func (c *Client) VerifyDetailed(ctx context.Context, bundle compile.Bundle, output compile.Output) (compile.Verification, error) {
-	return compile.Verification{}, fmt.Errorf("compile v2 client does not implement verify")
+	if c == nil {
+		return compile.Verification{}, fmt.Errorf("verify client is nil")
+	}
+	legacy := compile.NewClientFromConfig(c.projectRoot, nil)
+	if legacy == nil {
+		return compile.Verification{}, fmt.Errorf("verify client config missing")
+	}
+	return legacy.VerifyDetailed(ctx, bundle, output)
 }
 
 func firstConfiguredValue(projectRoot string, keys ...string) string {
@@ -206,11 +220,11 @@ func (c *Client) startDebugRun(bundle compile.Bundle) string {
 		return ""
 	}
 	_ = os.WriteFile(filepath.Join(dir, "meta.json"), mustJSON(map[string]any{
-		"unit_id":        bundle.UnitID,
-		"source":         bundle.Source,
-		"external_id":    bundle.ExternalID,
+		"unit_id":          bundle.UnitID,
+		"source":           bundle.Source,
+		"external_id":      bundle.ExternalID,
 		"root_external_id": bundle.RootExternalID,
-		"started_at":     ts,
+		"started_at":       ts,
 	}), 0o644)
 	return dir
 }

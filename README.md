@@ -44,6 +44,36 @@ Current organizer contract:
   rolls out in parallel
 
 Useful memory commands:
+- `memory event-evidence --user <user>` to inspect persisted event evidence links
+- `memory event-evidence --event-graph-id <id> --user <user>` to inspect links for one event graph (prints a no-match message when empty)
+- `memory paradigm-evidence --user <user>` to inspect persisted paradigm evidence links
+- `memory paradigm-evidence --paradigm-id <id> --user <user>` to inspect links for one paradigm (prints a no-match message when empty)
+- `memory global-v2-organize-run --user <user>` now refreshes event/paradigm projections before building the global view
+- `memory project-all --user <user>` to manually reproject event, paradigm, and global-v2 layers from current graph-first content memory
+- `memory content-graphs --user <user>` to inspect graph-first content memory
+  snapshots persisted per source
+- `memory content-graphs --platform <platform> --id <external_id> --user <user>`
+  to narrow to one persisted source snapshot
+- `memory content-graphs --subject <subject> --user <user>`
+  to narrow snapshots by subject mention
+- `memory content-graphs --card --user <user> --platform <platform> --id <external_id>`
+  to render a readable content-graph card
+- `memory content-graphs --card --subject <subject> --user <user>`
+  to render cards for one matching subject
+- `memory content-graphs --run --user <user> --platform <platform> --id <external_id>`
+  to rebuild one graph-first content snapshot from the latest compiled output
+- `memory event-graphs --user <user>` to inspect projected event-layer objects
+- `memory event-graphs --scope driver|target --user <user>` to narrow by event scope
+- `memory event-graphs --subject <subject> --user <user>` to narrow by anchor subject
+- `memory event-graphs --card --user <user>` to render a readable event card view
+- `memory event-graphs --card --scope driver|target --user <user>` to render only one scope as cards
+- `memory event-graphs --card --subject <subject> --user <user>` to render cards for one anchor subject
+- `memory event-graphs --run --user <user>` to force a fresh event projection
+- `memory paradigms --user <user>` to inspect projected paradigm objects
+- `memory paradigms --subject <subject> --user <user>` to narrow by subject
+- `memory paradigms --card --user <user>` to render a readable paradigm card view
+- `memory paradigms --card --subject <subject> --user <user>` to render cards for one subject
+- `memory paradigms --run --user <user>` to force a fresh paradigm projection
 - `memory global-organize-run|global-organized|global-card` for the existing
   cluster-first global memory view
 - `memory global-v2-organize-run|global-v2-organized` for raw thesis-first v2
@@ -61,4 +91,13 @@ Useful memory commands:
 - `memory global-compare --item-type conclusion|conflict --limit N` to narrow
   the v2 side and shorten large compare outputs
 
+Useful verify commands:
+- `verify queue --limit N` to inspect the current queue across statuses
+- `verify queue --status queued|running|retry|done --limit N` to narrow the queue view by status
+- `verify queue --summary` to inspect status counts at a glance
+- `verify sweep --limit N` to process due queue items using current graph state
+
 See `docs/memory-organization.md` for the organizer output contract.
+
+
+- `verify show --platform <platform> --id <external_id>` now falls back to current graph-first verification state when no legacy `verification_results` row exists

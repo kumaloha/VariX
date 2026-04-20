@@ -363,6 +363,17 @@ func (s *SQLiteStore) init() error {
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY(platform, external_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS content_subgraphs (
+			subgraph_id TEXT NOT NULL,
+			platform TEXT NOT NULL,
+			external_id TEXT NOT NULL,
+			root_external_id TEXT NOT NULL DEFAULT '',
+			compile_version TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			compiled_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(platform, external_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS verification_results (
 			platform TEXT NOT NULL,
 			external_id TEXT NOT NULL,
@@ -373,6 +384,34 @@ func (s *SQLiteStore) init() error {
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY(platform, external_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS verify_queue (
+			queue_id TEXT PRIMARY KEY,
+			object_type TEXT NOT NULL,
+			object_id TEXT NOT NULL,
+			source_article_id TEXT NOT NULL,
+			priority INTEGER NOT NULL DEFAULT 0,
+			scheduled_at TEXT NOT NULL,
+			attempts INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_verify_queue_due
+			ON verify_queue(status, scheduled_at, priority DESC)`,
+		`CREATE TABLE IF NOT EXISTS verify_verdict_history (
+			verdict_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			object_type TEXT NOT NULL,
+			object_id TEXT NOT NULL,
+			verdict TEXT NOT NULL,
+			reason TEXT,
+			evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+			as_of TEXT NOT NULL,
+			next_verify_at TEXT,
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_verify_verdict_history_object
+			ON verify_verdict_history(object_type, object_id, as_of DESC)`,
 		`CREATE TABLE IF NOT EXISTS user_memory_nodes (
 			memory_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id TEXT NOT NULL,
@@ -438,6 +477,59 @@ func (s *SQLiteStore) init() error {
 			payload_json TEXT NOT NULL,
 			created_at TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS memory_content_graphs (
+			memory_graph_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL,
+			source_platform TEXT NOT NULL,
+			source_external_id TEXT NOT NULL,
+			root_external_id TEXT NOT NULL DEFAULT '',
+			subgraph_id TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			accepted_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			UNIQUE(user_id, source_platform, source_external_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS event_graphs (
+			event_graph_id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			anchor_subject TEXT NOT NULL,
+			time_bucket TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			generated_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_event_graphs_user_scope_anchor_bucket
+			ON event_graphs(user_id, scope, anchor_subject, time_bucket)`,
+		`CREATE TABLE IF NOT EXISTS event_graph_evidence_links (
+			link_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			event_graph_id TEXT NOT NULL,
+			subgraph_id TEXT NOT NULL,
+			node_id TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_event_graph_evidence_unique
+			ON event_graph_evidence_links(event_graph_id, subgraph_id, node_id)`,
+		`CREATE TABLE IF NOT EXISTS paradigms (
+			paradigm_id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			driver_subject TEXT NOT NULL,
+			target_subject TEXT NOT NULL,
+			time_bucket TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_paradigms_user_boundary_bucket
+			ON paradigms(user_id, driver_subject, target_subject, time_bucket)`,
+		`CREATE TABLE IF NOT EXISTS paradigm_evidence_links (
+			link_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			paradigm_id TEXT NOT NULL,
+			event_graph_id TEXT NOT NULL DEFAULT '',
+			subgraph_id TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_paradigm_evidence_unique
+			ON paradigm_evidence_links(paradigm_id, event_graph_id, subgraph_id)`,
 		`CREATE TABLE IF NOT EXISTS global_memory_organization_outputs (
 			output_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id TEXT NOT NULL UNIQUE,

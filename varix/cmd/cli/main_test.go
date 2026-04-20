@@ -10,6 +10,7 @@ import (
 
 	"github.com/kumaloha/VariX/varix/bootstrap"
 	c "github.com/kumaloha/VariX/varix/compile"
+	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/ingest/dispatcher"
 	"github.com/kumaloha/VariX/varix/ingest/polling"
 	"github.com/kumaloha/VariX/varix/ingest/types"
@@ -3768,5 +3769,1463 @@ func TestRunCompileCardCollapsesLinearChain(t *testing.T) {
 	out := stdout.String()
 	if !strings.Contains(out, "驱动A -> 步骤B -> 目标C") {
 		t.Fatalf("stdout missing collapsed chain in %q", out)
+	}
+}
+
+func TestRunMemoryEventGraphsPrintsProjectedEventGraphs(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID: "twitter:EG1", Source: "twitter", ExternalID: "EG1", RootExternalID: "EG1", Model: c.Qwen36PlusModel,
+			Output: c.Output{Summary: "一句话", Drivers: []string{"美联储加息0.25%"}, Targets: []string{"未来一周美股承压"}, Graph: c.ReasoningGraph{Nodes: []c.GraphNode{
+				{ID: "n1", Kind: c.NodeFact, Text: "美联储加息0.25%", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: c.NodePrediction, Text: "未来一周美股承压", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC), PredictionDueAt: time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)},
+			}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-event-cli", SourcePlatform: "twitter", SourceExternalID: "EG1", NodeIDs: []string{"n1", "n2"}}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-graphs", "--user", "u-event-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-graphs code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.EventGraphRecord
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(event-graphs) error = %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatalf("event-graphs output = %#v, want non-empty", out)
+	}
+}
+
+func TestRunMemoryParadigmsPrintsProjectedParadigms(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID: "twitter:PG1", Source: "twitter", ExternalID: "PG1", RootExternalID: "PG1", Model: c.Qwen36PlusModel,
+			Output: c.Output{Summary: "一句话", Drivers: []string{"美联储加息0.25%"}, Targets: []string{"未来一周美股承压"}, Graph: c.ReasoningGraph{Nodes: []c.GraphNode{
+				{ID: "n1", Kind: c.NodeFact, Text: "美联储加息0.25%", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: c.NodePrediction, Text: "未来一周美股承压", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC), PredictionDueAt: time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)},
+			}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}, Verification: c.Verification{NodeVerifications: []c.NodeVerification{{NodeID: "n2", Status: c.NodeVerificationProved}}}},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-paradigm-cli", SourcePlatform: "twitter", SourceExternalID: "PG1", NodeIDs: []string{"n1", "n2"}}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "paradigms", "--user", "u-paradigm-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("paradigms code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.ParadigmRecord
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(paradigms) error = %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatalf("paradigms output = %#v, want non-empty", out)
+	}
+}
+
+func TestRunMemoryContentGraphsPrintsStoredContentMemoryGraphs(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID: "twitter:CG1", Source: "twitter", ExternalID: "CG1", RootExternalID: "CG1", Model: c.Qwen36PlusModel,
+			Output: c.Output{Summary: "一句话", Drivers: []string{"美联储加息0.25%"}, Targets: []string{"未来一周美股承压"}, Graph: c.ReasoningGraph{Nodes: []c.GraphNode{
+				{ID: "n1", Kind: c.NodeFact, Text: "美联储加息0.25%", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: c.NodePrediction, Text: "未来一周美股承压", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC), PredictionDueAt: time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)},
+			}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-content-graph-cli", SourcePlatform: "twitter", SourceExternalID: "CG1", NodeIDs: []string{"n1", "n2"}}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "content-graphs", "--user", "u-content-graph-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("content-graphs code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "unit-sweep") && !strings.Contains(stdout.String(), "twitter") {
+		var out []map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+			t.Fatalf("json.Unmarshal(content-graphs) error = %v", err)
+		}
+		if len(out) == 0 {
+			t.Fatalf("content-graphs output = %#v, want non-empty", out)
+		}
+	}
+}
+
+func TestRunVerifyQueueListPrintsQueuedItems(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{ID: "q-cli-1", ObjectType: graphmodel.VerifyQueueObjectNode, ObjectID: "n1", SourceArticleID: "unit-cli", Priority: 10, ScheduledAt: now.Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued}); err != nil {
+			return nil, err
+		}
+		if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{ID: "q-cli-2", ObjectType: graphmodel.VerifyQueueObjectEdge, ObjectID: "e1", SourceArticleID: "unit-cli", Priority: 5, ScheduledAt: now.Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued}); err != nil {
+			return nil, err
+		}
+		if err := store.MarkVerifyQueueItemRunning(context.Background(), "q-cli-2", now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"verify", "queue", "--limit", "10"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify queue code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []graphmodel.VerifyQueueItem
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(verify queue) error = %v", err)
+	}
+	if len(out) != 2 || out[0].ID != "q-cli-1" || out[1].ID != "q-cli-2" {
+		t.Fatalf("verify queue output = %#v, want queued then running items", out)
+	}
+}
+
+func TestRunMemoryEventGraphsRunRecomputesProjection(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "manual-eg", ArticleID: "manual-eg", SourcePlatform: "twitter", SourceExternalID: "manual-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "manual-eg", SourcePlatform: "twitter", SourceExternalID: "manual-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "manual-eg", SourcePlatform: "twitter", SourceExternalID: "manual-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-run", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-graphs", "--run", "--user", "u-event-run"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-graphs --run code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.EventGraphRecord
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(event-graphs --run) error = %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatalf("event-graphs --run output = %#v, want non-empty", out)
+	}
+}
+
+func TestRunMemoryParadigmsRunRecomputesProjection(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "manual-pg", ArticleID: "manual-pg", SourcePlatform: "twitter", SourceExternalID: "manual-pg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "manual-pg", SourcePlatform: "twitter", SourceExternalID: "manual-pg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "manual-pg", SourcePlatform: "twitter", SourceExternalID: "manual-pg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-run", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "paradigms", "--run", "--user", "u-paradigm-run"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("paradigms --run code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.ParadigmRecord
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(paradigms --run) error = %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatalf("paradigms --run output = %#v, want non-empty", out)
+	}
+}
+
+func TestRunVerifySweepProcessesQueueFromCurrentContentGraphState(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		subgraph := graphmodel.ContentSubgraph{ID: "sweep-cli", ArticleID: "sweep-cli", SourcePlatform: "twitter", SourceExternalID: "sweep-cli", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "sweep-cli", SourcePlatform: "twitter", SourceExternalID: "sweep-cli", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, VerificationReason: "resolved", VerificationAsOf: now.Format(time.RFC3339), TimeBucket: "1w"}}}
+		if err := store.UpsertContentSubgraph(context.Background(), subgraph); err != nil {
+			return nil, err
+		}
+		if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{ID: "q-sweep-cli", ObjectType: graphmodel.VerifyQueueObjectNode, ObjectID: "n1", SourceArticleID: "sweep-cli", Priority: 10, ScheduledAt: now.Add(-time.Hour).Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"verify", "sweep", "--limit", "10"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify sweep code = %d, stderr = %s", code, stderr.String())
+	}
+	var out contentstore.VerifyQueueSweepResult
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(verify sweep) error = %v", err)
+	}
+	if out.Claimed != 1 || out.Finished != 1 {
+		t.Fatalf("verify sweep output = %#v, want claimed=1 finished=1", out)
+	}
+}
+
+func TestRunHarnessGraphFirstFlowCommandsWorkTogether(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		record := c.Record{UnitID: "twitter:FLOW1", Source: "twitter", ExternalID: "FLOW1", RootExternalID: "FLOW1", Model: c.Qwen36PlusModel, Output: c.Output{Summary: "一句话", Drivers: []string{"美联储加息0.25%"}, Targets: []string{"未来一周美股承压"}, Graph: c.ReasoningGraph{Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "美联储加息0.25%", OccurredAt: now}, {ID: "n2", Kind: c.NodePrediction, Text: "未来一周美股承压", PredictionStartAt: now, PredictionDueAt: now.Add(24 * time.Hour)}}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}}, CompiledAt: now}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-flow", SourcePlatform: "twitter", SourceExternalID: "FLOW1", NodeIDs: []string{"n1", "n2"}}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	for _, argv := range [][]string{
+		{"memory", "content-graphs", "--user", "u-flow"},
+		{"memory", "event-graphs", "--run", "--user", "u-flow"},
+		{"memory", "paradigms", "--run", "--user", "u-flow"},
+		{"verify", "queue", "--limit", "10"},
+		{"verify", "sweep", "--limit", "10"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := run(argv, "/tmp/project", &stdout, &stderr)
+		if code != 0 {
+			t.Fatalf("run(%v) code = %d, stderr = %s", argv, code, stderr.String())
+		}
+		if strings.TrimSpace(stdout.String()) == "" {
+			t.Fatalf("run(%v) stdout empty", argv)
+		}
+	}
+}
+
+func TestRunMemoryEventGraphsSupportsScopeFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "filter-eg", ArticleID: "filter-eg", SourcePlatform: "twitter", SourceExternalID: "filter-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "filter-eg", SourcePlatform: "twitter", SourceExternalID: "filter-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "filter-eg", SourcePlatform: "twitter", SourceExternalID: "filter-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-filter", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-graphs", "--user", "u-event-filter", "--scope", "target"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-graphs --scope target code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.EventGraphRecord
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(event-graphs --scope) error = %v", err)
+	}
+	if len(out) != 1 || out[0].Scope != "target" {
+		t.Fatalf("event-graphs filtered output = %#v, want one target graph", out)
+	}
+}
+
+func TestRunMemoryParadigmsSupportsSubjectFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "filter-pg", ArticleID: "filter-pg", SourcePlatform: "twitter", SourceExternalID: "filter-pg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "filter-pg", SourcePlatform: "twitter", SourceExternalID: "filter-pg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "filter-pg", SourcePlatform: "twitter", SourceExternalID: "filter-pg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-filter", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "paradigms", "--user", "u-paradigm-filter", "--subject", "美联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("paradigms --subject 美联储 code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.ParadigmRecord
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(paradigms --subject) error = %v", err)
+	}
+	if len(out) != 1 || out[0].DriverSubject != "美联储" {
+		t.Fatalf("paradigms filtered output = %#v, want 美联储 paradigm", out)
+	}
+}
+
+func TestRunMemoryContentGraphsRunRebuildsSnapshotFromCompiledOutput(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{UnitID: "twitter:CGRUN1", Source: "twitter", ExternalID: "CGRUN1", RootExternalID: "CGRUN1", Model: c.Qwen36PlusModel, Output: c.Output{Summary: "一句话", Drivers: []string{"美联储加息0.25%"}, Targets: []string{"未来一周美股承压"}, Graph: c.ReasoningGraph{Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "美联储加息0.25%", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)}, {ID: "n2", Kind: c.NodePrediction, Text: "未来一周美股承压", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC), PredictionDueAt: time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)}}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}}, CompiledAt: time.Now().UTC()}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "content-graphs", "--run", "--user", "u-content-run-cli", "--platform", "twitter", "--id", "CGRUN1"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("content-graphs --run code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(content-graphs --run) error = %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatalf("content-graphs --run output = %#v, want non-empty", out)
+	}
+}
+
+func TestRunMemoryEventGraphsCardPrintsReadableSections(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "card-eg", ArticleID: "card-eg", SourcePlatform: "twitter", SourceExternalID: "card-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-eg", SourcePlatform: "twitter", SourceExternalID: "card-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "card-eg", SourcePlatform: "twitter", SourceExternalID: "card-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-card", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-graphs", "--card", "--user", "u-event-card"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-graphs --card code = %d, stderr = %s", code, stderr.String())
+	}
+	for _, want := range []string{"Event Graph", "美联储", "美股", "Representative changes"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestRunMemoryParadigmsCardPrintsReadableSections(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "card-pg", ArticleID: "card-pg", SourcePlatform: "twitter", SourceExternalID: "card-pg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-pg", SourcePlatform: "twitter", SourceExternalID: "card-pg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "card-pg", SourcePlatform: "twitter", SourceExternalID: "card-pg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-card", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "paradigms", "--card", "--user", "u-paradigm-card"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("paradigms --card code = %d, stderr = %s", code, stderr.String())
+	}
+	for _, want := range []string{"Paradigm", "美联储", "美股", "Credibility"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestRunVerifyQueueSupportsStatusFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{ID: "q-filter-1", ObjectType: graphmodel.VerifyQueueObjectNode, ObjectID: "n1", SourceArticleID: "unit-cli", Priority: 10, ScheduledAt: now.Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued}); err != nil {
+			return nil, err
+		}
+		if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{ID: "q-filter-2", ObjectType: graphmodel.VerifyQueueObjectEdge, ObjectID: "e1", SourceArticleID: "unit-cli", Priority: 5, ScheduledAt: now.Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued}); err != nil {
+			return nil, err
+		}
+		if err := store.MarkVerifyQueueItemRunning(context.Background(), "q-filter-2", now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"verify", "queue", "--limit", "10", "--status", "running"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify queue --status running code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []graphmodel.VerifyQueueItem
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(verify queue --status) error = %v", err)
+	}
+	if len(out) != 1 || out[0].ID != "q-filter-2" {
+		t.Fatalf("verify queue filtered output = %#v, want q-filter-2 only", out)
+	}
+}
+
+func TestRunMemoryContentGraphsSupportsSourceFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		for _, rec := range []c.Record{
+			{UnitID: "twitter:CF1", Source: "twitter", ExternalID: "CF1", RootExternalID: "CF1", Model: c.Qwen36PlusModel, Output: c.Output{Summary: "一句话", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "A", OccurredAt: time.Now().UTC()}, {ID: "n2", Kind: c.NodeConclusion, Text: "B", ValidFrom: time.Now().UTC(), ValidTo: time.Now().UTC().Add(24 * time.Hour)}}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}}, CompiledAt: time.Now().UTC()},
+			{UnitID: "twitter:CF2", Source: "twitter", ExternalID: "CF2", RootExternalID: "CF2", Model: c.Qwen36PlusModel, Output: c.Output{Summary: "一句话", Graph: c.ReasoningGraph{Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "X", OccurredAt: time.Now().UTC()}, {ID: "n2", Kind: c.NodeConclusion, Text: "Y", ValidFrom: time.Now().UTC(), ValidTo: time.Now().UTC().Add(24 * time.Hour)}}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}}, CompiledAt: time.Now().UTC()},
+		} {
+			if err := store.UpsertCompiledOutput(context.Background(), rec); err != nil {
+				return nil, err
+			}
+			if err := store.PersistMemoryContentGraphFromCompiledOutput(context.Background(), "u-content-filter", rec.Source, rec.ExternalID, time.Now().UTC()); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "content-graphs", "--user", "u-content-filter", "--platform", "twitter", "--id", "CF2"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("content-graphs filtered code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []graphmodel.ContentSubgraph
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(content-graphs filter) error = %v", err)
+	}
+	if len(out) != 1 || out[0].SourceExternalID != "CF2" {
+		t.Fatalf("content-graphs filtered output = %#v, want CF2 only", out)
+	}
+}
+
+func TestRunMemoryContentGraphsCardPrintsReadableSections(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{UnitID: "twitter:CGCARD1", Source: "twitter", ExternalID: "CGCARD1", RootExternalID: "CGCARD1", Model: c.Qwen36PlusModel, Output: c.Output{Summary: "一句话", Drivers: []string{"美联储加息0.25%"}, Targets: []string{"未来一周美股承压"}, Graph: c.ReasoningGraph{Nodes: []c.GraphNode{{ID: "n1", Kind: c.NodeFact, Text: "美联储加息0.25%", OccurredAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)}, {ID: "n2", Kind: c.NodePrediction, Text: "未来一周美股承压", PredictionStartAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC), PredictionDueAt: time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)}}, Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}}}, Details: c.HiddenDetails{Caveats: []string{"说明"}}}, CompiledAt: time.Now().UTC()}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		if err := store.PersistMemoryContentGraphFromCompiledOutput(context.Background(), "u-content-card", "twitter", "CGCARD1", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "content-graphs", "--card", "--user", "u-content-card", "--platform", "twitter", "--id", "CGCARD1"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("content-graphs --card code = %d, stderr = %s", code, stderr.String())
+	}
+	for _, want := range []string{"Content Graph", "twitter", "CGCARD1", "Primary nodes"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestRunMemoryEventGraphsSupportsSubjectFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "subject-eg-cli", ArticleID: "subject-eg-cli", SourcePlatform: "twitter", SourceExternalID: "subject-eg-cli", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "subject-eg-cli", SourcePlatform: "twitter", SourceExternalID: "subject-eg-cli", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "subject-eg-cli", SourcePlatform: "twitter", SourceExternalID: "subject-eg-cli", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-subject", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-graphs", "--user", "u-event-subject", "--subject", "美联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-graphs --subject 美联储 code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.EventGraphRecord
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(event-graphs --subject) error = %v", err)
+	}
+	if len(out) != 1 || out[0].AnchorSubject != "美联储" {
+		t.Fatalf("event-graphs filtered output = %#v, want 美联储 graph", out)
+	}
+}
+
+func TestRunMemoryContentGraphsSupportsSubjectFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		for _, sg := range []graphmodel.ContentSubgraph{
+			{ID: "subject-cg-cli-1", ArticleID: "subject-cg-cli-1", SourcePlatform: "twitter", SourceExternalID: "subject-cg-cli-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "subject-cg-cli-1", SourcePlatform: "twitter", SourceExternalID: "subject-cg-cli-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+			{ID: "subject-cg-cli-2", ArticleID: "subject-cg-cli-2", SourcePlatform: "twitter", SourceExternalID: "subject-cg-cli-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "subject-cg-cli-2", SourcePlatform: "twitter", SourceExternalID: "subject-cg-cli-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+		} {
+			if err := store.PersistMemoryContentGraph(context.Background(), "u-content-subject", sg, now); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "content-graphs", "--user", "u-content-subject", "--subject", "美联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("content-graphs --subject 美联储 code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []graphmodel.ContentSubgraph
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(content-graphs --subject) error = %v", err)
+	}
+	if len(out) != 1 || out[0].SourceExternalID != "subject-cg-cli-1" {
+		t.Fatalf("content-graphs filtered output = %#v, want 美联储 snapshot only", out)
+	}
+}
+
+func TestRunMemoryProjectAllRebuildsEventAndParadigmLayers(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "project-all", ArticleID: "project-all", SourcePlatform: "twitter", SourceExternalID: "project-all", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "project-all", SourcePlatform: "twitter", SourceExternalID: "project-all", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "project-all", SourcePlatform: "twitter", SourceExternalID: "project-all", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-project-all", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "project-all", "--user", "u-project-all"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory project-all code = %d, stderr = %s", code, stderr.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(project-all) error = %v", err)
+	}
+	if out["content_graphs"] == nil || out["event_graphs"] == nil || out["paradigms"] == nil || out["global_v2"] == nil {
+		t.Fatalf("project-all output = %#v, want content_graphs/event_graphs/paradigms/global_v2 keys", out)
+	}
+	if ok, _ := out["ok"].(bool); !ok {
+		t.Fatalf("project-all output = %#v, want ok=true", out)
+	}
+}
+
+func TestRunMemoryEventGraphsCombinesScopeAndSubjectFilters(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "combo-eg", ArticleID: "combo-eg", SourcePlatform: "twitter", SourceExternalID: "combo-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "combo-eg", SourcePlatform: "twitter", SourceExternalID: "combo-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "combo-eg", SourcePlatform: "twitter", SourceExternalID: "combo-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-combo-eg", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-graphs", "--user", "u-combo-eg", "--scope", "driver", "--subject", "美股"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-graphs combined filter code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.EventGraphRecord
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(event-graphs combined) error = %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("event-graphs combined output = %#v, want empty intersection", out)
+	}
+}
+
+func TestRunMemoryContentGraphsCombinesSourceAndSubjectFilters(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		for _, sg := range []graphmodel.ContentSubgraph{
+			{ID: "combo-cg-1", ArticleID: "combo-cg-1", SourcePlatform: "twitter", SourceExternalID: "combo-cg-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "combo-cg-1", SourcePlatform: "twitter", SourceExternalID: "combo-cg-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+			{ID: "combo-cg-2", ArticleID: "combo-cg-2", SourcePlatform: "twitter", SourceExternalID: "combo-cg-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "combo-cg-2", SourcePlatform: "twitter", SourceExternalID: "combo-cg-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+		} {
+			if err := store.PersistMemoryContentGraph(context.Background(), "u-combo-cg", sg, now); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "content-graphs", "--user", "u-combo-cg", "--platform", "twitter", "--id", "combo-cg-2", "--subject", "美联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("content-graphs combined filter code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []graphmodel.ContentSubgraph
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(content-graphs combined) error = %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("content-graphs combined output = %#v, want empty intersection", out)
+	}
+}
+
+func TestRunMemoryEventGraphsCardSupportsSubjectFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "card-subject-eg", ArticleID: "card-subject-eg", SourcePlatform: "twitter", SourceExternalID: "card-subject-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-subject-eg", SourcePlatform: "twitter", SourceExternalID: "card-subject-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "card-subject-eg", SourcePlatform: "twitter", SourceExternalID: "card-subject-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-card-subject", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-graphs", "--card", "--user", "u-event-card-subject", "--subject", "美联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-graphs --card --subject code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "美联储") || strings.Contains(stdout.String(), "欧洲央行") {
+		t.Fatalf("stdout = %q, want filtered event card output", stdout.String())
+	}
+}
+
+func TestRunMemoryContentGraphsCardSupportsSubjectFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		for _, sg := range []graphmodel.ContentSubgraph{
+			{ID: "card-subject-cg-1", ArticleID: "card-subject-cg-1", SourcePlatform: "twitter", SourceExternalID: "card-subject-cg-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-subject-cg-1", SourcePlatform: "twitter", SourceExternalID: "card-subject-cg-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+			{ID: "card-subject-cg-2", ArticleID: "card-subject-cg-2", SourcePlatform: "twitter", SourceExternalID: "card-subject-cg-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-subject-cg-2", SourcePlatform: "twitter", SourceExternalID: "card-subject-cg-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+		} {
+			if err := store.PersistMemoryContentGraph(context.Background(), "u-content-card-subject", sg, now); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "content-graphs", "--card", "--user", "u-content-card-subject", "--subject", "美联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("content-graphs --card --subject code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "美联储") || strings.Contains(stdout.String(), "欧洲央行") {
+		t.Fatalf("stdout = %q, want filtered content graph card output", stdout.String())
+	}
+}
+
+func TestRunMemoryParadigmsCardSupportsSubjectFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		for _, sg := range []graphmodel.ContentSubgraph{
+			{ID: "card-subject-pg-1", ArticleID: "card-subject-pg-1", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-subject-pg-1", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "card-subject-pg-1", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-1", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
+			{ID: "card-subject-pg-2", ArticleID: "card-subject-pg-2", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-subject-pg-2", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "card-subject-pg-2", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-2", RawText: "欧股承压", SubjectText: "欧股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
+		} {
+			if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-card-subject", sg, now); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "paradigms", "--card", "--user", "u-paradigm-card-subject", "--subject", "美联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("paradigms --card --subject code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "美联储") || strings.Contains(stdout.String(), "欧洲央行") {
+		t.Fatalf("stdout = %q, want filtered paradigm card output", stdout.String())
+	}
+}
+
+func TestRunMemoryEventGraphsCardSupportsScopeFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "card-scope-eg", ArticleID: "card-scope-eg", SourcePlatform: "twitter", SourceExternalID: "card-scope-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-scope-eg", SourcePlatform: "twitter", SourceExternalID: "card-scope-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "card-scope-eg", SourcePlatform: "twitter", SourceExternalID: "card-scope-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-card-scope", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-graphs", "--card", "--user", "u-event-card-scope", "--scope", "driver"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-graphs --card --scope code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Scope: driver") || strings.Contains(stdout.String(), "Scope: target") {
+		t.Fatalf("stdout = %q, want only driver card output", stdout.String())
+	}
+}
+
+func TestRunVerifyQueueSummaryPrintsCounts(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{ID: "q-summary-1", ObjectType: graphmodel.VerifyQueueObjectNode, ObjectID: "n1", SourceArticleID: "unit-cli", Priority: 10, ScheduledAt: now.Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued}); err != nil {
+			return nil, err
+		}
+		if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{ID: "q-summary-2", ObjectType: graphmodel.VerifyQueueObjectEdge, ObjectID: "e1", SourceArticleID: "unit-cli", Priority: 5, ScheduledAt: now.Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued}); err != nil {
+			return nil, err
+		}
+		if err := store.MarkVerifyQueueItemRunning(context.Background(), "q-summary-2", now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"verify", "queue", "--summary"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify queue --summary code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "queued") || !strings.Contains(stdout.String(), "running") {
+		t.Fatalf("stdout = %q, want queued/running summary", stdout.String())
+	}
+}
+
+func TestRunMemoryEventGraphsCardShowsNoMatchMessageForEmptyFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "empty-eg", ArticleID: "empty-eg", SourcePlatform: "twitter", SourceExternalID: "empty-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "empty-eg", SourcePlatform: "twitter", SourceExternalID: "empty-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "empty-eg", SourcePlatform: "twitter", SourceExternalID: "empty-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-empty-eg", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-graphs", "--card", "--user", "u-empty-eg", "--subject", "不存在"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-graphs empty card code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No event graphs matched") {
+		t.Fatalf("stdout = %q, want no-match message", stdout.String())
+	}
+}
+
+func TestRunMemoryParadigmsCardShowsNoMatchMessageForEmptyFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "empty-pg", ArticleID: "empty-pg", SourcePlatform: "twitter", SourceExternalID: "empty-pg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "empty-pg", SourcePlatform: "twitter", SourceExternalID: "empty-pg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "empty-pg", SourcePlatform: "twitter", SourceExternalID: "empty-pg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-empty-pg", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "paradigms", "--card", "--user", "u-empty-pg", "--subject", "不存在"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("paradigms empty card code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No paradigms matched") {
+		t.Fatalf("stdout = %q, want no-match message", stdout.String())
+	}
+}
+
+func TestRunMemoryContentGraphsCardShowsNoMatchMessageForEmptyFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		sg := graphmodel.ContentSubgraph{ID: "empty-cg-card", ArticleID: "empty-cg-card", SourcePlatform: "twitter", SourceExternalID: "empty-cg-card", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "empty-cg-card", SourcePlatform: "twitter", SourceExternalID: "empty-cg-card", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-empty-cg-card", sg, now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "content-graphs", "--card", "--user", "u-empty-cg-card", "--subject", "不存在"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("content-graphs empty card code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No content graphs matched") {
+		t.Fatalf("stdout = %q, want no-match message", stdout.String())
+	}
+}
+
+func TestRunMemoryEventEvidencePrintsPersistedLinks(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "ev-cli", ArticleID: "ev-cli", SourcePlatform: "twitter", SourceExternalID: "ev-cli", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "ev-cli", SourcePlatform: "twitter", SourceExternalID: "ev-cli", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "ev-cli", SourcePlatform: "twitter", SourceExternalID: "ev-cli", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-ev-cli", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		graphs, err := store.ListEventGraphs(context.Background(), "u-ev-cli")
+		if err != nil {
+			return nil, err
+		}
+		if len(graphs) == 0 {
+			return nil, nil
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-evidence", "--user", "u-ev-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-evidence code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "event_graph_id") {
+		t.Fatalf("stdout = %q, want event evidence payload", stdout.String())
+	}
+}
+
+func TestRunMemoryParadigmEvidencePrintsPersistedLinks(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() { buildApp = prevBuildApp; openSQLiteStore = prevOpenSQLiteStore })
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "pev-cli", ArticleID: "pev-cli", SourcePlatform: "twitter", SourceExternalID: "pev-cli", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "pev-cli", SourcePlatform: "twitter", SourceExternalID: "pev-cli", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "pev-cli", SourcePlatform: "twitter", SourceExternalID: "pev-cli", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-pev-cli", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "paradigm-evidence", "--user", "u-pev-cli"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("paradigm-evidence code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "paradigm_id") {
+		t.Fatalf("stdout = %q, want paradigm evidence payload", stdout.String())
+	}
+}
+
+func TestRunMemoryEventEvidenceSupportsEventGraphIDFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() { buildApp = prevBuildApp; openSQLiteStore = prevOpenSQLiteStore })
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		for _, sg := range []graphmodel.ContentSubgraph{
+			{ID: "ee-filter-1", ArticleID: "ee-filter-1", SourcePlatform: "twitter", SourceExternalID: "ee-filter-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "ee-filter-1", SourcePlatform: "twitter", SourceExternalID: "ee-filter-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "ee-filter-1", SourcePlatform: "twitter", SourceExternalID: "ee-filter-1", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
+			{ID: "ee-filter-2", ArticleID: "ee-filter-2", SourcePlatform: "twitter", SourceExternalID: "ee-filter-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "ee-filter-2", SourcePlatform: "twitter", SourceExternalID: "ee-filter-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "ee-filter-2", SourcePlatform: "twitter", SourceExternalID: "ee-filter-2", RawText: "欧股承压", SubjectText: "欧股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
+		} {
+			if err := store.PersistMemoryContentGraph(context.Background(), "u-ee-filter", sg, now); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-evidence", "--user", "u-ee-filter", "--event-graph-id", "u-ee-filter:driver:美联储:1w"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-evidence filter code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.EventGraphEvidenceLink
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(event-evidence filter) error = %v", err)
+	}
+	for _, item := range out {
+		if item.EventGraphID != "u-ee-filter:driver:美联储:1w" {
+			t.Fatalf("filtered links = %#v, want only target event graph id", out)
+		}
+	}
+}
+
+func TestRunMemoryParadigmEvidenceSupportsParadigmIDFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() { buildApp = prevBuildApp; openSQLiteStore = prevOpenSQLiteStore })
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		for _, sg := range []graphmodel.ContentSubgraph{
+			{ID: "pe-filter-1", ArticleID: "pe-filter-1", SourcePlatform: "twitter", SourceExternalID: "pe-filter-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "pe-filter-1", SourcePlatform: "twitter", SourceExternalID: "pe-filter-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "pe-filter-1", SourcePlatform: "twitter", SourceExternalID: "pe-filter-1", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
+			{ID: "pe-filter-2", ArticleID: "pe-filter-2", SourcePlatform: "twitter", SourceExternalID: "pe-filter-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "pe-filter-2", SourcePlatform: "twitter", SourceExternalID: "pe-filter-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "pe-filter-2", SourcePlatform: "twitter", SourceExternalID: "pe-filter-2", RawText: "欧股承压", SubjectText: "欧股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
+		} {
+			if err := store.PersistMemoryContentGraph(context.Background(), "u-pe-filter", sg, now); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "paradigm-evidence", "--user", "u-pe-filter", "--paradigm-id", "u-pe-filter:美联储:美股:1w"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("paradigm-evidence filter code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.ParadigmEvidenceLink
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(paradigm-evidence filter) error = %v", err)
+	}
+	for _, item := range out {
+		if item.ParadigmID != "u-pe-filter:美联储:美股:1w" {
+			t.Fatalf("filtered links = %#v, want only target paradigm id", out)
+		}
+	}
+}
+
+func TestRunMemoryEventEvidenceShowsNoMatchMessageForUnknownID(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() { buildApp = prevBuildApp; openSQLiteStore = prevOpenSQLiteStore })
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		sg := graphmodel.ContentSubgraph{ID: "empty-ee", ArticleID: "empty-ee", SourcePlatform: "twitter", SourceExternalID: "empty-ee", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "empty-ee", SourcePlatform: "twitter", SourceExternalID: "empty-ee", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "empty-ee", SourcePlatform: "twitter", SourceExternalID: "empty-ee", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-empty-ee", sg, now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-evidence", "--user", "u-empty-ee", "--event-graph-id", "missing"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-evidence no-match code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No event evidence matched") {
+		t.Fatalf("stdout = %q, want no-match message", stdout.String())
+	}
+}
+
+func TestRunMemoryParadigmEvidenceShowsNoMatchMessageForUnknownID(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() { buildApp = prevBuildApp; openSQLiteStore = prevOpenSQLiteStore })
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		sg := graphmodel.ContentSubgraph{ID: "empty-pe", ArticleID: "empty-pe", SourcePlatform: "twitter", SourceExternalID: "empty-pe", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "empty-pe", SourcePlatform: "twitter", SourceExternalID: "empty-pe", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "empty-pe", SourcePlatform: "twitter", SourceExternalID: "empty-pe", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-empty-pe", sg, now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "paradigm-evidence", "--user", "u-empty-pe", "--paradigm-id", "missing"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("paradigm-evidence no-match code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No paradigm evidence matched") {
+		t.Fatalf("stdout = %q, want no-match message", stdout.String())
+	}
+}
+
+func TestRunVerifyShowFallsBackToGraphFirstVerificationState(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() { buildApp = prevBuildApp; openSQLiteStore = prevOpenSQLiteStore })
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		subgraph := graphmodel.ContentSubgraph{ID: "verify-show-fallback", ArticleID: "verify-show-fallback", SourcePlatform: "twitter", SourceExternalID: "verify-show-fallback", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "verify-show-fallback", SourcePlatform: "twitter", SourceExternalID: "verify-show-fallback", RawText: "事实A", SubjectText: "事实A", ChangeText: "事实A", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, VerificationReason: "supported", VerificationAsOf: time.Now().UTC().Format(time.RFC3339)}, {ID: "n2", SourceArticleID: "verify-show-fallback", SourcePlatform: "twitter", SourceExternalID: "verify-show-fallback", RawText: "未来一周结论B", SubjectText: "结论B", ChangeText: "未来一周结论B", Kind: graphmodel.NodeKindPrediction, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, VerificationReason: "waiting", VerificationAsOf: time.Now().UTC().Format(time.RFC3339), NextVerifyAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339)}}}
+		if err := store.UpsertContentSubgraph(context.Background(), subgraph); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"verify", "show", "--platform", "twitter", "--id", "verify-show-fallback"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify show fallback code = %d, stderr = %s", code, stderr.String())
+	}
+	var shown c.VerificationRecord
+	if err := json.Unmarshal(stdout.Bytes(), &shown); err != nil {
+		t.Fatalf("json.Unmarshal(verify show fallback) error = %v", err)
+	}
+	if len(shown.Verification.FactChecks) != 1 || shown.Verification.FactChecks[0].Reason != "supported" {
+		t.Fatalf("fallback shown verification = %#v", shown)
+	}
+	if len(shown.Verification.PredictionChecks) != 1 || shown.Verification.PredictionChecks[0].Reason != "waiting" {
+		t.Fatalf("fallback prediction checks = %#v", shown)
 	}
 }

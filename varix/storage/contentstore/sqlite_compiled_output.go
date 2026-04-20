@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kumaloha/VariX/varix/compile"
+	"github.com/kumaloha/VariX/varix/graphmodel"
 )
 
 func (s *SQLiteStore) UpsertCompiledOutput(ctx context.Context, record compile.Record) error {
@@ -44,6 +45,11 @@ func (s *SQLiteStore) UpsertCompiledOutput(ctx context.Context, record compile.R
 		now,
 	)
 	if err != nil {
+		return err
+	}
+	if subgraph, err := graphmodel.FromCompileRecord(record); err != nil {
+		return err
+	} else if err := s.UpsertContentSubgraph(ctx, subgraph); err != nil {
 		return err
 	}
 	if !record.Output.Verification.IsZero() {
@@ -90,17 +96,17 @@ func (s *SQLiteStore) GetCompiledOutput(ctx context.Context, platform, externalI
 
 func marshalStoredCompileRecord(record compile.Record) ([]byte, error) {
 	type storedOutput struct {
-		Summary           string                     `json:"summary,omitempty"`
-		Drivers           []string                   `json:"drivers,omitempty"`
-		Targets           []string                   `json:"targets,omitempty"`
-		TransmissionPaths []compile.TransmissionPath `json:"transmission_paths,omitempty"`
-		EvidenceNodes     []string                   `json:"evidence_nodes,omitempty"`
-		ExplanationNodes  []string                   `json:"explanation_nodes,omitempty"`
-		SupplementaryNodes []string                  `json:"supplementary_nodes,omitempty"`
-		Graph             compile.ReasoningGraph     `json:"graph,omitempty"`
-		Details           compile.HiddenDetails      `json:"details,omitempty"`
-		Topics            []string                   `json:"topics,omitempty"`
-		Confidence        string                     `json:"confidence,omitempty"`
+		Summary            string                     `json:"summary,omitempty"`
+		Drivers            []string                   `json:"drivers,omitempty"`
+		Targets            []string                   `json:"targets,omitempty"`
+		TransmissionPaths  []compile.TransmissionPath `json:"transmission_paths,omitempty"`
+		EvidenceNodes      []string                   `json:"evidence_nodes,omitempty"`
+		ExplanationNodes   []string                   `json:"explanation_nodes,omitempty"`
+		SupplementaryNodes []string                   `json:"supplementary_nodes,omitempty"`
+		Graph              compile.ReasoningGraph     `json:"graph,omitempty"`
+		Details            compile.HiddenDetails      `json:"details,omitempty"`
+		Topics             []string                   `json:"topics,omitempty"`
+		Confidence         string                     `json:"confidence,omitempty"`
 	}
 	type storedRecord struct {
 		UnitID         string       `json:"unit_id"`
@@ -118,17 +124,17 @@ func marshalStoredCompileRecord(record compile.Record) ([]byte, error) {
 		RootExternalID: record.RootExternalID,
 		Model:          record.Model,
 		Output: storedOutput{
-			Summary:           record.Output.Summary,
-			Drivers:           record.Output.Drivers,
-			Targets:           record.Output.Targets,
-			TransmissionPaths: record.Output.TransmissionPaths,
-			EvidenceNodes:     record.Output.EvidenceNodes,
-			ExplanationNodes:  record.Output.ExplanationNodes,
+			Summary:            record.Output.Summary,
+			Drivers:            record.Output.Drivers,
+			Targets:            record.Output.Targets,
+			TransmissionPaths:  record.Output.TransmissionPaths,
+			EvidenceNodes:      record.Output.EvidenceNodes,
+			ExplanationNodes:   record.Output.ExplanationNodes,
 			SupplementaryNodes: record.Output.SupplementaryNodes,
-			Graph:             record.Output.Graph,
-			Details:           record.Output.Details,
-			Topics:            record.Output.Topics,
-			Confidence:        record.Output.Confidence,
+			Graph:              record.Output.Graph,
+			Details:            record.Output.Details,
+			Topics:             record.Output.Topics,
+			Confidence:         record.Output.Confidence,
 		},
 		CompiledAt: record.CompiledAt,
 	})

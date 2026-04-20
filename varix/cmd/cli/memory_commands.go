@@ -11,13 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
 func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all> ...")
 		return 2
 	}
 	switch args[0] {
@@ -29,6 +30,8 @@ func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Write
 		return runMemoryList(args[1:], projectRoot, stdout, stderr)
 	case "show-source":
 		return runMemoryShowSource(args[1:], projectRoot, stdout, stderr)
+	case "content-graphs":
+		return runMemoryContentGraphs(args[1:], projectRoot, stdout, stderr)
 	case "jobs":
 		return runMemoryJobs(args[1:], projectRoot, stdout, stderr)
 	case "posterior-run":
@@ -51,8 +54,18 @@ func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Write
 		return runMemoryGlobalV2Card(args[1:], projectRoot, stdout, stderr)
 	case "global-compare":
 		return runMemoryGlobalCompare(args[1:], projectRoot, stdout, stderr)
+	case "event-graphs":
+		return runMemoryEventGraphs(args[1:], projectRoot, stdout, stderr)
+	case "event-evidence":
+		return runMemoryEventEvidence(args[1:], projectRoot, stdout, stderr)
+	case "paradigms":
+		return runMemoryParadigms(args[1:], projectRoot, stdout, stderr)
+	case "paradigm-evidence":
+		return runMemoryParadigmEvidence(args[1:], projectRoot, stdout, stderr)
+	case "project-all":
+		return runMemoryProjectAll(args[1:], projectRoot, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all> ...")
 		return 2
 	}
 }
@@ -899,4 +912,422 @@ func resolveNodeLabel(id string, nodeText map[string]string) string {
 		return text
 	}
 	return id
+}
+
+func runMemoryEventGraphs(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory event-graphs", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	runNow := fs.Bool("run", false, "recompute event graph projection before reading")
+	scope := fs.String("scope", "", "optional filter: driver or target")
+	subject := fs.String("subject", "", "optional filter on anchor subject")
+	card := fs.Bool("card", false, "render a readable event graph card view")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" {
+		fmt.Fprintln(stderr, "usage: varix memory event-graphs --user <user_id>")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	if *runNow {
+		if _, err := store.RunEventGraphProjection(context.Background(), strings.TrimSpace(*userID), time.Now().UTC()); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
+	items, err := store.ListEventGraphs(context.Background(), strings.TrimSpace(*userID))
+	if err == nil && strings.TrimSpace(*scope) != "" {
+		filtered := make([]contentstore.EventGraphRecord, 0, len(items))
+		for _, item := range items {
+			if item.Scope == strings.TrimSpace(*scope) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	if err == nil && strings.TrimSpace(*subject) != "" {
+		filtered := make([]contentstore.EventGraphRecord, 0, len(items))
+		for _, item := range items {
+			if item.AnchorSubject == strings.TrimSpace(*subject) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if *card {
+		if len(items) == 0 {
+			fmt.Fprintln(stdout, "No event graphs matched")
+			return 0
+		}
+		fmt.Fprint(stdout, formatEventGraphCards(items))
+		return 0
+	}
+	payload, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func runMemoryParadigms(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory paradigms", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	runNow := fs.Bool("run", false, "recompute paradigm projection before reading")
+	subject := fs.String("subject", "", "optional filter on driver subject")
+	card := fs.Bool("card", false, "render a readable paradigm card view")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" {
+		fmt.Fprintln(stderr, "usage: varix memory paradigms --user <user_id>")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	if *runNow {
+		if _, err := store.RunParadigmProjection(context.Background(), strings.TrimSpace(*userID), time.Now().UTC()); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
+	items, err := store.ListParadigms(context.Background(), strings.TrimSpace(*userID))
+	if err == nil && strings.TrimSpace(*subject) != "" {
+		items, err = store.ListParadigmsBySubject(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*subject))
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if *card {
+		if len(items) == 0 {
+			fmt.Fprintln(stdout, "No paradigms matched")
+			return 0
+		}
+		fmt.Fprint(stdout, formatParadigmCards(items))
+		return 0
+	}
+	payload, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func runMemoryContentGraphs(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory content-graphs", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	runNow := fs.Bool("run", false, "rebuild one snapshot from current compiled output before reading")
+	card := fs.Bool("card", false, "render a readable content graph card view")
+	subject := fs.String("subject", "", "optional filter on subject")
+	platform := fs.String("platform", "", "source platform (required with --run)")
+	externalID := fs.String("id", "", "source external id (required with --run)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" {
+		fmt.Fprintln(stderr, "usage: varix memory content-graphs --user <user_id>")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	if *runNow {
+		if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+			fmt.Fprintln(stderr, "usage: varix memory content-graphs --run --user <user_id> --platform <platform> --id <external_id>")
+			return 2
+		}
+		if err := store.PersistMemoryContentGraphFromCompiledOutput(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*platform), strings.TrimSpace(*externalID), time.Now().UTC()); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
+	items, err := store.ListMemoryContentGraphs(context.Background(), strings.TrimSpace(*userID))
+	if err == nil && strings.TrimSpace(*platform) != "" && strings.TrimSpace(*externalID) != "" {
+		filtered := make([]graphmodel.ContentSubgraph, 0, len(items))
+		for _, item := range items {
+			if item.SourcePlatform == strings.TrimSpace(*platform) && item.SourceExternalID == strings.TrimSpace(*externalID) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	if err == nil && strings.TrimSpace(*subject) != "" {
+		filtered := make([]graphmodel.ContentSubgraph, 0, len(items))
+		for _, item := range items {
+			matched := false
+			for _, node := range item.Nodes {
+				if node.SubjectText == strings.TrimSpace(*subject) || node.SubjectCanonical == strings.TrimSpace(*subject) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if *card {
+		if len(items) == 0 {
+			fmt.Fprintln(stdout, "No content graphs matched")
+			return 0
+		}
+		fmt.Fprint(stdout, formatContentGraphCards(items))
+		return 0
+	}
+	payload, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func formatContentGraphCards(items []graphmodel.ContentSubgraph) string {
+	var b strings.Builder
+	for _, item := range items {
+		primaryCount := 0
+		primarySubjects := make([]string, 0)
+		for _, node := range item.Nodes {
+			if node.IsPrimary {
+				primaryCount++
+				if strings.TrimSpace(node.SubjectText) != "" {
+					primarySubjects = append(primarySubjects, node.SubjectText)
+				}
+			}
+		}
+		fmt.Fprintf(&b, "Content Graph\n- Platform: %s\n- External ID: %s\n- Article ID: %s\n- Primary nodes: %d/%d\n", item.SourcePlatform, item.SourceExternalID, item.ArticleID, primaryCount, len(item.Nodes))
+		if len(primarySubjects) > 0 {
+			seen := map[string]struct{}{}
+			uniq := make([]string, 0, len(primarySubjects))
+			for _, subject := range primarySubjects {
+				if _, ok := seen[subject]; ok {
+					continue
+				}
+				seen[subject] = struct{}{}
+				uniq = append(uniq, subject)
+			}
+			fmt.Fprintf(&b, "- Subjects: %s\n", strings.Join(uniq, ", "))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func formatEventGraphCards(items []contentstore.EventGraphRecord) string {
+	var b strings.Builder
+	for _, item := range items {
+		fmt.Fprintf(&b, "Event Graph\n- Scope: %s\n- Anchor: %s\n- Time bucket: %s\n", item.Scope, item.AnchorSubject, item.TimeBucket)
+		if len(item.RepresentativeChanges) > 0 {
+			fmt.Fprintf(&b, "- Representative changes: %s\n", strings.Join(item.RepresentativeChanges, ", "))
+		}
+		fmt.Fprintf(&b, "- Verification: %v\n\n", item.VerificationSummary)
+	}
+	return b.String()
+}
+
+func formatParadigmCards(items []contentstore.ParadigmRecord) string {
+	var b strings.Builder
+	for _, item := range items {
+		fmt.Fprintf(&b, "Paradigm\n- Driver: %s\n- Target: %s\n- Time bucket: %s\n- Credibility: %s (%.1f)\n", item.DriverSubject, item.TargetSubject, item.TimeBucket, item.CredibilityState, item.CredibilityScore)
+		if len(item.RepresentativeChanges) > 0 {
+			fmt.Fprintf(&b, "- Representative changes: %s\n", strings.Join(item.RepresentativeChanges, ", "))
+		}
+		fmt.Fprintf(&b, "- Success/Failure: %d/%d\n\n", item.SuccessCount, item.FailureCount)
+	}
+	return b.String()
+}
+
+func runMemoryProjectAll(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory project-all", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" {
+		fmt.Fprintln(stderr, "usage: varix memory project-all --user <user_id>")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	events, err := store.RunEventGraphProjection(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	paradigms, err := store.RunParadigmProjection(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	contentGraphs, err := store.ListMemoryContentGraphs(context.Background(), strings.TrimSpace(*userID))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	payload, err := json.MarshalIndent(map[string]any{"ok": true, "content_graphs": len(contentGraphs), "event_graphs": len(events), "paradigms": len(paradigms), "global_v2": global.OutputID}, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func runMemoryEventEvidence(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory event-evidence", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	eventGraphID := fs.String("event-graph-id", "", "optional filter on one event graph id")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" {
+		fmt.Fprintln(stderr, "usage: varix memory event-evidence --user <user_id>")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	links, err := store.ListEventGraphEvidenceLinksByUser(context.Background(), strings.TrimSpace(*userID))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if strings.TrimSpace(*eventGraphID) != "" {
+		filtered := make([]contentstore.EventGraphEvidenceLink, 0, len(links))
+		for _, item := range links {
+			if item.EventGraphID == strings.TrimSpace(*eventGraphID) {
+				filtered = append(filtered, item)
+			}
+		}
+		links = filtered
+	}
+	if len(links) == 0 {
+		fmt.Fprintln(stdout, "No event evidence matched")
+		return 0
+	}
+	payload, err := json.MarshalIndent(links, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func runMemoryParadigmEvidence(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory paradigm-evidence", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	paradigmID := fs.String("paradigm-id", "", "optional filter on one paradigm id")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" {
+		fmt.Fprintln(stderr, "usage: varix memory paradigm-evidence --user <user_id>")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	links, err := store.ListParadigmEvidenceLinksByUser(context.Background(), strings.TrimSpace(*userID))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if strings.TrimSpace(*paradigmID) != "" {
+		filtered := make([]contentstore.ParadigmEvidenceLink, 0, len(links))
+		for _, item := range links {
+			if item.ParadigmID == strings.TrimSpace(*paradigmID) {
+				filtered = append(filtered, item)
+			}
+		}
+		links = filtered
+	}
+	if len(links) == 0 {
+		fmt.Fprintln(stdout, "No paradigm evidence matched")
+		return 0
+	}
+	payload, err := json.MarshalIndent(links, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
 }

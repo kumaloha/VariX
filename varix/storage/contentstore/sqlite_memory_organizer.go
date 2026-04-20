@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kumaloha/VariX/varix/compile"
+	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
 )
 
@@ -72,12 +73,25 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 		return memory.OrganizationOutput{}, err
 	}
 	verification := effectiveVerification(record, verifyRecord)
+	var graphFirstSubgraph graphmodel.ContentSubgraph
+	hasGraphFirstSubgraph := false
+	if graphFirst, err := getMemoryContentGraphBySourceTx(ctx, tx, job.UserID, job.SourcePlatform, job.SourceExternalID); err == nil {
+		graphFirstSubgraph = graphFirst
+		hasGraphFirstSubgraph = true
+		verification = overlayVerificationFromContentGraph(verification, graphFirst)
+	}
 	factStatusByNode := factStatusMap(verification)
 	explicitConditionStatusByNode := explicitConditionStatusMap(verification)
 	predictionStatusByNode := predictionStatusMap(verification)
 	graphNodesByID := map[string]compile.GraphNode{}
 	for _, node := range record.Output.Graph.Nodes {
 		graphNodesByID[node.ID] = node
+	}
+	graphFirstNodesByID := map[string]graphmodel.GraphNode{}
+	if hasGraphFirstSubgraph {
+		for _, node := range graphFirstSubgraph.Nodes {
+			graphFirstNodesByID[node.ID] = node
+		}
 	}
 
 	derivedNodes := make([]memory.AcceptedNode, 0, len(nodes))
@@ -91,9 +105,26 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 			node.BlockedByNodeIDs = append([]string(nil), posterior.BlockedByNodeIDs...)
 			node.PosteriorUpdatedAt = posterior.UpdatedAt
 		}
+		graphFirstApplied := false
+		if graphFirst, ok := graphFirstNodesByID[node.NodeID]; ok {
+			if strings.TrimSpace(graphFirst.RawText) != "" {
+				node.NodeText = strings.TrimSpace(graphFirst.RawText)
+				graphFirstApplied = true
+			}
+			if graphFirst.Kind == graphmodel.NodeKindPrediction {
+				node.NodeKind = string(compile.NodePrediction)
+			}
+			graphFirstStart, graphFirstEnd := graphFirstValidityWindow(graphFirst)
+			if !graphFirstStart.IsZero() {
+				node.ValidFrom = graphFirstStart
+			}
+			if !graphFirstEnd.IsZero() {
+				node.ValidTo = graphFirstEnd
+			}
+		}
 		if derived, ok := graphNodesByID[node.NodeID]; ok {
-			if sameNodeMeaning(node.NodeText, derived.Text) {
-				if strings.TrimSpace(derived.Text) != "" {
+			if graphFirstApplied || sameNodeMeaning(node.NodeText, derived.Text) || strings.TrimSpace(node.NodeText) == strings.TrimSpace(derived.Text) {
+				if strings.TrimSpace(derived.Text) != "" && (!graphFirstApplied || sameNodeMeaning(node.NodeText, derived.Text)) {
 					node.NodeText = derived.Text
 				}
 				if strings.TrimSpace(string(derived.Kind)) != "" {
@@ -117,7 +148,7 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 	}
 	dedupeGroups := buildDedupeGroups(active, factStatusByNode, predictionStatusByNode)
 	contradictionGroups := buildContradictionGroups(active)
-	hierarchy := buildHierarchy(active, record, verification)
+	hierarchy := buildHierarchy(active, record, verification, graphFirstSubgraph, hasGraphFirstSubgraph)
 	nodeHints := buildNodeHints(derivedNodes, active, dedupeGroups, contradictionGroups, hierarchy, factStatusByNode, explicitConditionStatusByNode, predictionStatusByNode)
 	dominantDriver := buildDominantDriverSummary(active, nodeHints)
 	nodeHints = applyDominantDriverRoles(nodeHints, dominantDriver)
@@ -384,7 +415,7 @@ func groupNodesByCanonicalText(nodes []memory.AcceptedNode) []canonicalNodeGroup
 	return out
 }
 
-func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record, verification compile.Verification) []memory.HierarchyLink {
+func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record, verification compile.Verification, graphFirstSubgraph graphmodel.ContentSubgraph, hasGraphFirstSubgraph bool) []memory.HierarchyLink {
 	active := map[string]struct{}{}
 	nodeKindByID := map[string]string{}
 	for _, node := range nodes {
@@ -394,7 +425,7 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record, verifica
 	factStatusByNode := factStatusMap(verification)
 	out := make([]memory.HierarchyLink, 0)
 	seen := map[string]struct{}{}
-	for _, edge := range record.Output.Graph.Edges {
+	for _, edge := range preferredHierarchyEdges(record, graphFirstSubgraph, hasGraphFirstSubgraph) {
 		if _, ok := active[edge.From]; !ok {
 			continue
 		}
@@ -413,7 +444,7 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record, verifica
 			ChildNodeID:  edge.To,
 			ChildKind:    nodeKindByID[edge.To],
 			Kind:         string(edge.Kind),
-			Source:       "graph",
+			Source:       edge.Source,
 			Hint:         graphHierarchyHint(edge.Kind),
 		}
 		key := link.ParentNodeID + "->" + link.ChildNodeID
@@ -445,14 +476,6 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record, verifica
 		}
 		return out[i].Hint < out[j].Hint
 	})
-	return out
-}
-
-func groupNodesByKind(nodes []memory.AcceptedNode) map[string][]memory.AcceptedNode {
-	out := map[string][]memory.AcceptedNode{}
-	for _, node := range nodes {
-		out[node.NodeKind] = append(out[node.NodeKind], node)
-	}
 	return out
 }
 
@@ -1260,4 +1283,151 @@ func nodeKindSlug(kind string) string {
 
 func joinNodeIDs(ids []string) string {
 	return strings.Join(ids, "\x00")
+}
+
+func getMemoryContentGraphBySourceTx(ctx context.Context, tx *sql.Tx, userID, sourcePlatform, sourceExternalID string) (graphmodel.ContentSubgraph, error) {
+	var payload string
+	if err := tx.QueryRowContext(ctx, `SELECT payload_json FROM memory_content_graphs WHERE user_id = ? AND source_platform = ? AND source_external_id = ?`, userID, sourcePlatform, sourceExternalID).Scan(&payload); err != nil {
+		return graphmodel.ContentSubgraph{}, err
+	}
+	var subgraph graphmodel.ContentSubgraph
+	if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
+		return graphmodel.ContentSubgraph{}, err
+	}
+	return subgraph, nil
+}
+
+func overlayVerificationFromContentGraph(verification compile.Verification, subgraph graphmodel.ContentSubgraph) compile.Verification {
+	predictionByNodeID := make(map[string]compile.PredictionCheck, len(verification.PredictionChecks))
+	for _, check := range verification.PredictionChecks {
+		predictionByNodeID[check.NodeID] = check
+	}
+	factByNodeID := make(map[string]compile.FactCheck, len(verification.FactChecks))
+	for _, check := range verification.FactChecks {
+		factByNodeID[check.NodeID] = check
+	}
+	for _, node := range subgraph.Nodes {
+		if strings.TrimSpace(node.VerificationReason) == "" && strings.TrimSpace(node.VerificationAsOf) == "" && strings.TrimSpace(node.NextVerifyAt) == "" {
+			continue
+		}
+		switch node.Kind {
+		case graphmodel.NodeKindPrediction:
+			status := compile.PredictionStatusUnresolved
+			switch node.VerificationStatus {
+			case graphmodel.VerificationProved:
+				status = compile.PredictionStatusResolvedTrue
+			case graphmodel.VerificationDisproved:
+				status = compile.PredictionStatusResolvedFalse
+			case graphmodel.VerificationPending:
+				status = compile.PredictionStatusUnresolved
+			case graphmodel.VerificationUnverifiable:
+				status = compile.PredictionStatusStaleUnresolved
+			}
+			predictionByNodeID[node.ID] = compile.PredictionCheck{NodeID: node.ID, Status: status, Reason: node.VerificationReason, AsOf: parseSQLiteTime(node.VerificationAsOf)}
+		default:
+			var status compile.FactStatus
+			switch node.VerificationStatus {
+			case graphmodel.VerificationProved:
+				status = compile.FactStatusClearlyTrue
+			case graphmodel.VerificationDisproved:
+				status = compile.FactStatusClearlyFalse
+			case graphmodel.VerificationUnverifiable:
+				status = compile.FactStatusUnverifiable
+			default:
+				continue
+			}
+			factByNodeID[node.ID] = compile.FactCheck{NodeID: node.ID, Status: status, Reason: node.VerificationReason}
+		}
+	}
+	if len(predictionByNodeID) > 0 {
+		verification.PredictionChecks = verification.PredictionChecks[:0]
+		for _, check := range predictionByNodeID {
+			verification.PredictionChecks = append(verification.PredictionChecks, check)
+		}
+		sort.Slice(verification.PredictionChecks, func(i, j int) bool {
+			return verification.PredictionChecks[i].NodeID < verification.PredictionChecks[j].NodeID
+		})
+	}
+	if len(factByNodeID) > 0 {
+		verification.FactChecks = verification.FactChecks[:0]
+		for _, check := range factByNodeID {
+			verification.FactChecks = append(verification.FactChecks, check)
+		}
+		sort.Slice(verification.FactChecks, func(i, j int) bool { return verification.FactChecks[i].NodeID < verification.FactChecks[j].NodeID })
+	}
+	return verification
+}
+
+func graphFirstValidityWindow(node graphmodel.GraphNode) (time.Time, time.Time) {
+	start := parseSQLiteTime(node.TimeStart)
+	end := parseSQLiteTime(node.TimeEnd)
+	if node.Kind == graphmodel.NodeKindObservation {
+		if start.IsZero() {
+			return time.Time{}, time.Time{}
+		}
+		if end.IsZero() || end.Equal(start) {
+			return start, time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+		}
+	}
+	return start, end
+}
+
+func groupNodesByKind(nodes []memory.AcceptedNode) map[string][]memory.AcceptedNode {
+	out := map[string][]memory.AcceptedNode{}
+	for _, node := range nodes {
+		out[node.NodeKind] = append(out[node.NodeKind], node)
+	}
+	return out
+}
+
+type hierarchyEdge struct {
+	From   string
+	To     string
+	Kind   compile.EdgeKind
+	Source string
+}
+
+func preferredHierarchyEdges(record compile.Record, graphFirstSubgraph graphmodel.ContentSubgraph, hasGraphFirstSubgraph bool) []hierarchyEdge {
+	compileKeys := map[string]struct{}{}
+	for _, edge := range record.Output.Graph.Edges {
+		compileKeys[edge.From+"->"+edge.To] = struct{}{}
+	}
+	graphFirstOnly := false
+	if hasGraphFirstSubgraph && len(graphFirstSubgraph.Edges) > 0 {
+		if len(graphFirstSubgraph.Edges) != len(record.Output.Graph.Edges) {
+			graphFirstOnly = true
+		} else {
+			for _, edge := range graphFirstSubgraph.Edges {
+				if _, ok := compileKeys[edge.From+"->"+edge.To]; !ok {
+					graphFirstOnly = true
+					break
+				}
+			}
+		}
+		out := make([]hierarchyEdge, 0, len(graphFirstSubgraph.Edges))
+		for _, edge := range graphFirstSubgraph.Edges {
+			kind := compile.EdgePositive
+			switch edge.Type {
+			case graphmodel.EdgeTypeExplains:
+				kind = compile.EdgeExplains
+			case graphmodel.EdgeTypeContext:
+				kind = compile.EdgePresets
+			case graphmodel.EdgeTypeSupports:
+				kind = compile.EdgeDerives
+			case graphmodel.EdgeTypeDrives:
+				kind = compile.EdgePositive
+			}
+			source := "graph"
+			if graphFirstOnly {
+				source = "graph_first"
+			}
+			out = append(out, hierarchyEdge{From: edge.From, To: edge.To, Kind: kind, Source: source})
+		}
+		return out
+	}
+	out := make([]hierarchyEdge, 0, len(record.Output.Graph.Edges))
+	for _, edge := range record.Output.Graph.Edges {
+		out = append(out, hierarchyEdge{From: edge.From, To: edge.To, Kind: edge.Kind, Source: "graph"})
+	}
+	return out
 }

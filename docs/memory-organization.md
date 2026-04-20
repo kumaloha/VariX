@@ -194,6 +194,35 @@ Item types:
 Raw JSON:
 - `varix memory global-v2-organize-run --user <user_id>`
 - `varix memory global-v2-organized --user <user_id>`
+- `global-v2-organize-run` now refreshes persisted event/paradigm projections first, then rebuilds the global view
+
+Graph-first inspection commands:
+- `varix memory event-evidence --user <user_id>`
+- `varix memory event-evidence --event-graph-id <id> --user <user_id>`
+- `varix memory paradigm-evidence --user <user_id>`
+- `varix memory paradigm-evidence --paradigm-id <id> --user <user_id>`
+- `varix memory project-all --user <user_id>`
+- `varix memory content-graphs --user <user_id>`
+- `varix memory content-graphs --platform <platform> --id <external_id> --user <user_id>`
+- `varix memory content-graphs --card --user <user_id> --platform <platform> --id <external_id>`
+- `varix memory content-graphs --run --user <user_id> --platform <platform> --id <external_id>`
+- `varix memory event-graphs --user <user_id>`
+- `varix memory event-graphs --scope driver|target --user <user_id>`
+- `varix memory event-graphs --card --user <user_id>`
+- `varix memory event-graphs --card --scope driver|target --user <user_id>`
+- `varix memory event-graphs --run --user <user_id>`
+- `varix memory paradigms --user <user_id>`
+- `varix memory paradigms --subject <subject> --user <user_id>`
+- `varix memory paradigms --card --user <user_id>`
+- `varix memory paradigms --card --subject <subject> --user <user_id>`
+- `varix memory paradigms --run --user <user_id>`
+
+Verify execution commands:
+- `varix verify queue --limit 20`
+- `varix verify queue --status queued|running|retry|done --limit 20`
+- `varix verify queue --summary`
+- `varix verify sweep --limit 20`
+- `verify sweep` consumes due queue items using current content-graph state and propagates verdict updates back into graph/memory/event/paradigm projections
 
 Human-readable cards:
 - `varix memory global-v2-card --user <user_id>`
@@ -287,3 +316,6 @@ supports:
 
 v1 remains available until relation-first output quality is consistently stronger
 than cluster-first output on real memory sets.
+
+
+- `verify show --platform <platform> --id <external_id>` now falls back to current graph-first verification state when no legacy `verification_results` row exists
