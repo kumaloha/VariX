@@ -675,11 +675,11 @@ func (c *Client) Compile(ctx context.Context, bundle compile.Bundle) (compile.Re
 }
 
 func (c *Client) Verify(ctx context.Context, bundle compile.Bundle, output compile.Output) (compile.Verification, error) {
-	return legacy.Verify(ctx, bundle, output) // delegated to legacy verifier implementation
+	return legacy.Verify(ctx, bundle, output) // delegated to legacy verifier implementation; when runtime is absent, compile client now reports a runtime-unavailable verify error explicitly
 }
 
 func (c *Client) VerifyDetailed(ctx context.Context, bundle compile.Bundle, output compile.Output) (compile.Verification, error) {
-	return legacy.Verify(ctx, bundle, output) // delegated to legacy verifier implementation
+	return legacy.Verify(ctx, bundle, output) // delegated to legacy verifier implementation; when runtime is absent, compile client now reports a runtime-unavailable verify error explicitly
 }
 
 func firstConfiguredValue(projectRoot string, keys ...string) string {
