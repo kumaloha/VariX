@@ -615,3 +615,29 @@ func TestSQLiteStore_GetVerifyQueueSummaryCountsStatuses(t *testing.T) {
 		t.Fatalf("summary = %#v, want queued/running/retry = 1/1/1", summary)
 	}
 }
+
+func TestSQLiteStore_GetVerifyQueueSummaryIncludesDueAndOldestScheduledAt(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC)
+	if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{ID: "q-sum-meta-1", ObjectType: graphmodel.VerifyQueueObjectNode, ObjectID: "n1", SourceArticleID: "u1", Priority: 10, ScheduledAt: now.Add(-time.Hour).Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued}); err != nil {
+		t.Fatalf("EnqueueVerifyQueueItem() error = %v", err)
+	}
+	if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{ID: "q-sum-meta-2", ObjectType: graphmodel.VerifyQueueObjectEdge, ObjectID: "e1", SourceArticleID: "u1", Priority: 5, ScheduledAt: now.Add(time.Hour).Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusRetry}); err != nil {
+		t.Fatalf("EnqueueVerifyQueueItem() error = %v", err)
+	}
+	summary, err := store.GetVerifyQueueSummaryDetailed(context.Background(), now)
+	if err != nil {
+		t.Fatalf("GetVerifyQueueSummaryDetailed() error = %v", err)
+	}
+	if summary.DueCount != 1 {
+		t.Fatalf("DueCount = %d, want 1", summary.DueCount)
+	}
+	if summary.OldestScheduledAt != now.Add(-time.Hour).Format(time.RFC3339) {
+		t.Fatalf("OldestScheduledAt = %q, want %q", summary.OldestScheduledAt, now.Add(-time.Hour).Format(time.RFC3339))
+	}
+}

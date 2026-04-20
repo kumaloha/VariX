@@ -274,6 +274,12 @@ type VerifyQueueSweepResult struct {
 	Failed   int `json:"failed"`
 }
 
+type VerifyQueueSummaryDetailed struct {
+	Counts            map[graphmodel.VerifyQueueStatus]int `json:"counts"`
+	DueCount          int                                  `json:"due_count"`
+	OldestScheduledAt string                               `json:"oldest_scheduled_at,omitempty"`
+}
+
 func (s *SQLiteStore) RetryVerifyQueueItem(ctx context.Context, queueID string, nextAt time.Time, lastError string, now time.Time) error {
 	if nextAt.IsZero() {
 		return fmt.Errorf("verify queue retry nextAt is required")
@@ -349,4 +355,27 @@ func (s *SQLiteStore) GetVerifyQueueSummary(ctx context.Context) (map[graphmodel
 		out[graphmodel.VerifyQueueStatus(status)] = count
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLiteStore) GetVerifyQueueSummaryDetailed(ctx context.Context, now time.Time) (VerifyQueueSummaryDetailed, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	counts, err := s.GetVerifyQueueSummary(ctx)
+	if err != nil {
+		return VerifyQueueSummaryDetailed{}, err
+	}
+	var dueCount int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM verify_queue WHERE status IN ('queued','retry') AND scheduled_at <= ?`, now.UTC().Format(time.RFC3339Nano)).Scan(&dueCount); err != nil {
+		return VerifyQueueSummaryDetailed{}, err
+	}
+	var oldest sql.NullString
+	if err := s.db.QueryRowContext(ctx, `SELECT scheduled_at FROM verify_queue ORDER BY scheduled_at ASC LIMIT 1`).Scan(&oldest); err != nil && err != sql.ErrNoRows {
+		return VerifyQueueSummaryDetailed{}, err
+	}
+	out := VerifyQueueSummaryDetailed{Counts: counts, DueCount: dueCount}
+	if oldest.Valid {
+		out.OldestScheduledAt = parseSQLiteTime(oldest.String).UTC().Format(time.RFC3339)
+	}
+	return out, nil
 }

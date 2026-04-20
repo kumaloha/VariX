@@ -219,12 +219,12 @@ func runVerifyQueue(args []string, projectRoot string, stdout, stderr io.Writer)
 	}
 	defer store.Close()
 	if *summary {
-		counts, err := store.GetVerifyQueueSummary(context.Background())
+		detail, err := store.GetVerifyQueueSummaryDetailed(context.Background(), time.Now().UTC())
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		payload, err := json.MarshalIndent(counts, "", "  ")
+		payload, err := json.MarshalIndent(detail, "", "  ")
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
