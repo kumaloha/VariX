@@ -122,7 +122,7 @@ func newClientFromConfig(projectRoot string, httpClient *http.Client, verifier V
 		model = Qwen36PlusModel
 	}
 	if httpClient == nil {
-		timeout := 180 * time.Second
+		timeout := 1200 * time.Second
 		if raw := firstConfiguredValue(projectRoot, "COMPILE_TIMEOUT_SECONDS"); strings.TrimSpace(raw) != "" {
 			if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
 				timeout = time.Duration(seconds) * time.Second

@@ -95,7 +95,7 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	noVerify := fs.Bool("no-verify", false, "skip compile-time verification and retrieval")
 	noValidate := fs.Bool("no-validate", false, "skip compile output validation (evaluation/debug only)")
 	pipeline := fs.String("pipeline", "legacy", "compile pipeline: legacy | v2")
-	timeout := fs.Duration("timeout", 10*time.Minute, "compile timeout")
+	timeout := fs.Duration("timeout", 20*time.Minute, "compile timeout")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}

@@ -44,6 +44,50 @@ const stage3UserPrompt = `Classify the following node.
 Node: %s
 Source quote: %s`
 
+const stage3RelationSystemPrompt = `You are a relation planner for financial-analysis graph nodes.
+
+Given the full node set, decide which pairs form:
+- causal_edges: true driver/transmission/target causal relations
+- support_links: one node is evidence for another
+- supplement_links: two nodes substantially express the same market meaning, but one should remain primary and the other should become supplementary
+- explanation_links: one node explains or frames another
+
+Rules:
+- Only output links that are strongly justified.
+- Do not force every node into a link.
+- If two nodes say almost the same thing, prefer supplement_links instead of causal_edges.
+- If one node merely proves another, prefer support_links instead of causal_edges.
+- If one node interprets or frames another, prefer explanation_links.
+- If both nodes are themselves market outcomes / result-like statements, do NOT classify them as support_links by default. Prefer supplement_links when one is a label, restatement, slogan, or narrative wrapper around the other.
+- Labels or narrative wrappers such as trade names, sloganized framing, or "X narrative" / "X trade" wording should usually become the secondary side of a supplement relation rather than the primary retained result.
+
+Return JSON only:
+{
+  "causal_edges":[{"from":"n1","to":"n2"}],
+  "support_links":[{"from":"n3","to":"n4"}],
+  "supplement_links":[{"primary":"n5","secondary":"n6"}],
+  "explanation_links":[{"from":"n7","to":"n8"}]
+}`
+
+const stage3RelationUserPrompt = `Plan relations over the following node set. Each line is:
+node_id | node_text | role=<role> | ontology=<ontology> | quote=<source_quote>
+
+%s`
+
+const stage2SystemPrompt = `You are a semantic equivalence judge for financial-analysis graph nodes.
+
+Decide whether node A and node B express substantially the same market-relevant fact, state, or outcome.
+When uncertain, return false. Over-merging is worse than under-merging.
+
+Return JSON only:
+{"equivalent": true|false, "reason":"..." }`
+
+const stage2UserPrompt = `Node A: %s
+Node A source quote: %s
+
+Node B: %s
+Node B source quote: %s`
+
 const stage5TranslateSystemPrompt = `You are a financial-Chinese translator.
 
 Translate each input item into concise, natural, professional Chinese suitable for downstream financial analysis output.
@@ -69,4 +113,25 @@ Return JSON only:
 
 const stage5SummaryUserPrompt = `Summarize this thesis package in one Chinese sentence:
 
+%s`
+
+const stage4SystemPrompt = `You are a coverage auditor for a causal graph extracted from a financial article.
+
+For one paragraph, check whether its core causal claims and market-result statements are already represented in the current graph.
+Return JSON only with keys:
+{
+  "missing_nodes":[{"text":"...","source_quote":"...","suggested_role_hint":"upstream|midstream|downstream"}],
+  "missing_edges":[{"from_text":"...","to_text":"..."}],
+  "misclassified":[{"node_id":"...","issue":"..."}]
+}
+
+If no issues, return empty arrays.`
+
+const stage4UserPrompt = `Paragraph:
+%s
+
+Current nodes:
+%s
+
+Current edges:
 %s`

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/kumaloha/VariX/varix/compile"
 )
@@ -48,6 +49,26 @@ type graphState struct {
 	Rounds   int
 }
 
+type relationKind string
+
+const (
+	relationCausal      relationKind = "causal"
+	relationSupports    relationKind = "supports"
+	relationSupplements relationKind = "supplements"
+	relationExplains    relationKind = "explains"
+	relationNone        relationKind = "none"
+)
+
+func countRole(state graphState, role graphRole) int {
+	count := 0
+	for _, n := range state.Nodes {
+		if n.Role == role {
+			count++
+		}
+	}
+	return count
+}
+
 func stage1Extract(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle) (graphState, error) {
 	req, err := compile.BuildQwen36ProviderRequest(model, bundle, stage1SystemPrompt, fmt.Sprintf(stage1UserPrompt, bundle.TextContext()))
 	if err != nil {
@@ -69,24 +90,43 @@ func stage1Extract(ctx context.Context, rt runtimeChat, model string, bundle com
 	return state, nil
 }
 
-func stage2Dedup(state graphState) graphState {
+func stage2Dedup(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState) (graphState, error) {
 	state = normalizeStage1State(state)
-	seen := map[string]graphNode{}
-	redirect := map[string]string{}
-	for _, n := range state.Nodes {
-		key := normalizeText(n.Text)
-		if existing, ok := seen[key]; ok {
-			redirect[n.ID] = existing.ID
-			state.OffGraph = append(state.OffGraph, offGraphItem{
-				ID: fmt.Sprintf("sup_%s", n.ID), Text: n.Text, Role: "supplementary", AttachesTo: existing.ID, SourceQuote: n.SourceQuote,
-			})
-			continue
+	uf := newUF(state.Nodes)
+	for _, pair := range dedupCandidatePairs(state.Nodes) {
+		req, err := compile.BuildQwen36ProviderRequest(model, bundle, stage2SystemPrompt, fmt.Sprintf(stage2UserPrompt, pair[0].Text, pair[0].SourceQuote, pair[1].Text, pair[1].SourceQuote))
+		if err != nil {
+			return graphState{}, err
 		}
-		seen[key] = n
-		redirect[n.ID] = n.ID
+		resp, err := rt.Call(ctx, req)
+		if err != nil {
+			return graphState{}, err
+		}
+		var result struct{ Equivalent bool `json:"equivalent"` }
+		if err := parseJSONObject(resp.Text, &result); err != nil {
+			return graphState{}, fmt.Errorf("stage2 dedup parse: %w", err)
+		}
+		if result.Equivalent {
+			uf.union(pair[0].ID, pair[1].ID)
+		}
 	}
-	nodes := make([]graphNode, 0, len(seen))
-	for _, n := range seen {
+	redirect := map[string]string{}
+	canonicals := map[string]graphNode{}
+	for _, group := range uf.groups(state.Nodes) {
+		canonical := chooseCanonical(group)
+		canonicals[canonical.ID] = canonical
+		for _, n := range group {
+			redirect[n.ID] = canonical.ID
+			if n.ID == canonical.ID {
+				continue
+			}
+			state.OffGraph = append(state.OffGraph, offGraphItem{
+				ID: fmt.Sprintf("sup_%s", n.ID), Text: n.Text, Role: "supplementary", AttachesTo: canonical.ID, SourceQuote: n.SourceQuote,
+			})
+		}
+	}
+	nodes := make([]graphNode, 0, len(canonicals))
+	for _, n := range canonicals {
 		nodes = append(nodes, n)
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
@@ -107,7 +147,7 @@ func stage2Dedup(state graphState) graphState {
 	}
 	state.Nodes = nodes
 	state.Edges = edges
-	return state
+	return state, nil
 }
 
 func normalizeStage1State(state graphState) graphState {
@@ -296,29 +336,208 @@ func stage3Classify(ctx context.Context, rt runtimeChat, model string, bundle co
 		}
 	}
 	state.Nodes = filtered
+	state = pruneDanglingEdges(state)
+	return state, nil
+}
+
+func stage3Relations(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState) (graphState, error) {
+	if len(state.Nodes) == 0 {
+		return state, nil
+	}
+		req, err := compile.BuildQwen36ProviderRequest(model, bundle, stage3RelationSystemPrompt, fmt.Sprintf(stage3RelationUserPrompt, serializeRelationNodes(state.Nodes)))
+	if err != nil {
+		return graphState{}, err
+	}
+	resp, err := rt.Call(ctx, req)
+	if err != nil {
+		return graphState{}, err
+	}
+	var result struct {
+		CausalEdges []struct {
+			From string `json:"from"`
+			To   string `json:"to"`
+		} `json:"causal_edges"`
+		SupportLinks []struct {
+			From string `json:"from"`
+			To   string `json:"to"`
+		} `json:"support_links"`
+		SupplementLinks []struct {
+			Primary   string `json:"primary"`
+			Secondary string `json:"secondary"`
+		} `json:"supplement_links"`
+		ExplanationLinks []struct {
+			From string `json:"from"`
+			To   string `json:"to"`
+		} `json:"explanation_links"`
+	} 
+	if err := parseJSONObject(resp.Text, &result); err != nil {
+		return graphState{}, fmt.Errorf("stage3 relation parse: %w", err)
+	}
+	valid := map[string]graphNode{}
+	for _, n := range state.Nodes {
+		valid[n.ID] = n
+	}
+	demoted := map[string]struct{}{}
+	newEdges := make([]graphEdge, 0, len(result.CausalEdges))
+	for _, e := range result.CausalEdges {
+		if _, ok := valid[e.From]; !ok {
+			continue
+		}
+		if _, ok := valid[e.To]; !ok {
+			continue
+		}
+		if e.From == e.To {
+			continue
+		}
+		newEdges = append(newEdges, graphEdge{From: e.From, To: e.To})
+	}
+	for _, e := range result.SupportLinks {
+		fromNode, okFrom := valid[e.From]
+		if !okFrom {
+			continue
+		}
+		toNode, okTo := valid[e.To]
+		if !okTo {
+			continue
+		}
+		if shouldDemoteSupportToSupplement(fromNode, toNode) {
+			primaryID, secondaryNode := chooseSupplementPrimary(fromNode, toNode)
+			state.OffGraph = append(state.OffGraph, offGraphItem{
+				ID:          fmt.Sprintf("sup_%s_%s", secondaryNode.ID, primaryID),
+				Text:        secondaryNode.Text,
+				Role:        "supplementary",
+				AttachesTo:  primaryID,
+				SourceQuote: secondaryNode.SourceQuote,
+			})
+			demoted[secondaryNode.ID] = struct{}{}
+			continue
+		}
+		state.OffGraph = append(state.OffGraph, offGraphItem{
+			ID:          fmt.Sprintf("evi_%s_%s", e.From, e.To),
+			Text:        fromNode.Text,
+			Role:        "evidence",
+			AttachesTo:  e.To,
+			SourceQuote: fromNode.SourceQuote,
+		})
+		demoted[e.From] = struct{}{}
+	}
+	for _, e := range result.ExplanationLinks {
+		fromNode, okFrom := valid[e.From]
+		if !okFrom {
+			continue
+		}
+		if _, ok := valid[e.To]; !ok {
+			continue
+		}
+		state.OffGraph = append(state.OffGraph, offGraphItem{
+			ID:          fmt.Sprintf("exp_%s_%s", e.From, e.To),
+			Text:        fromNode.Text,
+			Role:        "explanation",
+			AttachesTo:  e.To,
+			SourceQuote: fromNode.SourceQuote,
+		})
+		demoted[e.From] = struct{}{}
+	}
+	for _, e := range result.SupplementLinks {
+		secondaryNode, okSecondary := valid[e.Secondary]
+		if !okSecondary {
+			continue
+		}
+		if _, ok := valid[e.Primary]; !ok {
+			continue
+		}
+		state.OffGraph = append(state.OffGraph, offGraphItem{
+			ID:          fmt.Sprintf("sup_%s_%s", e.Secondary, e.Primary),
+			Text:        secondaryNode.Text,
+			Role:        "supplementary",
+			AttachesTo:  e.Primary,
+			SourceQuote: secondaryNode.SourceQuote,
+		})
+		demoted[e.Secondary] = struct{}{}
+	}
+	state.Edges = dedupeEdges(newEdges)
+	if len(demoted) > 0 {
+		nodes := make([]graphNode, 0, len(state.Nodes))
+		for _, n := range state.Nodes {
+			if _, ok := demoted[n.ID]; ok {
+				continue
+			}
+			nodes = append(nodes, n)
+		}
+		state.Nodes = nodes
+	}
+	return state, nil
+}
+
+func stage4Validate(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState, maxRounds int) (graphState, error) {
+	if maxRounds <= 0 {
+		return state, nil
+	}
+	paragraphs := splitParagraphs(bundle.TextContext())
+	if len(paragraphs) == 0 {
+		return state, nil
+	}
+	for round := 0; round < maxRounds; round++ {
+		totalPatches := 0
+		for _, para := range paragraphs {
+			req, err := compile.BuildQwen36ProviderRequest(model, bundle, stage4SystemPrompt, fmt.Sprintf(stage4UserPrompt, para, serializeNodeList(state.Nodes), serializeEdgeList(state.Edges)))
+			if err != nil {
+				return graphState{}, err
+			}
+			resp, err := rt.Call(ctx, req)
+			if err != nil {
+				return graphState{}, err
+			}
+			var patch struct {
+				MissingNodes []struct {
+					Text              string `json:"text"`
+					SourceQuote       string `json:"source_quote"`
+					SuggestedRoleHint string `json:"suggested_role_hint"`
+				} `json:"missing_nodes"`
+				MissingEdges []struct {
+					FromText string `json:"from_text"`
+					ToText   string `json:"to_text"`
+				} `json:"missing_edges"`
+				Misclassified []struct {
+					NodeID string `json:"node_id"`
+					Issue  string `json:"issue"`
+				} `json:"misclassified"`
+			}
+			if err := parseJSONObject(resp.Text, &patch); err != nil {
+				return graphState{}, fmt.Errorf("stage4 validate parse: %w", err)
+			}
+			totalPatches += len(patch.MissingNodes) + len(patch.MissingEdges) + len(patch.Misclassified)
+			state = applyValidatePatch(state, patch)
+		}
+		var err error
+		state, err = stage2Dedup(ctx, rt, model, bundle, state)
+		if err != nil {
+			return graphState{}, err
+		}
+		state, err = stage3Classify(ctx, rt, model, bundle, state)
+		if err != nil {
+			return graphState{}, err
+		}
+		state, err = stage3Relations(ctx, rt, model, bundle, state)
+		if err != nil {
+			return graphState{}, err
+		}
+		state, err = stage3Classify(ctx, rt, model, bundle, state)
+		if err != nil {
+			return graphState{}, err
+		}
+		state.Rounds++
+		if totalPatches < 2 {
+			break
+		}
+	}
 	return state, nil
 }
 
 func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState) (compile.Output, error) {
 	drivers := filterNodesByRole(state.Nodes, roleDriver)
 	targets := filterNodesByRole(state.Nodes, roleTarget)
-	if len(drivers) == 0 && len(state.Nodes) > 0 {
-		drivers = append(drivers, state.Nodes[0])
-	}
-	if len(targets) == 0 && len(state.Nodes) > 1 {
-		targets = append(targets, state.Nodes[len(state.Nodes)-1])
-	}
 	paths := extractPaths(state, drivers, targets)
-	if len(paths) == 0 && len(drivers) > 0 && len(targets) > 0 {
-		paths = append(paths, renderedPath{
-			driver: drivers[0],
-			target: targets[0],
-			steps:  []graphNode{{ID: drivers[0].ID, Text: drivers[0].Text}},
-		})
-		if !hasEdge(state.Edges, drivers[0].ID, targets[0].ID) {
-			state.Edges = append(state.Edges, graphEdge{From: drivers[0].ID, To: targets[0].ID})
-		}
-	}
 	translated, err := translateAll(ctx, rt, model, uniqueTexts(drivers, targets, paths, state.OffGraph))
 	if err != nil {
 		return compile.Output{}, err
@@ -352,7 +571,10 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 	evidence, explanation, supplementary := renderOffGraph(state.OffGraph, cn)
 	summary, err := summarizeChinese(ctx, rt, model, driversOut, targetsOut, transmission, bundle)
 	if err != nil {
-		return compile.Output{}, err
+		summary = fallbackSummary(driversOut, targetsOut)
+	}
+	if strings.TrimSpace(summary) == "" {
+		summary = fallbackSummary(driversOut, targetsOut)
 	}
 	graph := compile.ReasoningGraph{}
 	for _, n := range state.Nodes {
@@ -399,8 +621,66 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 		Graph:              graph,
 		Details:            compile.HiddenDetails{Caveats: []string{"compile v2 mvp"}},
 		Topics:             nil,
-		Confidence:         "medium",
+		Confidence:         confidenceFromState(driversOut, targetsOut, transmission),
 	}, nil
+}
+
+func applyValidatePatch(state graphState, patch struct {
+	MissingNodes []struct {
+		Text              string `json:"text"`
+		SourceQuote       string `json:"source_quote"`
+		SuggestedRoleHint string `json:"suggested_role_hint"`
+	} `json:"missing_nodes"`
+	MissingEdges []struct {
+		FromText string `json:"from_text"`
+		ToText   string `json:"to_text"`
+	} `json:"missing_edges"`
+	Misclassified []struct {
+		NodeID string `json:"node_id"`
+		Issue  string `json:"issue"`
+	} `json:"misclassified"`
+}) graphState {
+	nextNode := len(state.Nodes) + 1
+	textToID := map[string]string{}
+	for _, n := range state.Nodes {
+		textToID[normalizeText(n.Text)] = n.ID
+	}
+	for _, item := range patch.MissingNodes {
+		text := strings.TrimSpace(item.Text)
+		if text == "" {
+			continue
+		}
+		key := normalizeText(text)
+		if _, ok := textToID[key]; ok {
+			continue
+		}
+		id := fmt.Sprintf("n%d", nextNode)
+		nextNode++
+		state.Nodes = append(state.Nodes, graphNode{ID: id, Text: text, SourceQuote: strings.TrimSpace(item.SourceQuote)})
+		textToID[key] = id
+	}
+	for _, item := range patch.MissingEdges {
+		fromID := textToID[normalizeText(item.FromText)]
+		toID := textToID[normalizeText(item.ToText)]
+		if fromID == "" || toID == "" || fromID == toID {
+			continue
+		}
+		if !hasEdge(state.Edges, fromID, toID) {
+			state.Edges = append(state.Edges, graphEdge{From: fromID, To: toID})
+		}
+	}
+	for _, item := range patch.Misclassified {
+		if strings.TrimSpace(item.NodeID) == "" {
+			continue
+		}
+		state.OffGraph = append(state.OffGraph, offGraphItem{
+			ID:         fmt.Sprintf("mis_%s", item.NodeID),
+			Text:       strings.TrimSpace(item.Issue),
+			Role:       "supplementary",
+			AttachesTo: strings.TrimSpace(item.NodeID),
+		})
+	}
+	return state
 }
 
 type renderedPath struct {
@@ -464,6 +744,20 @@ func shortestPath(adj map[string][]string, start, target string) []string {
 		}
 	}
 	return nil
+}
+
+func dedupeEdges(edges []graphEdge) []graphEdge {
+	seen := map[string]struct{}{}
+	out := make([]graphEdge, 0, len(edges))
+	for _, e := range edges {
+		key := e.From + "->" + e.To
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, e)
+	}
+	return out
 }
 
 func filterNodesByRole(nodes []graphNode, role graphRole) []graphNode {
@@ -594,6 +888,142 @@ func renderOffGraph(items []offGraphItem, cn func(id, fallback string) string) (
 	return
 }
 
+func pruneDanglingEdges(state graphState) graphState {
+	valid := map[string]struct{}{}
+	for _, n := range state.Nodes {
+		valid[n.ID] = struct{}{}
+	}
+	edges := make([]graphEdge, 0, len(state.Edges))
+	for _, e := range state.Edges {
+		if _, ok := valid[e.From]; !ok {
+			continue
+		}
+		if _, ok := valid[e.To]; !ok {
+			continue
+		}
+		if e.From == e.To {
+			continue
+		}
+		edges = append(edges, e)
+	}
+	state.Edges = dedupeEdges(edges)
+	return state
+}
+
+func fallbackSummary(drivers, targets []string) string {
+	switch {
+	case len(drivers) > 0 && len(targets) > 0:
+		return fmt.Sprintf("%s影响%s。", drivers[0], targets[0])
+	case len(targets) > 0:
+		return fmt.Sprintf("核心结果：%s。", targets[0])
+	case len(drivers) > 0:
+		return fmt.Sprintf("核心驱动：%s。", drivers[0])
+	default:
+		return "未能稳定提取主线。"
+	}
+}
+
+func confidenceFromState(drivers, targets []string, paths []compile.TransmissionPath) string {
+	if len(paths) > 0 && len(drivers) > 0 && len(targets) > 0 {
+		return "medium"
+	}
+	if len(drivers) > 0 || len(targets) > 0 {
+		return "low"
+	}
+	return "low"
+}
+
+func splitParagraphs(text string) []string {
+	raw := strings.Split(text, "\n")
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func serializeNodeList(nodes []graphNode) string {
+	lines := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		lines = append(lines, fmt.Sprintf("%s: %s", n.ID, n.Text))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func serializeEdgeList(edges []graphEdge) string {
+	lines := make([]string, 0, len(edges))
+	for _, e := range edges {
+		lines = append(lines, fmt.Sprintf("%s -> %s", e.From, e.To))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func serializeRelationNodes(nodes []graphNode) string {
+	lines := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		lines = append(lines, fmt.Sprintf("%s | %s | role=%s | ontology=%s | quote=%s", n.ID, n.Text, n.Role, n.Ontology, n.SourceQuote))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func isOutcomeLikeNode(n graphNode) bool {
+	if n.Role == roleTarget || n.Role == roleTargetCandidate {
+		return true
+	}
+	if strings.TrimSpace(n.Ontology) != "" && strings.TrimSpace(n.Ontology) != "none" {
+		return true
+	}
+	return false
+}
+
+func shouldDemoteSupportToSupplement(fromNode, toNode graphNode) bool {
+	return isOutcomeLikeNode(fromNode) && isOutcomeLikeNode(toNode)
+}
+
+func chooseSupplementPrimary(left, right graphNode) (string, graphNode) {
+	if isLabelLikeNode(left.Text) && !isLabelLikeNode(right.Text) {
+		return right.ID, left
+	}
+	if isLabelLikeNode(right.Text) && !isLabelLikeNode(left.Text) {
+		return left.ID, right
+	}
+	if directnessScore(left.Text) >= directnessScore(right.Text) {
+		return left.ID, right
+	}
+	return right.ID, left
+}
+
+func isLabelLikeNode(text string) bool {
+	t := strings.ToLower(strings.TrimSpace(text))
+	for _, marker := range []string{" trade", " narrative", "交易", "叙事", "story", "regime"} {
+		if strings.Contains(t, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func directnessScore(text string) int {
+	score := 0
+	t := strings.ToLower(strings.TrimSpace(text))
+	for _, marker := range []string{"流入", "流出", "上涨", "下跌", "rise", "fall", "inflow", "outflow", "yield", "spread", "price", "position", "hedge", "allocation"} {
+		if strings.Contains(t, strings.ToLower(marker)) {
+			score += 2
+		}
+	}
+	if !isLabelLikeNode(text) {
+		score++
+	}
+	if len([]rune(text)) < 40 {
+		score++
+	}
+	return score
+}
+
 func asString(value any) string {
 	if s, ok := value.(string); ok {
 		return s
@@ -615,4 +1045,153 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func dedupCandidatePairs(nodes []graphNode) [][2]graphNode {
+	out := make([][2]graphNode, 0)
+	for i := 0; i < len(nodes); i++ {
+		for j := i + 1; j < len(nodes); j++ {
+			if semanticSimilarity(nodes[i].Text, nodes[j].Text) < 0.38 {
+				continue
+			}
+			out = append(out, [2]graphNode{nodes[i], nodes[j]})
+		}
+	}
+	return out
+}
+
+func semanticSimilarity(a, b string) float64 {
+	na, nb := normalizeText(a), normalizeText(b)
+	if na == "" || nb == "" {
+		return 0
+	}
+	if na == nb {
+		return 1
+	}
+	if strings.Contains(na, nb) || strings.Contains(nb, na) {
+		return 0.8
+	}
+	j := jaccard(tokenSet(na), tokenSet(nb))
+	bg := bigramDice(na, nb)
+	if bg > j {
+		return bg
+	}
+	return j
+}
+
+func tokenSet(s string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, tok := range strings.Fields(s) {
+		out[tok] = struct{}{}
+	}
+	return out
+}
+
+func jaccard(a, b map[string]struct{}) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	inter := 0
+	for k := range a {
+		if _, ok := b[k]; ok {
+			inter++
+		}
+	}
+	union := len(a) + len(b) - inter
+	if union == 0 {
+		return 0
+	}
+	return float64(inter) / float64(union)
+}
+
+func bigramDice(a, b string) float64 {
+	ba := bigrams(a)
+	bb := bigrams(b)
+	if len(ba) == 0 || len(bb) == 0 {
+		return 0
+	}
+	inter := 0
+	for k, ca := range ba {
+		if cb, ok := bb[k]; ok {
+			if ca < cb {
+				inter += ca
+			} else {
+				inter += cb
+			}
+		}
+	}
+	total := 0
+	for _, c := range ba {
+		total += c
+	}
+	for _, c := range bb {
+		total += c
+	}
+	if total == 0 {
+		return 0
+	}
+	return float64(2*inter) / float64(total)
+}
+
+func bigrams(s string) map[string]int {
+	runes := []rune(s)
+	out := map[string]int{}
+	if len(runes) < 2 {
+		return out
+	}
+	for i := 0; i < len(runes)-1; i++ {
+		out[string(runes[i:i+2])]++
+	}
+	return out
+}
+
+type uf struct{ parent map[string]string }
+
+func newUF(nodes []graphNode) *uf {
+	parent := map[string]string{}
+	for _, n := range nodes {
+		parent[n.ID] = n.ID
+	}
+	return &uf{parent: parent}
+}
+
+func (u *uf) find(x string) string {
+	for u.parent[x] != x {
+		u.parent[x] = u.parent[u.parent[x]]
+		x = u.parent[x]
+	}
+	return x
+}
+
+func (u *uf) union(a, b string) {
+	ra, rb := u.find(a), u.find(b)
+	if ra != rb {
+		u.parent[ra] = rb
+	}
+}
+
+func (u *uf) groups(nodes []graphNode) [][]graphNode {
+	grouped := map[string][]graphNode{}
+	for _, n := range nodes {
+		grouped[u.find(n.ID)] = append(grouped[u.find(n.ID)], n)
+	}
+	out := make([][]graphNode, 0, len(grouped))
+	for _, g := range grouped {
+		out = append(out, g)
+	}
+	return out
+}
+
+func chooseCanonical(group []graphNode) graphNode {
+	best := group[0]
+	for _, n := range group[1:] {
+		if len(n.SourceQuote) > len(best.SourceQuote) {
+			best = n
+			continue
+		}
+		if len(n.SourceQuote) == len(best.SourceQuote) && utf8.RuneCountInString(n.Text) > utf8.RuneCountInString(best.Text) {
+			best = n
+		}
+	}
+	return best
 }
