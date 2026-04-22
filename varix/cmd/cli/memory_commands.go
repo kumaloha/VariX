@@ -17,6 +17,7 @@ import (
 )
 
 const memoryCommandUsage = "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert> ..."
+const globalV2ItemTypeUsage = "item-type must be one of: card, conclusion, conflict"
 
 func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -610,8 +611,8 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 	}
 	trimmedUserID := strings.TrimSpace(*userID)
 	trimmedItemType := strings.TrimSpace(*itemType)
-	if trimmedItemType != "" && trimmedItemType != "card" && trimmedItemType != "conclusion" && trimmedItemType != "conflict" {
-		fmt.Fprintln(stderr, "item-type must be one of: card, conclusion, conflict")
+	if !isGlobalV2ItemType(trimmedItemType) {
+		fmt.Fprintln(stderr, globalV2ItemTypeUsage)
 		return 2
 	}
 	store, err := openStore(projectRoot)
@@ -661,8 +662,8 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 	trimmedUserID := strings.TrimSpace(*userID)
 	trimmedItemType := strings.TrimSpace(*itemType)
 	now := currentUTC()
-	if trimmedItemType != "" && trimmedItemType != "card" && trimmedItemType != "conclusion" && trimmedItemType != "conflict" {
-		fmt.Fprintln(stderr, "item-type must be one of: card, conclusion, conflict")
+	if !isGlobalV2ItemType(trimmedItemType) {
+		fmt.Fprintln(stderr, globalV2ItemTypeUsage)
 		return 2
 	}
 	store, err := openStore(projectRoot)
@@ -845,6 +846,15 @@ func limitGlobalOrganizationOutput(out memory.GlobalOrganizationOutput, limit in
 	limited := out
 	limited.Clusters = append([]memory.GlobalCluster(nil), out.Clusters[:limit]...)
 	return limited
+}
+
+func isGlobalV2ItemType(itemType string) bool {
+	switch itemType {
+	case "", "card", "conclusion", "conflict":
+		return true
+	default:
+		return false
+	}
 }
 
 func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMemoryV2Output, itemType string) string {
