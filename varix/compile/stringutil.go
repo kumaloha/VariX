@@ -14,3 +14,9 @@ func FirstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+func HasDistinctNonEmptyPair(left, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	return left != "" && right != "" && left != right
+}

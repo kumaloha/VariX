@@ -584,7 +584,7 @@ func buildCompatibilityGraph(bundle Bundle, driverTarget DriverTargetOutput, pat
 	}
 
 	addEdge := func(from, to string, kind EdgeKind) {
-		if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" || from == to {
+		if !HasDistinctNonEmptyPair(from, to) {
 			return
 		}
 		candidate := GraphEdge{From: from, To: to, Kind: kind}

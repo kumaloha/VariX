@@ -1034,7 +1034,7 @@ func validateGraphEdges(edges []GraphEdge, nodeIDs map[string]struct{}, nodeKind
 		return fmt.Errorf("graph must contain at least %d edges", minEdges)
 	}
 	for _, edge := range edges {
-		if strings.TrimSpace(edge.From) == "" || strings.TrimSpace(edge.To) == "" || strings.TrimSpace(string(edge.Kind)) == "" {
+		if !HasDistinctNonEmptyPair(edge.From, edge.To) || strings.TrimSpace(string(edge.Kind)) == "" {
 			return fmt.Errorf("graph edge has empty required field: from=%q to=%q kind=%q", edge.From, edge.To, edge.Kind)
 		}
 		if _, ok := nodeIDs[edge.From]; !ok {
