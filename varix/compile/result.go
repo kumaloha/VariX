@@ -674,8 +674,8 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		return err
 	}
 	for _, check := range o.Verification.FactChecks {
-		if _, ok := nodeIDs[check.NodeID]; !ok {
-			return fmt.Errorf("fact check references unknown node: %s", check.NodeID)
+		if err := validateKnownNodeIDs("fact check", []string{check.NodeID}, nodeIDs); err != nil {
+			return err
 		}
 		switch check.Status {
 		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
@@ -684,8 +684,8 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		}
 	}
 	for _, check := range o.Verification.RealizedChecks {
-		if _, ok := nodeIDs[check.NodeID]; !ok {
-			return fmt.Errorf("realized check references unknown node: %s", check.NodeID)
+		if err := validateKnownNodeIDs("realized check", []string{check.NodeID}, nodeIDs); err != nil {
+			return err
 		}
 		switch check.Status {
 		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
@@ -694,13 +694,13 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		}
 	}
 	for _, check := range o.Verification.FutureConditionChecks {
-		if _, ok := nodeIDs[check.NodeID]; !ok {
-			return fmt.Errorf("future condition check references unknown node: %s", check.NodeID)
+		if err := validateKnownNodeIDs("future condition check", []string{check.NodeID}, nodeIDs); err != nil {
+			return err
 		}
 	}
 	for _, check := range o.Verification.ExplicitConditionChecks {
-		if _, ok := nodeIDs[check.NodeID]; !ok {
-			return fmt.Errorf("explicit condition check references unknown node: %s", check.NodeID)
+		if err := validateKnownNodeIDs("explicit condition check", []string{check.NodeID}, nodeIDs); err != nil {
+			return err
 		}
 		switch check.Status {
 		case ExplicitConditionStatusHigh, ExplicitConditionStatusMedium, ExplicitConditionStatusLow, ExplicitConditionStatusUnknown:
@@ -709,8 +709,8 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		}
 	}
 	for _, check := range o.Verification.ImplicitConditionChecks {
-		if _, ok := nodeIDs[check.NodeID]; !ok {
-			return fmt.Errorf("implicit condition check references unknown node: %s", check.NodeID)
+		if err := validateKnownNodeIDs("implicit condition check", []string{check.NodeID}, nodeIDs); err != nil {
+			return err
 		}
 		switch check.Status {
 		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
@@ -719,8 +719,8 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		}
 	}
 	for _, check := range o.Verification.PredictionChecks {
-		if _, ok := nodeIDs[check.NodeID]; !ok {
-			return fmt.Errorf("prediction check references unknown node: %s", check.NodeID)
+		if err := validateKnownNodeIDs("prediction check", []string{check.NodeID}, nodeIDs); err != nil {
+			return err
 		}
 		switch check.Status {
 		case PredictionStatusUnresolved, PredictionStatusResolvedTrue, PredictionStatusResolvedFalse, PredictionStatusStaleUnresolved:
@@ -729,62 +729,42 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		}
 	}
 	for _, pass := range o.Verification.Passes {
-		for _, id := range pass.NodeIDs {
-			if _, ok := nodeIDs[id]; !ok {
-				return fmt.Errorf("verification pass references unknown node: %s", id)
-			}
+		if err := validateKnownNodeIDs("verification pass", pass.NodeIDs, nodeIDs); err != nil {
+			return err
 		}
-		for _, id := range pass.Coverage.ExpectedNodeIDs {
-			if _, ok := nodeIDs[id]; !ok {
-				return fmt.Errorf("verification coverage expected references unknown node: %s", id)
-			}
+		if err := validateKnownNodeIDs("verification coverage expected", pass.Coverage.ExpectedNodeIDs, nodeIDs); err != nil {
+			return err
 		}
-		for _, id := range pass.Coverage.ReturnedNodeIDs {
-			if _, ok := nodeIDs[id]; !ok {
-				return fmt.Errorf("verification coverage returned references unknown node: %s", id)
-			}
+		if err := validateKnownNodeIDs("verification coverage returned", pass.Coverage.ReturnedNodeIDs, nodeIDs); err != nil {
+			return err
 		}
-		for _, id := range pass.Coverage.MissingNodeIDs {
-			if _, ok := nodeIDs[id]; !ok {
-				return fmt.Errorf("verification coverage missing references unknown node: %s", id)
-			}
+		if err := validateKnownNodeIDs("verification coverage missing", pass.Coverage.MissingNodeIDs, nodeIDs); err != nil {
+			return err
 		}
-		for _, id := range pass.Coverage.DuplicateNodeIDs {
-			if _, ok := nodeIDs[id]; !ok {
-				return fmt.Errorf("verification coverage duplicate references unknown node: %s", id)
-			}
+		if err := validateKnownNodeIDs("verification coverage duplicate", pass.Coverage.DuplicateNodeIDs, nodeIDs); err != nil {
+			return err
 		}
-		for _, id := range pass.Coverage.UnexpectedNodeIDs {
-			if _, ok := nodeIDs[id]; !ok {
-				return fmt.Errorf("verification coverage unexpected references unknown node: %s", id)
-			}
+		if err := validateKnownNodeIDs("verification coverage unexpected", pass.Coverage.UnexpectedNodeIDs, nodeIDs); err != nil {
+			return err
 		}
 		for _, stage := range []*VerificationStageSummary{pass.Claim, pass.Challenge, pass.Adjudication} {
 			if stage == nil {
 				continue
 			}
-			for _, id := range stage.OutputNodeIDs {
-				if _, ok := nodeIDs[id]; !ok {
-					return fmt.Errorf("verification stage references unknown node: %s", id)
-				}
+			if err := validateKnownNodeIDs("verification stage", stage.OutputNodeIDs, nodeIDs); err != nil {
+				return err
 			}
 		}
 	}
 	if summary := o.Verification.CoverageSummary; summary != nil {
-		for _, id := range summary.MissingNodeIDs {
-			if _, ok := nodeIDs[id]; !ok {
-				return fmt.Errorf("verification summary missing references unknown node: %s", id)
-			}
+		if err := validateKnownNodeIDs("verification summary missing", summary.MissingNodeIDs, nodeIDs); err != nil {
+			return err
 		}
-		for _, id := range summary.DuplicateNodeIDs {
-			if _, ok := nodeIDs[id]; !ok {
-				return fmt.Errorf("verification summary duplicate references unknown node: %s", id)
-			}
+		if err := validateKnownNodeIDs("verification summary duplicate", summary.DuplicateNodeIDs, nodeIDs); err != nil {
+			return err
 		}
-		for _, id := range summary.UnexpectedNodeIDs {
-			if _, ok := nodeIDs[id]; !ok {
-				return fmt.Errorf("verification summary unexpected references unknown node: %s", id)
-			}
+		if err := validateKnownNodeIDs("verification summary unexpected", summary.UnexpectedNodeIDs, nodeIDs); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -920,6 +900,15 @@ type stringListField struct {
 func validateRequiredSummary(summary string) error {
 	if strings.TrimSpace(summary) == "" {
 		return fmt.Errorf("summary is required")
+	}
+	return nil
+}
+
+func validateKnownNodeIDs(label string, ids []string, nodeIDs map[string]struct{}) error {
+	for _, id := range ids {
+		if _, ok := nodeIDs[id]; !ok {
+			return fmt.Errorf("%s references unknown node: %s", label, id)
+		}
 	}
 	return nil
 }
