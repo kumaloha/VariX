@@ -91,7 +91,7 @@ func runMemoryAccept(args []string, projectRoot string, stdout, stderr io.Writer
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*userID) == "" || strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" || strings.TrimSpace(*nodeID) == "" {
+	if invalidRequiredMemorySource(*userID, *platform, *externalID) || strings.TrimSpace(*nodeID) == "" {
 		fmt.Fprintln(stderr, "usage: varix memory accept --user <user_id> --platform <platform> --id <external_id> --node <node_id>")
 		return 2
 	}
@@ -120,7 +120,7 @@ func runMemoryAcceptBatch(args []string, projectRoot string, stdout, stderr io.W
 			nodeIDs = append(nodeIDs, trimmed)
 		}
 	}
-	if strings.TrimSpace(*userID) == "" || strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" || len(nodeIDs) == 0 {
+	if invalidRequiredMemorySource(*userID, *platform, *externalID) || len(nodeIDs) == 0 {
 		fmt.Fprintln(stderr, "usage: varix memory accept-batch --user <user_id> --platform <platform> --id <external_id> --nodes <id1,id2,...>")
 		return 2
 	}
@@ -193,7 +193,7 @@ func runMemoryShowSource(args []string, projectRoot string, stdout, stderr io.Wr
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*userID) == "" || strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+	if invalidRequiredMemorySource(*userID, *platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix memory show-source --user <user_id> --platform <platform> --id <external_id>")
 		return 2
 	}
@@ -409,7 +409,7 @@ func runMemoryOrganized(args []string, projectRoot string, stdout, stderr io.Wri
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*userID) == "" || strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+	if invalidRequiredMemorySource(*userID, *platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix memory organized --user <user_id> --platform <platform> --id <external_id>")
 		return 2
 	}
@@ -865,6 +865,10 @@ func invalidScopedMemorySourceRequest(userID, platform, externalID string) bool 
 	return strings.TrimSpace(userID) == "" || (strings.TrimSpace(externalID) != "" && strings.TrimSpace(platform) == "")
 }
 
+func invalidRequiredMemorySource(userID, platform, externalID string) bool {
+	return strings.TrimSpace(userID) == "" || !hasContentTarget(platform, externalID)
+}
+
 func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMemoryV2Output, itemType string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "V1 cluster-first (%d)\n", len(v1.Clusters))
@@ -1103,7 +1107,7 @@ func runMemoryContentGraphs(args []string, projectRoot string, stdout, stderr io
 	}
 	defer store.Close()
 	if *runNow {
-		if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+		if !hasContentTarget(*platform, *externalID) {
 			fmt.Fprintln(stderr, "usage: varix memory content-graphs --run --user <user_id> --platform <platform> --id <external_id>")
 			return 2
 		}
@@ -1299,7 +1303,7 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 	selectedLayer := strings.TrimSpace(*layer)
 	switch selectedLayer {
 	case "content":
-		if strings.TrimSpace(*userID) == "" || strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+		if invalidRequiredMemorySource(*userID, *platform, *externalID) {
 			fmt.Fprintln(stderr, "usage: varix memory backfill --layer content --user <user_id> --platform <platform> --id <external_id>")
 			return 2
 		}
