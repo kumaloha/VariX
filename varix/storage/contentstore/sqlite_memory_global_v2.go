@@ -291,23 +291,35 @@ func conflictSupportPriority(kind compile.NodeKind) int {
 
 func buildDriverAggregatesFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memory.DriverAggregate {
 	out := make([]memory.DriverAggregate, 0)
-	for _, graph := range graphs {
-		if graph.Scope != "driver" {
-			continue
-		}
-		out = append(out, memory.DriverAggregate{AggregateID: graph.EventGraphID, DriverEntityID: relationEntityID(memory.CanonicalEntityDriver, graph.AnchorSubject), TargetEntityIDs: nil, CoverageScore: float64(graph.PrimaryNodeCount), ConflictCount: 0, TraceabilityStatus: memory.TraceabilityPartial, AsOf: now, CreatedAt: now})
-	}
+	forEachEventGraphScope(graphs, "driver", func(graph EventGraphRecord) {
+		out = append(out, memory.DriverAggregate{
+			AggregateID:        graph.EventGraphID,
+			DriverEntityID:     relationEntityID(memory.CanonicalEntityDriver, graph.AnchorSubject),
+			TargetEntityIDs:    nil,
+			CoverageScore:      float64(graph.PrimaryNodeCount),
+			ConflictCount:      0,
+			TraceabilityStatus: memory.TraceabilityPartial,
+			AsOf:               now,
+			CreatedAt:          now,
+		})
+	})
 	return out
 }
 
 func buildTargetAggregatesFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memory.TargetAggregate {
 	out := make([]memory.TargetAggregate, 0)
-	for _, graph := range graphs {
-		if graph.Scope != "target" {
-			continue
-		}
-		out = append(out, memory.TargetAggregate{AggregateID: graph.EventGraphID, TargetEntityID: relationEntityID(memory.CanonicalEntityTarget, graph.AnchorSubject), DriverEntityIDs: nil, CoverageScore: float64(graph.PrimaryNodeCount), ConflictCount: 0, TraceabilityStatus: memory.TraceabilityPartial, AsOf: now, CreatedAt: now})
-	}
+	forEachEventGraphScope(graphs, "target", func(graph EventGraphRecord) {
+		out = append(out, memory.TargetAggregate{
+			AggregateID:        graph.EventGraphID,
+			TargetEntityID:     relationEntityID(memory.CanonicalEntityTarget, graph.AnchorSubject),
+			DriverEntityIDs:    nil,
+			CoverageScore:      float64(graph.PrimaryNodeCount),
+			ConflictCount:      0,
+			TraceabilityStatus: memory.TraceabilityPartial,
+			AsOf:               now,
+			CreatedAt:          now,
+		})
+	})
 	return out
 }
 
@@ -331,7 +343,7 @@ func buildConclusionsFromParadigms(items []ParadigmRecord, now time.Time) []memo
 func buildTopItemsFromParadigms(items []ParadigmRecord, now time.Time) []memory.TopMemoryItem {
 	out := make([]memory.TopMemoryItem, 0, len(items))
 	for _, item := range items {
-		out = append(out, newTopMemoryItem(
+		out = append(out, newTopMemoryItemWithAsOf(
 			item.ParadigmID+"-top",
 			memory.TopMemoryItemConclusion,
 			paradigmHeadline(item),
@@ -339,8 +351,8 @@ func buildTopItemsFromParadigms(items []ParadigmRecord, now time.Time) []memory.
 			item.ParadigmID,
 			memory.SignalMedium,
 			now,
+			now,
 		))
-		out[len(out)-1].AsOf = now
 	}
 	return out
 }
@@ -366,7 +378,7 @@ func buildCardsFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memor
 func buildTopItemsFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memory.TopMemoryItem {
 	out := make([]memory.TopMemoryItem, 0, len(graphs))
 	for _, graph := range graphs {
-		out = append(out, newTopMemoryItem(
+		out = append(out, newTopMemoryItemWithAsOf(
 			graph.EventGraphID+"-top",
 			memory.TopMemoryItemCard,
 			graph.AnchorSubject,
@@ -374,8 +386,8 @@ func buildTopItemsFromEventGraphs(graphs []EventGraphRecord, now time.Time) []me
 			graph.EventGraphID,
 			memory.SignalMedium,
 			now,
+			now,
 		))
-		out[len(out)-1].AsOf = now
 	}
 	return out
 }
@@ -386,6 +398,15 @@ func eventGraphSummary(graph EventGraphRecord) string {
 
 func paradigmHeadline(item ParadigmRecord) string {
 	return item.DriverSubject + " -> " + item.TargetSubject
+}
+
+func forEachEventGraphScope(graphs []EventGraphRecord, scope string, fn func(EventGraphRecord)) {
+	for _, graph := range graphs {
+		if graph.Scope != scope {
+			continue
+		}
+		fn(graph)
+	}
 }
 
 func activeGlobalAcceptedNodeIndex(nodes []memory.AcceptedNode, now time.Time) ([]memory.AcceptedNode, map[string]memory.AcceptedNode) {
