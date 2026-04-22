@@ -1623,12 +1623,17 @@ func runMemoryCanonicalEntityUpsert(args []string, projectRoot string, stdout, s
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*entityID) == "" || strings.TrimSpace(*entityType) == "" || strings.TrimSpace(*name) == "" {
+	entityIDValue := strings.TrimSpace(*entityID)
+	entityTypeValue := strings.TrimSpace(*entityType)
+	nameValue := strings.TrimSpace(*name)
+	statusValue := strings.TrimSpace(*status)
+	aliasesValue := strings.TrimSpace(*aliasesRaw)
+	if entityIDValue == "" || entityTypeValue == "" || nameValue == "" {
 		fmt.Fprintln(stderr, "usage: varix memory canonical-entity-upsert --id <entity_id> --type <driver|target|both> --name <canonical_name> [--aliases a,b]")
 		return 2
 	}
 	var typ memory.CanonicalEntityType
-	switch strings.TrimSpace(*entityType) {
+	switch entityTypeValue {
 	case string(memory.CanonicalEntityDriver):
 		typ = memory.CanonicalEntityDriver
 	case string(memory.CanonicalEntityTarget):
@@ -1640,7 +1645,7 @@ func runMemoryCanonicalEntityUpsert(args []string, projectRoot string, stdout, s
 		return 2
 	}
 	var entityStatus memory.CanonicalEntityStatus
-	switch strings.TrimSpace(*status) {
+	switch statusValue {
 	case string(memory.CanonicalEntityActive):
 		entityStatus = memory.CanonicalEntityActive
 	case string(memory.CanonicalEntityMerged):
@@ -1654,7 +1659,7 @@ func runMemoryCanonicalEntityUpsert(args []string, projectRoot string, stdout, s
 		return 2
 	}
 	aliases := make([]string, 0)
-	for _, part := range strings.Split(strings.TrimSpace(*aliasesRaw), ",") {
+	for _, part := range strings.Split(aliasesValue, ",") {
 		if trimmed := strings.TrimSpace(part); trimmed != "" {
 			aliases = append(aliases, trimmed)
 		}
@@ -1666,9 +1671,9 @@ func runMemoryCanonicalEntityUpsert(args []string, projectRoot string, stdout, s
 	}
 	defer store.Close()
 	entity := memory.CanonicalEntity{
-		EntityID:      strings.TrimSpace(*entityID),
+		EntityID:      entityIDValue,
 		EntityType:    typ,
-		CanonicalName: strings.TrimSpace(*name),
+		CanonicalName: nameValue,
 		Aliases:       aliases,
 		Status:        entityStatus,
 	}
