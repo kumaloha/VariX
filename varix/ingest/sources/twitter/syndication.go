@@ -798,19 +798,23 @@ func (c *SyndicationHTTPClient) hydrateThread(ctx context.Context, item *types.R
 }
 
 func (c *SyndicationHTTPClient) hasAuthTokens() bool {
-	return strings.TrimSpace(c.authToken) != "" && strings.TrimSpace(c.ct0) != ""
+	authToken := strings.TrimSpace(c.authToken)
+	ct0 := strings.TrimSpace(c.ct0)
+	return authToken != "" && ct0 != ""
 }
 
 func (c *SyndicationHTTPClient) applyAuthHeaders(req *http.Request, bearerToken string) {
 	if req == nil {
 		return
 	}
+	authToken := strings.TrimSpace(c.authToken)
+	ct0 := strings.TrimSpace(c.ct0)
 	req.Header.Set("authorization", "Bearer "+bearerToken)
-	req.Header.Set("x-csrf-token", c.ct0)
+	req.Header.Set("x-csrf-token", ct0)
 	req.Header.Set("x-twitter-active-user", "yes")
 	req.Header.Set("x-twitter-auth-type", "OAuth2Session")
 	req.Header.Set("x-twitter-client-language", "en")
-	req.Header.Set("cookie", "auth_token="+c.authToken+"; ct0="+c.ct0)
+	req.Header.Set("cookie", "auth_token="+authToken+"; ct0="+ct0)
 	req.Header.Set("user-agent", "Mozilla/5.0")
 }
 
