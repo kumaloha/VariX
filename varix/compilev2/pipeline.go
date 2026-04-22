@@ -14,11 +14,11 @@ import (
 type graphRole string
 
 const (
-	roleDriver             graphRole = "driver"
-	roleTransmission       graphRole = "transmission"
-	roleTargetCandidate    graphRole = "target_candidate"
-	roleTarget             graphRole = "target"
-	roleOrphan             graphRole = "orphan"
+	roleDriver          graphRole = "driver"
+	roleTransmission    graphRole = "transmission"
+	roleTargetCandidate graphRole = "target_candidate"
+	roleTarget          graphRole = "target"
+	roleOrphan          graphRole = "orphan"
 )
 
 type graphNode struct {
@@ -70,17 +70,9 @@ func countRole(state graphState, role graphRole) int {
 }
 
 func stage1Extract(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle) (graphState, error) {
-	req, err := compile.BuildQwen36ProviderRequest(model, bundle, stage1SystemPrompt, fmt.Sprintf(stage1UserPrompt, bundle.TextContext()))
-	if err != nil {
-		return graphState{}, err
-	}
-	resp, err := rt.Call(ctx, req)
-	if err != nil {
-		return graphState{}, err
-	}
 	var payload map[string]any
-	if err := parseJSONObject(resp.Text, &payload); err != nil {
-		return graphState{}, fmt.Errorf("stage1 extract parse: %w", err)
+	if err := stageJSONCall(ctx, rt, model, bundle, stage1SystemPrompt, fmt.Sprintf(stage1UserPrompt, bundle.TextContext()), "stage1 extract", &payload); err != nil {
+		return graphState{}, err
 	}
 	state := graphState{}
 	state.Nodes = decodeStage1Nodes(payload["nodes"])
@@ -94,17 +86,11 @@ func stage2Dedup(ctx context.Context, rt runtimeChat, model string, bundle compi
 	state = normalizeStage1State(state)
 	uf := newUF(state.Nodes)
 	for _, pair := range dedupCandidatePairs(state.Nodes) {
-		req, err := compile.BuildQwen36ProviderRequest(model, bundle, stage2SystemPrompt, fmt.Sprintf(stage2UserPrompt, pair[0].Text, pair[0].SourceQuote, pair[1].Text, pair[1].SourceQuote))
-		if err != nil {
-			return graphState{}, err
+		var result struct {
+			Equivalent bool `json:"equivalent"`
 		}
-		resp, err := rt.Call(ctx, req)
-		if err != nil {
+		if err := stageJSONCall(ctx, rt, model, bundle, stage2SystemPrompt, fmt.Sprintf(stage2UserPrompt, pair[0].Text, pair[0].SourceQuote, pair[1].Text, pair[1].SourceQuote), "stage2 dedup", &result); err != nil {
 			return graphState{}, err
-		}
-		var result struct{ Equivalent bool `json:"equivalent"` }
-		if err := parseJSONObject(resp.Text, &result); err != nil {
-			return graphState{}, fmt.Errorf("stage2 dedup parse: %w", err)
 		}
 		if result.Equivalent {
 			uf.union(pair[0].ID, pair[1].ID)
@@ -307,20 +293,12 @@ func stage3Classify(ctx context.Context, rt runtimeChat, model string, bundle co
 			filtered = append(filtered, n)
 			continue
 		}
-		req, err := compile.BuildQwen36ProviderRequest(model, bundle, stage3SystemPrompt, fmt.Sprintf(stage3UserPrompt, n.Text, n.SourceQuote))
-		if err != nil {
-			return graphState{}, err
-		}
-		resp, err := rt.Call(ctx, req)
-		if err != nil {
-			return graphState{}, err
-		}
 		var result struct {
 			IsMarketOutcome bool   `json:"is_market_outcome"`
 			Category        string `json:"category"`
 		}
-		if err := parseJSONObject(resp.Text, &result); err != nil {
-			return graphState{}, fmt.Errorf("stage3 classify parse: %w", err)
+		if err := stageJSONCall(ctx, rt, model, bundle, stage3SystemPrompt, fmt.Sprintf(stage3UserPrompt, n.Text, n.SourceQuote), "stage3 classify", &result); err != nil {
+			return graphState{}, err
 		}
 		if result.IsMarketOutcome {
 			n.Role = roleTarget
@@ -344,14 +322,6 @@ func stage3Relations(ctx context.Context, rt runtimeChat, model string, bundle c
 	if len(state.Nodes) == 0 {
 		return state, nil
 	}
-		req, err := compile.BuildQwen36ProviderRequest(model, bundle, stage3RelationSystemPrompt, fmt.Sprintf(stage3RelationUserPrompt, serializeRelationNodes(state.Nodes)))
-	if err != nil {
-		return graphState{}, err
-	}
-	resp, err := rt.Call(ctx, req)
-	if err != nil {
-		return graphState{}, err
-	}
 	var result struct {
 		CausalEdges []struct {
 			From string `json:"from"`
@@ -369,9 +339,9 @@ func stage3Relations(ctx context.Context, rt runtimeChat, model string, bundle c
 			From string `json:"from"`
 			To   string `json:"to"`
 		} `json:"explanation_links"`
-	} 
-	if err := parseJSONObject(resp.Text, &result); err != nil {
-		return graphState{}, fmt.Errorf("stage3 relation parse: %w", err)
+	}
+	if err := stageJSONCall(ctx, rt, model, bundle, stage3RelationSystemPrompt, fmt.Sprintf(stage3RelationUserPrompt, serializeRelationNodes(state.Nodes)), "stage3 relation", &result); err != nil {
+		return graphState{}, err
 	}
 	valid := map[string]graphNode{}
 	for _, n := range state.Nodes {
@@ -480,14 +450,6 @@ func stage4Validate(ctx context.Context, rt runtimeChat, model string, bundle co
 	for round := 0; round < maxRounds; round++ {
 		totalPatches := 0
 		for _, para := range paragraphs {
-			req, err := compile.BuildQwen36ProviderRequest(model, bundle, stage4SystemPrompt, fmt.Sprintf(stage4UserPrompt, para, serializeNodeList(state.Nodes), serializeEdgeList(state.Edges)))
-			if err != nil {
-				return graphState{}, err
-			}
-			resp, err := rt.Call(ctx, req)
-			if err != nil {
-				return graphState{}, err
-			}
 			var patch struct {
 				MissingNodes []struct {
 					Text              string `json:"text"`
@@ -503,8 +465,8 @@ func stage4Validate(ctx context.Context, rt runtimeChat, model string, bundle co
 					Issue  string `json:"issue"`
 				} `json:"misclassified"`
 			}
-			if err := parseJSONObject(resp.Text, &patch); err != nil {
-				return graphState{}, fmt.Errorf("stage4 validate parse: %w", err)
+			if err := stageJSONCall(ctx, rt, model, bundle, stage4SystemPrompt, fmt.Sprintf(stage4UserPrompt, para, serializeNodeList(state.Nodes), serializeEdgeList(state.Edges)), "stage4 validate", &patch); err != nil {
+				return graphState{}, err
 			}
 			totalPatches += len(patch.MissingNodes) + len(patch.MissingEdges) + len(patch.Misclassified)
 			state = applyValidatePatch(state, patch)
@@ -830,22 +792,14 @@ func translateAll(ctx context.Context, rt runtimeChat, model string, items []map
 		return nil, err
 	}
 	bundle := compile.Bundle{UnitID: "translate", Source: "compilev2", ExternalID: "translate", Content: string(payload)}
-	req, err := compile.BuildQwen36ProviderRequest(model, bundle, stage5TranslateSystemPrompt, fmt.Sprintf(stage5TranslateUserPrompt, string(payload)))
-	if err != nil {
-		return nil, err
-	}
-	resp, err := rt.Call(ctx, req)
-	if err != nil {
-		return nil, err
-	}
 	var result struct {
 		Translations []struct {
 			ID   string `json:"id"`
 			Text string `json:"text"`
 		} `json:"translations"`
 	}
-	if err := parseJSONObject(resp.Text, &result); err != nil {
-		return nil, fmt.Errorf("stage5 translate parse: %w", err)
+	if err := stageJSONCall(ctx, rt, model, bundle, stage5TranslateSystemPrompt, fmt.Sprintf(stage5TranslateUserPrompt, string(payload)), "stage5 translate", &result); err != nil {
+		return nil, err
 	}
 	out := map[string]string{}
 	for _, item := range result.Translations {
@@ -859,19 +813,28 @@ func summarizeChinese(ctx context.Context, rt runtimeChat, model string, drivers
 	if err != nil {
 		return "", err
 	}
-	req, err := compile.BuildQwen36ProviderRequest(model, bundle, stage5SummarySystemPrompt, fmt.Sprintf(stage5SummaryUserPrompt, string(payload)))
-	if err != nil {
+	var result struct {
+		Summary string `json:"summary"`
+	}
+	if err := stageJSONCall(ctx, rt, model, bundle, stage5SummarySystemPrompt, fmt.Sprintf(stage5SummaryUserPrompt, string(payload)), "stage5 summary", &result); err != nil {
 		return "", err
+	}
+	return strings.TrimSpace(result.Summary), nil
+}
+
+func stageJSONCall(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, systemPrompt string, userPrompt string, stageName string, target any) error {
+	req, err := compile.BuildQwen36ProviderRequest(model, bundle, systemPrompt, userPrompt)
+	if err != nil {
+		return err
 	}
 	resp, err := rt.Call(ctx, req)
 	if err != nil {
-		return "", err
+		return err
 	}
-	var result struct{ Summary string `json:"summary"` }
-	if err := parseJSONObject(resp.Text, &result); err != nil {
-		return "", fmt.Errorf("stage5 summary parse: %w", err)
+	if err := parseJSONObject(resp.Text, target); err != nil {
+		return fmt.Errorf("%s parse: %w", stageName, err)
 	}
-	return strings.TrimSpace(result.Summary), nil
+	return nil
 }
 
 func renderOffGraph(items []offGraphItem, cn func(id, fallback string) string) (evidence, explanation, supplementary []string) {
@@ -947,26 +910,32 @@ func splitParagraphs(text string) []string {
 }
 
 func serializeNodeList(nodes []graphNode) string {
-	lines := make([]string, 0, len(nodes))
-	for _, n := range nodes {
-		lines = append(lines, fmt.Sprintf("%s: %s", n.ID, n.Text))
-	}
-	return strings.Join(lines, "\n")
+	return joinSerializedLines(len(nodes), func(out *[]string) {
+		for _, n := range nodes {
+			*out = append(*out, fmt.Sprintf("%s: %s", n.ID, n.Text))
+		}
+	})
 }
 
 func serializeEdgeList(edges []graphEdge) string {
-	lines := make([]string, 0, len(edges))
-	for _, e := range edges {
-		lines = append(lines, fmt.Sprintf("%s -> %s", e.From, e.To))
-	}
-	return strings.Join(lines, "\n")
+	return joinSerializedLines(len(edges), func(out *[]string) {
+		for _, e := range edges {
+			*out = append(*out, fmt.Sprintf("%s -> %s", e.From, e.To))
+		}
+	})
 }
 
 func serializeRelationNodes(nodes []graphNode) string {
-	lines := make([]string, 0, len(nodes))
-	for _, n := range nodes {
-		lines = append(lines, fmt.Sprintf("%s | %s | role=%s | ontology=%s | quote=%s", n.ID, n.Text, n.Role, n.Ontology, n.SourceQuote))
-	}
+	return joinSerializedLines(len(nodes), func(out *[]string) {
+		for _, n := range nodes {
+			*out = append(*out, fmt.Sprintf("%s | %s | role=%s | ontology=%s | quote=%s", n.ID, n.Text, n.Role, n.Ontology, n.SourceQuote))
+		}
+	})
+}
+
+func joinSerializedLines(capacity int, appendLines func(*[]string)) string {
+	lines := make([]string, 0, capacity)
+	appendLines(&lines)
 	return strings.Join(lines, "\n")
 }
 
