@@ -29,21 +29,21 @@ type Client struct {
 }
 
 func NewClientFromConfig(projectRoot string, httpClient *http.Client) *Client {
-	apiKey := firstConfiguredValue(projectRoot, "DASHSCOPE_API_KEY", "OPENAI_API_KEY")
+	apiKey := config.FirstConfiguredValue(projectRoot, "DASHSCOPE_API_KEY", "OPENAI_API_KEY")
 	if strings.TrimSpace(apiKey) == "" {
 		return nil
 	}
-	baseURL := firstConfiguredValue(projectRoot, "COMPILE_BASE_URL", "DASHSCOPE_BASE_URL")
+	baseURL := config.FirstConfiguredValue(projectRoot, "COMPILE_BASE_URL", "DASHSCOPE_BASE_URL")
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = defaultDashScopeCompatibleBaseURL
 	}
-	model := firstConfiguredValue(projectRoot, "COMPILE_MODEL")
+	model := config.FirstConfiguredValue(projectRoot, "COMPILE_MODEL")
 	if strings.TrimSpace(model) == "" {
 		model = compile.Qwen36PlusModel
 	}
 	if httpClient == nil {
 		timeout := 1200 * time.Second
-		if raw := firstConfiguredValue(projectRoot, "COMPILE_TIMEOUT_SECONDS"); strings.TrimSpace(raw) != "" {
+		if raw := config.FirstConfiguredValue(projectRoot, "COMPILE_TIMEOUT_SECONDS"); strings.TrimSpace(raw) != "" {
 			if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
 				timeout = time.Duration(seconds) * time.Second
 			}
@@ -161,7 +161,7 @@ func (c *Client) Compile(ctx context.Context, bundle compile.Bundle) (compile.Re
 		RootExternalID: bundle.RootExternalID,
 		Model:          c.model,
 		Metrics: compile.RecordMetrics{
-			CompileElapsedMS:      durationToMilliseconds(time.Since(totalStart)),
+			CompileElapsedMS:      compile.DurationToMilliseconds(time.Since(totalStart)),
 			CompileStageElapsedMS: stageMetrics,
 		},
 		Output:     out,
@@ -173,15 +173,7 @@ func recordStageMetric(metrics map[string]int64, stage string, duration time.Dur
 	if metrics == nil {
 		return
 	}
-	metrics[stage] = durationToMilliseconds(duration)
-}
-
-func durationToMilliseconds(duration time.Duration) int64 {
-	ms := duration.Milliseconds()
-	if ms <= 0 {
-		return 1
-	}
-	return ms
+	metrics[stage] = compile.DurationToMilliseconds(duration)
 }
 
 func (c *Client) Verify(ctx context.Context, bundle compile.Bundle, output compile.Output) (compile.Verification, error) {
@@ -204,15 +196,6 @@ func (c *Client) VerifyDetailed(ctx context.Context, bundle compile.Bundle, outp
 		return compile.Verification{}, fmt.Errorf("verify client config missing")
 	}
 	return legacy.VerifyDetailed(ctx, bundle, output)
-}
-
-func firstConfiguredValue(projectRoot string, keys ...string) string {
-	for _, key := range keys {
-		if value, ok := config.Get(projectRoot, key); ok && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 func parseJSONObject(raw string, target any) error {

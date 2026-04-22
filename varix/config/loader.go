@@ -31,6 +31,15 @@ func Get(root, key string) (string, bool) {
 	return "", false
 }
 
+func FirstConfiguredValue(root string, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := Get(root, key); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 func parseDotEnvValue(raw string) string {
 	value := strings.TrimSpace(raw)
 	if idx := strings.Index(value, " #"); idx >= 0 {

@@ -109,21 +109,21 @@ func NewClientFromConfigNoVerifyNoValidate(projectRoot string, httpClient *http.
 
 func newClientFromConfig(projectRoot string, httpClient *http.Client, verifier VerificationService, skipValidation bool) *Client {
 	settings := config.DefaultSettings(projectRoot)
-	apiKey := firstConfiguredValue(projectRoot, "DASHSCOPE_API_KEY", "OPENAI_API_KEY")
+	apiKey := config.FirstConfiguredValue(projectRoot, "DASHSCOPE_API_KEY", "OPENAI_API_KEY")
 	if strings.TrimSpace(apiKey) == "" {
 		return nil
 	}
-	baseURL := firstConfiguredValue(projectRoot, "COMPILE_BASE_URL", "DASHSCOPE_BASE_URL")
+	baseURL := config.FirstConfiguredValue(projectRoot, "COMPILE_BASE_URL", "DASHSCOPE_BASE_URL")
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = defaultDashScopeCompatibleBaseURL
 	}
-	model := firstConfiguredValue(projectRoot, "COMPILE_MODEL")
+	model := config.FirstConfiguredValue(projectRoot, "COMPILE_MODEL")
 	if strings.TrimSpace(model) == "" {
 		model = Qwen36PlusModel
 	}
 	if httpClient == nil {
 		timeout := 1200 * time.Second
-		if raw := firstConfiguredValue(projectRoot, "COMPILE_TIMEOUT_SECONDS"); strings.TrimSpace(raw) != "" {
+		if raw := config.FirstConfiguredValue(projectRoot, "COMPILE_TIMEOUT_SECONDS"); strings.TrimSpace(raw) != "" {
 			if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
 				timeout = time.Duration(seconds) * time.Second
 			}
@@ -232,7 +232,7 @@ func (c *Client) compileDirect(ctx context.Context, bundle Bundle) (Output, Reco
 		return Output{}, RecordMetrics{}, err
 	}
 	return mergeUnifiedCompileOutput(bundle, final), RecordMetrics{
-		CompileElapsedMS:      durationToMilliseconds(time.Since(totalStart)),
+		CompileElapsedMS:      DurationToMilliseconds(time.Since(totalStart)),
 		CompileStageElapsedMS: stageMetrics,
 	}, nil
 }
@@ -253,15 +253,7 @@ func recordCompileStageMetric(metrics map[string]int64, stage string, duration t
 	if metrics == nil {
 		return
 	}
-	metrics[stage] = durationToMilliseconds(duration)
-}
-
-func durationToMilliseconds(duration time.Duration) int64 {
-	ms := duration.Milliseconds()
-	if ms <= 0 {
-		return 1
-	}
-	return ms
+	metrics[stage] = DurationToMilliseconds(duration)
 }
 
 func (c *Client) compileUnifiedGenerate(ctx context.Context, bundle Bundle) (UnifiedCompileOutput, error) {
@@ -952,13 +944,4 @@ func applyBundleTimingFallbacks(bundle Bundle, graph *ReasoningGraph) {
 			}
 		}
 	}
-}
-
-func firstConfiguredValue(projectRoot string, keys ...string) string {
-	for _, key := range keys {
-		if value, ok := config.Get(projectRoot, key); ok && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
