@@ -52,10 +52,8 @@ func (e GraphEdge) Validate(nodeIDs map[string]struct{}) error {
 		return fmt.Errorf("graph edge type %q is unsupported", e.Type)
 	}
 	if e.VerificationStatus != "" {
-		switch e.VerificationStatus {
-		case VerificationPending, VerificationProved, VerificationDisproved, VerificationUnverifiable:
-		default:
-			return fmt.Errorf("graph edge verification_status %q is unsupported", e.VerificationStatus)
+		if err := validateVerificationStatus("graph edge", e.VerificationStatus); err != nil {
+			return err
 		}
 	}
 	if err := validateOptionalRFC3339("verification_as_of", e.VerificationAsOf); err != nil {

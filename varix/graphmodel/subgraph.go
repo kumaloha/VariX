@@ -81,6 +81,15 @@ func requireTrimmed(field, value string) error {
 	return nil
 }
 
+func validateVerificationStatus(kind string, status VerificationStatus) error {
+	switch status {
+	case VerificationPending, VerificationProved, VerificationDisproved, VerificationUnverifiable:
+		return nil
+	default:
+		return fmt.Errorf("%s verification_status %q is unsupported", kind, status)
+	}
+}
+
 func validateOptionalRFC3339(field, value string) error {
 	value = strings.TrimSpace(value)
 	if value == "" {

@@ -101,10 +101,8 @@ func (n GraphNode) Validate() error {
 	default:
 		return fmt.Errorf("graph node kind %q is unsupported", n.Kind)
 	}
-	switch n.VerificationStatus {
-	case VerificationPending, VerificationProved, VerificationDisproved, VerificationUnverifiable:
-	default:
-		return fmt.Errorf("graph node verification_status %q is unsupported", n.VerificationStatus)
+	if err := validateVerificationStatus("graph node", n.VerificationStatus); err != nil {
+		return err
 	}
 	if err := validateOptionalRFC3339("time_start", n.TimeStart); err != nil {
 		return err
