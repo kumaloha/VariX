@@ -545,7 +545,9 @@ func summarizeDirectCompileOutput(driverTarget DriverTargetOutput, paths Transmi
 		}
 	}
 	if len(driverTarget.Drivers) > 0 && len(driverTarget.Targets) > 0 {
-		return strings.TrimSpace(driverTarget.Drivers[0]) + "，并推动" + strings.TrimSpace(driverTarget.Targets[0])
+		driver := strings.TrimSpace(driverTarget.Drivers[0])
+		target := strings.TrimSpace(driverTarget.Targets[0])
+		return driver + "，并推动" + target
 	}
 	if len(driverTarget.Targets) > 0 {
 		return strings.TrimSpace(driverTarget.Targets[0])
