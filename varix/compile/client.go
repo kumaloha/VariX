@@ -213,34 +213,40 @@ func (c *Client) compileDirect(ctx context.Context, bundle Bundle) (Output, Reco
 	debugCompileStage(bundle, "compile_direct", "start")
 	totalStart := time.Now()
 	stageMetrics := map[string]int64{}
-	stageStart := time.Now()
-	generated, err := c.compileUnifiedGenerate(ctx, bundle)
+	generated, err := c.runCompileDirectStage(ctx, bundle, stageMetrics, "unified_generator", func() (UnifiedCompileOutput, error) {
+		return c.compileUnifiedGenerate(ctx, bundle)
+	})
 	if err != nil {
-		debugCompileStage(bundle, "compile_direct", "unified_generator_error: "+err.Error())
 		return Output{}, RecordMetrics{}, err
 	}
-	recordCompileStageMetric(stageMetrics, "unified_generator", time.Since(stageStart))
-	debugCompileStage(bundle, "compile_direct", "unified_generator_done")
-	stageStart = time.Now()
-	challenged, err := c.compileUnifiedChallenge(ctx, bundle, generated)
+	challenged, err := c.runCompileDirectStage(ctx, bundle, stageMetrics, "unified_challenge", func() (UnifiedCompileOutput, error) {
+		return c.compileUnifiedChallenge(ctx, bundle, generated)
+	})
 	if err != nil {
-		debugCompileStage(bundle, "compile_direct", "unified_challenge_error: "+err.Error())
 		return Output{}, RecordMetrics{}, err
 	}
-	recordCompileStageMetric(stageMetrics, "unified_challenge", time.Since(stageStart))
-	debugCompileStage(bundle, "compile_direct", "unified_challenge_done")
-	stageStart = time.Now()
-	final, err := c.compileUnifiedJudge(ctx, bundle, generated, challenged)
+	final, err := c.runCompileDirectStage(ctx, bundle, stageMetrics, "unified_judge", func() (UnifiedCompileOutput, error) {
+		return c.compileUnifiedJudge(ctx, bundle, generated, challenged)
+	})
 	if err != nil {
-		debugCompileStage(bundle, "compile_direct", "unified_judge_error: "+err.Error())
 		return Output{}, RecordMetrics{}, err
 	}
-	recordCompileStageMetric(stageMetrics, "unified_judge", time.Since(stageStart))
-	debugCompileStage(bundle, "compile_direct", "unified_judge_done")
 	return mergeUnifiedCompileOutput(bundle, final), RecordMetrics{
 		CompileElapsedMS:      durationToMilliseconds(time.Since(totalStart)),
 		CompileStageElapsedMS: stageMetrics,
 	}, nil
+}
+
+func (c *Client) runCompileDirectStage(ctx context.Context, bundle Bundle, stageMetrics map[string]int64, stageName string, run func() (UnifiedCompileOutput, error)) (UnifiedCompileOutput, error) {
+	stageStart := time.Now()
+	out, err := run()
+	if err != nil {
+		debugCompileStage(bundle, "compile_direct", stageName+"_error: "+err.Error())
+		return UnifiedCompileOutput{}, err
+	}
+	recordCompileStageMetric(stageMetrics, stageName, time.Since(stageStart))
+	debugCompileStage(bundle, "compile_direct", stageName+"_done")
+	return out, nil
 }
 
 func recordCompileStageMetric(metrics map[string]int64, stage string, duration time.Duration) {
@@ -267,15 +273,7 @@ func (c *Client) compileUnifiedGenerate(ctx context.Context, bundle Bundle) (Uni
 	if err != nil {
 		return UnifiedCompileOutput{}, err
 	}
-	out, err := c.buildUnifiedAttempt(ctx, bundle, "unified_generator", systemPrompt, userPrompt)
-	if err != nil {
-		return UnifiedCompileOutput{}, err
-	}
-	out = sanitizeUnifiedGeneratorOrJudgeOutput(out)
-	if err := out.ValidateGeneratorOrJudge(); err != nil {
-		return UnifiedCompileOutput{}, err
-	}
-	return out, nil
+	return c.executeUnifiedStage(ctx, bundle, "unified_generator", systemPrompt, userPrompt, sanitizeUnifiedGeneratorOrJudgeOutput, UnifiedCompileOutput.ValidateGeneratorOrJudge)
 }
 
 func (c *Client) compileUnifiedChallenge(ctx context.Context, bundle Bundle, generated UnifiedCompileOutput) (UnifiedCompileOutput, error) {
@@ -287,14 +285,9 @@ func (c *Client) compileUnifiedChallenge(ctx context.Context, bundle Bundle, gen
 	if err != nil {
 		return UnifiedCompileOutput{}, err
 	}
-	out, err := c.buildUnifiedAttempt(ctx, bundle, "unified_challenge", systemPrompt, userPrompt)
+	out, err := c.executeUnifiedStage(ctx, bundle, "unified_challenge", systemPrompt, userPrompt, sanitizeUnifiedChallengeOutput, UnifiedCompileOutput.ValidateChallenge)
 	if err != nil {
 		debugCompileStage(bundle, "unified_challenge", "degrading_to_empty_corrections_after_error")
-		return emptyUnifiedChallengeOutput(), nil
-	}
-	out = sanitizeUnifiedChallengeOutput(out)
-	if err := out.ValidateChallenge(); err != nil {
-		debugCompileStage(bundle, "unified_challenge", "degrading_to_empty_corrections_after_validation_error: "+err.Error())
 		return emptyUnifiedChallengeOutput(), nil
 	}
 	return out, nil
@@ -309,12 +302,24 @@ func (c *Client) compileUnifiedJudge(ctx context.Context, bundle Bundle, generat
 	if err != nil {
 		return UnifiedCompileOutput{}, err
 	}
-	out, err := c.buildUnifiedAttempt(ctx, bundle, "unified_judge", systemPrompt, userPrompt)
+	return c.executeUnifiedStage(ctx, bundle, "unified_judge", systemPrompt, userPrompt, sanitizeUnifiedGeneratorOrJudgeOutput, UnifiedCompileOutput.ValidateGeneratorOrJudge)
+}
+
+func (c *Client) executeUnifiedStage(
+	ctx context.Context,
+	bundle Bundle,
+	stageName string,
+	systemPrompt string,
+	userPrompt string,
+	sanitize func(UnifiedCompileOutput) UnifiedCompileOutput,
+	validate func(UnifiedCompileOutput) error,
+) (UnifiedCompileOutput, error) {
+	out, err := c.buildUnifiedAttempt(ctx, bundle, stageName, systemPrompt, userPrompt)
 	if err != nil {
 		return UnifiedCompileOutput{}, err
 	}
-	out = sanitizeUnifiedGeneratorOrJudgeOutput(out)
-	if err := out.ValidateGeneratorOrJudge(); err != nil {
+	out = sanitize(out)
+	if err := validate(out); err != nil {
 		return UnifiedCompileOutput{}, err
 	}
 	return out, nil

@@ -27,19 +27,9 @@ func (s *SQLiteStore) UpsertCanonicalEntity(ctx context.Context, entity memory.C
 	if entity.Status == "" {
 		entity.Status = memory.CanonicalEntityActive
 	}
-	now := time.Now().UTC()
-	if entity.CreatedAt.IsZero() {
-		entity.CreatedAt = now
-	}
-	if entity.UpdatedAt.IsZero() {
-		entity.UpdatedAt = maxTime(entity.CreatedAt, now)
-	}
+	normalizeCreatedUpdatedTimes(&entity.CreatedAt, &entity.UpdatedAt)
 
-	mergeHistory, err := marshalJSONStringSlice(entity.MergeHistory)
-	if err != nil {
-		return err
-	}
-	splitHistory, err := marshalJSONStringSlice(entity.SplitHistory)
+	mergeHistory, splitHistory, err := marshalLifecycleHistory(entity.MergeHistory, entity.SplitHistory)
 	if err != nil {
 		return err
 	}
@@ -185,19 +175,9 @@ func (s *SQLiteStore) UpsertRelation(ctx context.Context, relation memory.Relati
 	if relation.Status == "" {
 		relation.Status = memory.RelationActive
 	}
-	now := time.Now().UTC()
-	if relation.CreatedAt.IsZero() {
-		relation.CreatedAt = now
-	}
-	if relation.UpdatedAt.IsZero() {
-		relation.UpdatedAt = maxTime(relation.CreatedAt, now)
-	}
+	normalizeCreatedUpdatedTimes(&relation.CreatedAt, &relation.UpdatedAt)
 
-	mergeHistory, err := marshalJSONStringSlice(relation.MergeHistory)
-	if err != nil {
-		return err
-	}
-	splitHistory, err := marshalJSONStringSlice(relation.SplitHistory)
+	mergeHistory, splitHistory, err := marshalLifecycleHistory(relation.MergeHistory, relation.SplitHistory)
 	if err != nil {
 		return err
 	}
@@ -330,9 +310,7 @@ func (s *SQLiteStore) UpsertMechanismGraph(ctx context.Context, graph memory.Mec
 	if mechanism.CreatedAt.IsZero() {
 		mechanism.CreatedAt = mechanism.AsOf
 	}
-	if mechanism.UpdatedAt.IsZero() {
-		mechanism.UpdatedAt = maxTime(mechanism.CreatedAt, now)
-	}
+	normalizeCreatedUpdatedTimes(&mechanism.CreatedAt, &mechanism.UpdatedAt)
 	sourceRefs, err := marshalJSONStringSlice(mechanism.SourceRefs)
 	if err != nil {
 		return err
@@ -503,13 +481,7 @@ func (s *SQLiteStore) UpsertRawCanonicalMapping(ctx context.Context, mapping mem
 	if mapping.RawNodeID == "" && mapping.RawEdgeKey == "" {
 		return fmt.Errorf("raw node id or raw edge key is required")
 	}
-	now := time.Now().UTC()
-	if mapping.CreatedAt.IsZero() {
-		mapping.CreatedAt = now
-	}
-	if mapping.UpdatedAt.IsZero() {
-		mapping.UpdatedAt = maxTime(mapping.CreatedAt, now)
-	}
+	normalizeCreatedUpdatedTimes(&mapping.CreatedAt, &mapping.UpdatedAt)
 	_, err := s.db.ExecContext(
 		ctx,
 		`INSERT INTO memory_raw_canonical_mappings(canonical_object_type, canonical_object_id, source_platform, source_external_id, raw_node_id, raw_edge_key, mapping_confidence, created_at, updated_at)
@@ -950,6 +922,29 @@ func marshalJSONStringSlice(values []string) (string, error) {
 		return "", err
 	}
 	return string(payload), nil
+}
+
+func marshalLifecycleHistory(mergeHistory, splitHistory []string) (string, string, error) {
+	mergeJSON, err := marshalJSONStringSlice(mergeHistory)
+	if err != nil {
+		return "", "", err
+	}
+	splitJSON, err := marshalJSONStringSlice(splitHistory)
+	if err != nil {
+		return "", "", err
+	}
+	return mergeJSON, splitJSON, nil
+}
+
+func normalizeCreatedUpdatedTimes(createdAt, updatedAt *time.Time) {
+	now := time.Now().UTC()
+	if createdAt != nil && createdAt.IsZero() {
+		*createdAt = now
+	}
+	if createdAt == nil || updatedAt == nil || !updatedAt.IsZero() {
+		return
+	}
+	*updatedAt = maxTime(*createdAt, now)
 }
 
 func unmarshalJSONStringSlice(raw string) []string {
