@@ -18,9 +18,7 @@ func (s *SQLiteStore) UpsertCompiledOutput(ctx context.Context, record compile.R
 	if err := record.Output.Validate(); err != nil {
 		return err
 	}
-	if record.CompiledAt.IsZero() {
-		record.CompiledAt = time.Now().UTC()
-	}
+	record.CompiledAt = normalizeRecordedTime(record.CompiledAt)
 	payload, err := marshalStoredCompileRecord(record)
 	if err != nil {
 		return err
@@ -59,7 +57,7 @@ func (s *SQLiteStore) UpsertCompiledOutput(ctx context.Context, record compile.R
 		}
 		verifiedAt := record.Output.Verification.VerifiedAt
 		if verifiedAt.IsZero() {
-			verifiedAt = time.Now().UTC()
+			verifiedAt = normalizeRecordedTime(verifiedAt)
 		}
 		if err := s.UpsertVerificationResult(ctx, compile.VerificationRecord{
 			UnitID:         record.UnitID,

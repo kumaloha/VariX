@@ -17,9 +17,7 @@ func (s *SQLiteStore) UpsertVerificationResult(ctx context.Context, record compi
 	if record.VerifiedAt.IsZero() {
 		record.VerifiedAt = record.Verification.VerifiedAt
 	}
-	if record.VerifiedAt.IsZero() {
-		record.VerifiedAt = time.Now().UTC()
-	}
+	record.VerifiedAt = normalizeRecordedTime(record.VerifiedAt)
 	payload, err := json.Marshal(record)
 	if err != nil {
 		return err

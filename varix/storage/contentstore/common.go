@@ -54,6 +54,13 @@ func currentSQLiteTimestamp() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
 }
 
+func normalizeRecordedTime(value time.Time) time.Time {
+	if value.IsZero() {
+		return time.Now().UTC()
+	}
+	return value.UTC()
+}
+
 func latestUserScopedPayload(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, table string, userID string) (string, error) {

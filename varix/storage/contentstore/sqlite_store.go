@@ -65,9 +65,7 @@ func (s *SQLiteStore) MarkProcessed(ctx context.Context, record types.ProcessedR
 	if !isValidProcessedRecord(record) {
 		return fmt.Errorf("invalid processed record")
 	}
-	if record.ProcessedAt.IsZero() {
-		record.ProcessedAt = time.Now().UTC()
-	}
+	record.ProcessedAt = normalizeRecordedTime(record.ProcessedAt)
 	_, err := s.db.ExecContext(
 		ctx,
 		`INSERT INTO processed(platform, external_id, url, author, processed_at)
@@ -117,9 +115,7 @@ func (s *SQLiteStore) RegisterFollow(ctx context.Context, target types.FollowTar
 	if !isValidFollowTarget(target) {
 		return fmt.Errorf("invalid follow target")
 	}
-	if target.FollowedAt.IsZero() {
-		target.FollowedAt = time.Now().UTC()
-	}
+	target.FollowedAt = normalizeRecordedTime(target.FollowedAt)
 	_, err := s.db.ExecContext(
 		ctx,
 		`INSERT INTO follows(kind, platform, platform_id, locator, url, query, hydration_hint, author_name, followed_at, last_polled_at)
