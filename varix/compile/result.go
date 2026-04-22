@@ -805,32 +805,20 @@ func (o NodeExtractionOutput) ValidateWithThresholds(minNodes int) error {
 }
 
 func (o DriverTargetOutput) ValidateGeneratorOrJudge() error {
-	if len(o.Drivers) == 0 {
-		return fmt.Errorf("drivers must not be empty")
-	}
-	if len(o.Targets) == 0 {
-		return fmt.Errorf("targets must not be empty")
-	}
-	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
+	if err := validateRequiredStringList("drivers", o.Drivers); err != nil {
 		return err
 	}
-	if err := validateStringListEntries("targets", o.Targets); err != nil {
+	if err := validateRequiredStringList("targets", o.Targets); err != nil {
 		return err
 	}
-	if o.Details.IsEmpty() {
-		return fmt.Errorf("details must not be empty")
-	}
-	return nil
+	return validateDetailsPresent(o.Details)
 }
 
 func (o DriverTargetOutput) ValidateChallenge() error {
-	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
-		return err
-	}
-	if err := validateStringListEntries("targets", o.Targets); err != nil {
-		return err
-	}
-	return nil
+	return validateStringLists(
+		stringListField{name: "drivers", values: o.Drivers},
+		stringListField{name: "targets", values: o.Targets},
+	)
 }
 
 func (o FullGraphOutput) ValidateWithThresholds(minEdges int, nodeIDs map[string]struct{}, nodeKinds map[string]NodeKind) error {
@@ -844,10 +832,7 @@ func (o TransmissionPathOutput) ValidateGeneratorOrJudge() error {
 	if err := validateTransmissionPaths("transmission_paths", o.TransmissionPaths, true); err != nil {
 		return err
 	}
-	if o.Details.IsEmpty() {
-		return fmt.Errorf("details must not be empty")
-	}
-	return nil
+	return validateDetailsPresent(o.Details)
 }
 
 func (o TransmissionPathOutput) ValidateChallenge() error {
@@ -858,88 +843,57 @@ func (o EvidenceExplanationOutput) ValidateGeneratorOrJudge() error {
 	if len(o.EvidenceNodes) == 0 && len(o.ExplanationNodes) == 0 && len(o.SupplementaryNodes) == 0 {
 		return fmt.Errorf("evidence_nodes, explanation_nodes, and supplementary_nodes must not all be empty")
 	}
-	if err := validateStringListEntries("evidence_nodes", o.EvidenceNodes); err != nil {
+	if err := validateEvidenceExplanationLists(o); err != nil {
 		return err
 	}
-	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
-		return err
-	}
-	if err := validateStringListEntries("supplementary_nodes", o.SupplementaryNodes); err != nil {
-		return err
-	}
-	if o.Details.IsEmpty() {
-		return fmt.Errorf("details must not be empty")
-	}
-	return nil
+	return validateDetailsPresent(o.Details)
 }
 
 func (o EvidenceExplanationOutput) ValidateChallenge() error {
-	if err := validateStringListEntries("evidence_nodes", o.EvidenceNodes); err != nil {
-		return err
-	}
-	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
-		return err
-	}
-	if err := validateStringListEntries("supplementary_nodes", o.SupplementaryNodes); err != nil {
-		return err
-	}
-	return nil
+	return validateEvidenceExplanationLists(o)
 }
 
 func (o UnifiedCompileOutput) ValidateGeneratorOrJudge() error {
 	if strings.TrimSpace(o.Summary) == "" {
 		return fmt.Errorf("summary is required")
 	}
-	if len(o.Drivers) == 0 {
-		return fmt.Errorf("drivers must not be empty")
-	}
-	if len(o.Targets) == 0 {
-		return fmt.Errorf("targets must not be empty")
-	}
-	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
+	if err := validateRequiredStringList("drivers", o.Drivers); err != nil {
 		return err
 	}
-	if err := validateStringListEntries("targets", o.Targets); err != nil {
+	if err := validateRequiredStringList("targets", o.Targets); err != nil {
 		return err
 	}
 	if err := validateTransmissionPaths("transmission_paths", o.TransmissionPaths, true); err != nil {
 		return err
 	}
-	if err := validateStringListEntries("evidence_nodes", o.EvidenceNodes); err != nil {
+	if err := validateEvidenceExplanationLists(EvidenceExplanationOutput{
+		EvidenceNodes:      o.EvidenceNodes,
+		ExplanationNodes:   o.ExplanationNodes,
+		SupplementaryNodes: o.SupplementaryNodes,
+	}); err != nil {
 		return err
 	}
-	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
-		return err
-	}
-	if err := validateStringListEntries("supplementary_nodes", o.SupplementaryNodes); err != nil {
-		return err
-	}
-	if o.Details.IsEmpty() {
-		return fmt.Errorf("details must not be empty")
-	}
-	return nil
+	return validateDetailsPresent(o.Details)
 }
 
 func (o UnifiedCompileOutput) ValidateChallenge() error {
 	if strings.TrimSpace(o.Summary) == "" && len(o.Drivers) == 0 && len(o.Targets) == 0 && len(o.TransmissionPaths) == 0 && len(o.EvidenceNodes) == 0 && len(o.ExplanationNodes) == 0 && len(o.SupplementaryNodes) == 0 {
 		return fmt.Errorf("challenge output must not be entirely empty")
 	}
-	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
+	if err := validateStringLists(
+		stringListField{name: "drivers", values: o.Drivers},
+		stringListField{name: "targets", values: o.Targets},
+	); err != nil {
 		return err
 	}
-	if err := validateStringListEntries("targets", o.Targets); err != nil {
+	if err := validateEvidenceExplanationLists(EvidenceExplanationOutput{
+		EvidenceNodes:      o.EvidenceNodes,
+		ExplanationNodes:   o.ExplanationNodes,
+		SupplementaryNodes: o.SupplementaryNodes,
+	}); err != nil {
 		return err
 	}
 	if err := validateTransmissionPaths("transmission_paths", o.TransmissionPaths, false); err != nil {
-		return err
-	}
-	if err := validateStringListEntries("evidence_nodes", o.EvidenceNodes); err != nil {
-		return err
-	}
-	if err := validateStringListEntries("explanation_nodes", o.ExplanationNodes); err != nil {
-		return err
-	}
-	if err := validateStringListEntries("supplementary_nodes", o.SupplementaryNodes); err != nil {
 		return err
 	}
 	return nil
@@ -949,13 +903,46 @@ func (o ThesisOutput) Validate() error {
 	if strings.TrimSpace(o.Summary) == "" {
 		return fmt.Errorf("summary is required")
 	}
-	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
+	if err := validateStringLists(
+		stringListField{name: "drivers", values: o.Drivers},
+		stringListField{name: "targets", values: o.Targets},
+	); err != nil {
 		return err
 	}
-	if err := validateStringListEntries("targets", o.Targets); err != nil {
-		return err
+	return validateDetailsPresent(o.Details)
+}
+
+type stringListField struct {
+	name   string
+	values []string
+}
+
+func validateRequiredStringList(field string, values []string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("%s must not be empty", field)
 	}
-	if o.Details.IsEmpty() {
+	return validateStringListEntries(field, values)
+}
+
+func validateStringLists(fields ...stringListField) error {
+	for _, field := range fields {
+		if err := validateStringListEntries(field.name, field.values); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateEvidenceExplanationLists(o EvidenceExplanationOutput) error {
+	return validateStringLists(
+		stringListField{name: "evidence_nodes", values: o.EvidenceNodes},
+		stringListField{name: "explanation_nodes", values: o.ExplanationNodes},
+		stringListField{name: "supplementary_nodes", values: o.SupplementaryNodes},
+	)
+}
+
+func validateDetailsPresent(details HiddenDetails) error {
+	if details.IsEmpty() {
 		return fmt.Errorf("details must not be empty")
 	}
 	return nil
