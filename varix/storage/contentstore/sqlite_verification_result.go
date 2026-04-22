@@ -24,7 +24,7 @@ func (s *SQLiteStore) UpsertVerificationResult(ctx context.Context, record compi
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := currentSQLiteTimestamp()
 	_, err = s.db.ExecContext(
 		ctx,
 		`INSERT INTO verification_results(platform, external_id, root_external_id, model, payload_json, verified_at, updated_at)

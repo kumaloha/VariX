@@ -278,7 +278,7 @@ func (s *SQLiteStore) replaceParadigmEvidenceLinks(ctx context.Context, record P
 	if strings.TrimSpace(record.ParadigmID) == "" {
 		return fmt.Errorf("paradigm id is required")
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := currentSQLiteTimestamp()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

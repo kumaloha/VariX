@@ -355,7 +355,7 @@ func (s *SQLiteStore) replaceEventGraphEvidenceLinks(ctx context.Context, graph 
 	if strings.TrimSpace(graph.EventGraphID) == "" {
 		return fmt.Errorf("event graph id is required")
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := currentSQLiteTimestamp()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

@@ -34,7 +34,7 @@ func (s *SQLiteStore) EnqueueVerifyQueueItem(ctx context.Context, item graphmode
 	if err != nil {
 		return fmt.Errorf("verify queue item scheduled_at must be RFC3339: %w", err)
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := currentSQLiteTimestamp()
 	_, err = s.db.ExecContext(ctx, `INSERT INTO verify_queue(queue_id, object_type, object_id, source_article_id, priority, scheduled_at, attempts, last_error, status, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(queue_id) DO UPDATE SET

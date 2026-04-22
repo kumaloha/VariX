@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
@@ -19,7 +18,7 @@ func (s *SQLiteStore) UpsertRawCapture(ctx context.Context, raw types.RawContent
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := currentSQLiteTimestamp()
 
 	_, err = s.db.ExecContext(
 		ctx,
@@ -136,7 +135,7 @@ func (s *SQLiteStore) MarkSourceLookupResult(ctx context.Context, raw types.RawC
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := currentSQLiteTimestamp()
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

@@ -25,7 +25,7 @@ func (s *SQLiteStore) UpsertCompiledOutput(ctx context.Context, record compile.R
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := currentSQLiteTimestamp()
 	_, err = s.db.ExecContext(
 		ctx,
 		`INSERT INTO compiled_outputs(platform, external_id, root_external_id, model, payload_json, compiled_at, updated_at)
