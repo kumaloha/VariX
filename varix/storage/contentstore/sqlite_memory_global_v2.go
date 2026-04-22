@@ -35,16 +35,7 @@ func (s *SQLiteStore) RunGlobalMemoryOrganizationV2(ctx context.Context, userID 
 	}
 	persistedEventGraphs, _ := s.ListEventGraphs(ctx, userID)
 	persistedParadigms, _ := s.ListParadigms(ctx, userID)
-	activeNodes := make([]memory.AcceptedNode, 0, len(nodes))
-	nodesByID := make(map[string]memory.AcceptedNode, len(nodes))
-	for _, node := range nodes {
-		if isAcceptedNodeActiveAt(node, now) {
-			activeNodes = append(activeNodes, node)
-			ref := globalMemoryNodeRef(node)
-			node.NodeID = ref
-			nodesByID[ref] = node
-		}
-	}
+	activeNodes, nodesByID := activeGlobalAcceptedNodeIndex(nodes, now)
 	candidateTheses := buildCandidateTheses(activeNodes, now)
 	conflicts := make([]memory.ConflictSet, 0)
 	causalTheses := make([]memory.CausalThesis, 0)
@@ -323,7 +314,16 @@ func buildTargetAggregatesFromEventGraphs(graphs []EventGraphRecord, now time.Ti
 func buildConclusionsFromParadigms(items []ParadigmRecord, now time.Time) []memory.CognitiveConclusion {
 	out := make([]memory.CognitiveConclusion, 0, len(items))
 	for _, item := range items {
-		out = append(out, memory.CognitiveConclusion{ConclusionID: item.ParadigmID + "-conclusion", SourceType: "paradigm", SourceID: item.ParadigmID, Headline: item.DriverSubject + " -> " + item.TargetSubject, Subheadline: item.CredibilityState, TraceabilityStatus: memory.TraceabilityPartial, AsOf: now, CreatedAt: now})
+		out = append(out, memory.CognitiveConclusion{
+			ConclusionID:       item.ParadigmID + "-conclusion",
+			SourceType:         "paradigm",
+			SourceID:           item.ParadigmID,
+			Headline:           paradigmHeadline(item),
+			Subheadline:        buildCardOrConclusionSubheadline(item.CredibilityState),
+			TraceabilityStatus: memory.TraceabilityPartial,
+			AsOf:               now,
+			CreatedAt:          now,
+		})
 	}
 	return out
 }
@@ -331,7 +331,16 @@ func buildConclusionsFromParadigms(items []ParadigmRecord, now time.Time) []memo
 func buildTopItemsFromParadigms(items []ParadigmRecord, now time.Time) []memory.TopMemoryItem {
 	out := make([]memory.TopMemoryItem, 0, len(items))
 	for _, item := range items {
-		out = append(out, memory.TopMemoryItem{ItemID: item.ParadigmID + "-top", ItemType: memory.TopMemoryItemConclusion, Headline: item.DriverSubject + " -> " + item.TargetSubject, BackingObjectID: item.ParadigmID, SignalStrength: memory.SignalMedium, AsOf: now, UpdatedAt: now})
+		out = append(out, newTopMemoryItem(
+			item.ParadigmID+"-top",
+			memory.TopMemoryItemConclusion,
+			paradigmHeadline(item),
+			"",
+			item.ParadigmID,
+			memory.SignalMedium,
+			now,
+		))
+		out[len(out)-1].AsOf = now
 	}
 	return out
 }
@@ -346,8 +355,8 @@ func buildCardsFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memor
 			CardType:       "event_graph",
 			Title:          graph.AnchorSubject,
 			Summary:        eventGraphSummary(graph),
-			MechanismChain: append([]string(nil), graph.RepresentativeChanges...),
-			SourceRefs:     append([]string(nil), graph.SourceSubgraphIDs...),
+			MechanismChain: cloneStringSlice(graph.RepresentativeChanges),
+			SourceRefs:     cloneStringSlice(graph.SourceSubgraphIDs),
 			CreatedAt:      now,
 		})
 	}
@@ -357,11 +366,40 @@ func buildCardsFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memor
 func buildTopItemsFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memory.TopMemoryItem {
 	out := make([]memory.TopMemoryItem, 0, len(graphs))
 	for _, graph := range graphs {
-		out = append(out, memory.TopMemoryItem{ItemID: graph.EventGraphID + "-top", ItemType: memory.TopMemoryItemCard, Headline: graph.AnchorSubject, Subheadline: eventGraphSummary(graph), BackingObjectID: graph.EventGraphID, SignalStrength: memory.SignalMedium, AsOf: now, UpdatedAt: now})
+		out = append(out, newTopMemoryItem(
+			graph.EventGraphID+"-top",
+			memory.TopMemoryItemCard,
+			graph.AnchorSubject,
+			eventGraphSummary(graph),
+			graph.EventGraphID,
+			memory.SignalMedium,
+			now,
+		))
+		out[len(out)-1].AsOf = now
 	}
 	return out
 }
 
 func eventGraphSummary(graph EventGraphRecord) string {
 	return graph.Scope + " / " + graph.TimeBucket
+}
+
+func paradigmHeadline(item ParadigmRecord) string {
+	return item.DriverSubject + " -> " + item.TargetSubject
+}
+
+func activeGlobalAcceptedNodeIndex(nodes []memory.AcceptedNode, now time.Time) ([]memory.AcceptedNode, map[string]memory.AcceptedNode) {
+	activeNodes := make([]memory.AcceptedNode, 0, len(nodes))
+	nodesByID := make(map[string]memory.AcceptedNode, len(nodes))
+	for _, node := range nodes {
+		if !isAcceptedNodeActiveAt(node, now) {
+			continue
+		}
+		activeNodes = append(activeNodes, node)
+		globalNode := node
+		ref := globalMemoryNodeRef(globalNode)
+		globalNode.NodeID = ref
+		nodesByID[ref] = globalNode
+	}
+	return activeNodes, nodesByID
 }
