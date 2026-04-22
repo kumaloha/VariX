@@ -118,15 +118,7 @@ func applyGlobalV2Fallbacks(
 }
 
 func (s *SQLiteStore) GetLatestGlobalMemoryOrganizationV2Output(ctx context.Context, userID string) (memory.GlobalMemoryV2Output, error) {
-	var payload string
-	err := s.db.QueryRowContext(
-		ctx,
-		`SELECT payload_json FROM global_memory_v2_outputs
-		 WHERE user_id = ?
-		 ORDER BY created_at DESC, output_id DESC
-		 LIMIT 1`,
-		strings.TrimSpace(userID),
-	).Scan(&payload)
+	payload, err := latestUserScopedPayload(ctx, s.db, "global_memory_v2_outputs", userID)
 	if err != nil {
 		return memory.GlobalMemoryV2Output{}, err
 	}
@@ -138,29 +130,9 @@ func (s *SQLiteStore) GetLatestGlobalMemoryOrganizationV2Output(ctx context.Cont
 }
 
 func persistGlobalMemoryV2Output(ctx context.Context, db *sql.DB, output memory.GlobalMemoryV2Output) (memory.GlobalMemoryV2Output, error) {
-	payload, err := json.Marshal(output)
-	if err != nil {
-		return memory.GlobalMemoryV2Output{}, err
-	}
-	res, err := db.ExecContext(ctx, `INSERT INTO global_memory_v2_outputs(user_id, payload_json, created_at)
-		VALUES (?, ?, ?)
-		ON CONFLICT(user_id) DO UPDATE SET payload_json = excluded.payload_json, created_at = excluded.created_at`,
-		output.UserID, string(payload), output.GeneratedAt.Format(time.RFC3339Nano))
-	if err != nil {
-		return memory.GlobalMemoryV2Output{}, err
-	}
-	outputID, _ := res.LastInsertId()
-	if outputID == 0 {
-		_ = db.QueryRowContext(ctx, `SELECT output_id FROM global_memory_v2_outputs WHERE user_id = ?`, output.UserID).Scan(&outputID)
-	}
-	output.OutputID = outputID
-
-	payload, err = json.Marshal(output)
-	if err != nil {
-		return memory.GlobalMemoryV2Output{}, err
-	}
-	if _, err := db.ExecContext(ctx, `UPDATE global_memory_v2_outputs SET payload_json = ?, created_at = ? WHERE user_id = ?`,
-		string(payload), output.GeneratedAt.Format(time.RFC3339Nano), output.UserID); err != nil {
+	if err := persistLatestUserScopedOutput(ctx, db, "global_memory_v2_outputs", output.UserID, output.GeneratedAt, &output, func(id int64) {
+		output.OutputID = id
+	}); err != nil {
 		return memory.GlobalMemoryV2Output{}, err
 	}
 	return output, nil

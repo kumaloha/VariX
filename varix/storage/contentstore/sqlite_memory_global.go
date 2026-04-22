@@ -45,43 +45,16 @@ func (s *SQLiteStore) RunGlobalMemoryOrganization(ctx context.Context, userID st
 		OpenQuestions:       openQuestions,
 	}
 
-	payload, err := json.Marshal(output)
-	if err != nil {
-		return memory.GlobalOrganizationOutput{}, err
-	}
-	res, err := s.db.ExecContext(ctx, `INSERT INTO global_memory_organization_outputs(user_id, payload_json, created_at)
-		VALUES (?, ?, ?)
-		ON CONFLICT(user_id) DO UPDATE SET payload_json = excluded.payload_json, created_at = excluded.created_at`,
-		output.UserID, string(payload), now.Format(time.RFC3339Nano))
-	if err != nil {
-		return memory.GlobalOrganizationOutput{}, err
-	}
-	outputID, _ := res.LastInsertId()
-	if outputID == 0 {
-		_ = s.db.QueryRowContext(ctx, `SELECT output_id FROM global_memory_organization_outputs WHERE user_id = ?`, output.UserID).Scan(&outputID)
-	}
-	output.OutputID = outputID
-	payload, err = json.Marshal(output)
-	if err != nil {
-		return memory.GlobalOrganizationOutput{}, err
-	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE global_memory_organization_outputs SET payload_json = ?, created_at = ? WHERE user_id = ?`,
-		string(payload), now.Format(time.RFC3339Nano), output.UserID); err != nil {
+	if err := persistLatestUserScopedOutput(ctx, s.db, "global_memory_organization_outputs", output.UserID, now, &output, func(id int64) {
+		output.OutputID = id
+	}); err != nil {
 		return memory.GlobalOrganizationOutput{}, err
 	}
 	return output, nil
 }
 
 func (s *SQLiteStore) GetLatestGlobalMemoryOrganizationOutput(ctx context.Context, userID string) (memory.GlobalOrganizationOutput, error) {
-	var payload string
-	err := s.db.QueryRowContext(
-		ctx,
-		`SELECT payload_json FROM global_memory_organization_outputs
-		 WHERE user_id = ?
-		 ORDER BY created_at DESC, output_id DESC
-		 LIMIT 1`,
-		strings.TrimSpace(userID),
-	).Scan(&payload)
+	payload, err := latestUserScopedPayload(ctx, s.db, "global_memory_organization_outputs", userID)
 	if err != nil {
 		return memory.GlobalOrganizationOutput{}, err
 	}
