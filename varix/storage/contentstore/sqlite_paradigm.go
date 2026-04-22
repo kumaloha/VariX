@@ -37,13 +37,13 @@ type ParadigmRecord struct {
 }
 
 func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, now time.Time) ([]ParadigmRecord, error) {
-	if strings.TrimSpace(userID) == "" {
-		return nil, fmt.Errorf("user id is required")
+	var err error
+	userID, err = normalizeRequiredUserID(userID)
+	if err != nil {
+		return nil, err
 	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT payload_json FROM memory_content_graphs WHERE user_id = ? ORDER BY source_platform ASC, source_external_id ASC`, strings.TrimSpace(userID))
+	now = normalizeNow(now)
+	rows, err := s.db.QueryContext(ctx, `SELECT payload_json FROM memory_content_graphs WHERE user_id = ? ORDER BY source_platform ASC, source_external_id ASC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 					byKey[key] = st
 				}
 				st.subgraphs = append(st.subgraphs, subgraph.ID)
-				st.eventGraphs = append(st.eventGraphs, buildEventGraphID(strings.TrimSpace(userID), "driver", strings.TrimSpace(driverSubject), bucket))
+				st.eventGraphs = append(st.eventGraphs, buildEventGraphID(userID, "driver", strings.TrimSpace(driverSubject), bucket))
 				st.changes = append(st.changes, strings.TrimSpace(driver.ChangeText), strings.TrimSpace(target.ChangeText))
 				st.traceability[subgraph.ID] = uniqueStrings(append(st.traceability[subgraph.ID], driver.ID, target.ID))
 				switch target.VerificationStatus {
@@ -128,8 +128,8 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 		changes := uniqueStrings(filterNonBlank(st.changes))
 		score := paradigmCredibilityScore(st.success, st.failure)
 		record := ParadigmRecord{
-			ParadigmID:                buildParadigmID(strings.TrimSpace(userID), st.driver, st.target, st.bucket),
-			UserID:                    strings.TrimSpace(userID),
+			ParadigmID:                buildParadigmID(userID, st.driver, st.target, st.bucket),
+			UserID:                    userID,
 			DriverSubject:             st.driver,
 			TargetSubject:             st.target,
 			TimeBucket:                st.bucket,

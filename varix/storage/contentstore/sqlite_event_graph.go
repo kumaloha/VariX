@@ -38,33 +38,33 @@ type EventGraphRecord struct {
 }
 
 func (s *SQLiteStore) RunEventGraphProjection(ctx context.Context, userID string, now time.Time) ([]EventGraphRecord, error) {
-	if strings.TrimSpace(userID) == "" {
-		return nil, fmt.Errorf("user id is required")
+	var err error
+	userID, err = normalizeRequiredUserID(userID)
+	if err != nil {
+		return nil, err
 	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 	candidates, err := s.BuildEventInputCandidates(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 	graphs := make([]EventGraphRecord, 0, len(candidates))
-	verificationByNodeID, err := s.eventVerificationStatusIndex(ctx, strings.TrimSpace(userID))
+	verificationByNodeID, err := s.eventVerificationStatusIndex(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	nodeChangesByID, err := s.eventNodeChangeIndex(ctx, strings.TrimSpace(userID))
+	nodeChangesByID, err := s.eventNodeChangeIndex(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	traceabilityByNodeID, err := s.eventNodeTraceabilityIndex(ctx, strings.TrimSpace(userID))
+	traceabilityByNodeID, err := s.eventNodeTraceabilityIndex(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 	for _, candidate := range candidates {
 		graph := EventGraphRecord{
-			EventGraphID:          buildEventGraphID(strings.TrimSpace(userID), candidate.Scope, candidate.AnchorSubject, candidate.TimeBucket),
-			UserID:                strings.TrimSpace(userID),
+			EventGraphID:          buildEventGraphID(userID, candidate.Scope, candidate.AnchorSubject, candidate.TimeBucket),
+			UserID:                userID,
 			Scope:                 candidate.Scope,
 			AnchorSubject:         candidate.AnchorSubject,
 			TimeBucket:            candidate.TimeBucket,

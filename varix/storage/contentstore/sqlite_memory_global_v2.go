@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -14,13 +13,12 @@ import (
 )
 
 func (s *SQLiteStore) RunGlobalMemoryOrganizationV2(ctx context.Context, userID string, now time.Time) (memory.GlobalMemoryV2Output, error) {
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return memory.GlobalMemoryV2Output{}, fmt.Errorf("user id is required")
+	var err error
+	userID, err = normalizeRequiredUserID(userID)
+	if err != nil {
+		return memory.GlobalMemoryV2Output{}, err
 	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 	// refresh graph-first persisted projections first so global-v2 sees the freshest event/paradigm layers
 	if _, err := s.RunEventGraphProjection(ctx, userID, now); err != nil {
 		return memory.GlobalMemoryV2Output{}, err

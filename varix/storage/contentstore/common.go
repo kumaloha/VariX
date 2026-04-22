@@ -1,7 +1,9 @@
 package contentstore
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
@@ -28,4 +30,19 @@ func isValidFollowTarget(target types.FollowTarget) bool {
 	return strings.TrimSpace(string(target.Kind)) != "" &&
 		strings.TrimSpace(target.Platform) != "" &&
 		strings.TrimSpace(target.Locator) != ""
+}
+
+func normalizeRequiredUserID(userID string) (string, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return "", fmt.Errorf("user id is required")
+	}
+	return userID, nil
+}
+
+func normalizeNow(now time.Time) time.Time {
+	if now.IsZero() {
+		return time.Now().UTC()
+	}
+	return now
 }

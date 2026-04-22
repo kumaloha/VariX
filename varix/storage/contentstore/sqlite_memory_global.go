@@ -14,13 +14,12 @@ import (
 )
 
 func (s *SQLiteStore) RunGlobalMemoryOrganization(ctx context.Context, userID string, now time.Time) (memory.GlobalOrganizationOutput, error) {
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return memory.GlobalOrganizationOutput{}, fmt.Errorf("user id is required")
+	var err error
+	userID, err = normalizeRequiredUserID(userID)
+	if err != nil {
+		return memory.GlobalOrganizationOutput{}, err
 	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 
 	nodes, err := s.ListUserMemory(ctx, userID)
 	if err != nil {
