@@ -113,3 +113,20 @@ func persistLatestUserScopedOutput(ctx context.Context, db *sql.DB, table string
 	)
 	return err
 }
+
+func decodePayloadRows[T any](rows *sql.Rows, decodeLabel string) ([]T, error) {
+	defer rows.Close()
+	out := make([]T, 0)
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var record T
+		if err := json.Unmarshal([]byte(payload), &record); err != nil {
+			return nil, fmt.Errorf("decode %s payload: %w", decodeLabel, err)
+		}
+		out = append(out, record)
+	}
+	return out, rows.Err()
+}

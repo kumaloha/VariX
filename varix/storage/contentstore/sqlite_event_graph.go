@@ -111,20 +111,7 @@ func (s *SQLiteStore) ListEventGraphsBySubject(ctx context.Context, userID, subj
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]EventGraphRecord, 0)
-	for rows.Next() {
-		var payload string
-		if err := rows.Scan(&payload); err != nil {
-			return nil, err
-		}
-		var graph EventGraphRecord
-		if err := json.Unmarshal([]byte(payload), &graph); err != nil {
-			return nil, fmt.Errorf("decode event graph payload: %w", err)
-		}
-		out = append(out, graph)
-	}
-	return out, rows.Err()
+	return decodePayloadRows[EventGraphRecord](rows, "event graph")
 }
 
 func (s *SQLiteStore) resolveCanonicalListSubject(ctx context.Context, subject string) (string, error) {
@@ -151,20 +138,7 @@ func (s *SQLiteStore) ListEventGraphsByScope(ctx context.Context, userID, scope 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]EventGraphRecord, 0)
-	for rows.Next() {
-		var payload string
-		if err := rows.Scan(&payload); err != nil {
-			return nil, err
-		}
-		var graph EventGraphRecord
-		if err := json.Unmarshal([]byte(payload), &graph); err != nil {
-			return nil, fmt.Errorf("decode event graph payload: %w", err)
-		}
-		out = append(out, graph)
-	}
-	return out, rows.Err()
+	return decodePayloadRows[EventGraphRecord](rows, "event graph")
 }
 
 func (s *SQLiteStore) ListEventGraphs(ctx context.Context, userID string) ([]EventGraphRecord, error) {
@@ -172,20 +146,7 @@ func (s *SQLiteStore) ListEventGraphs(ctx context.Context, userID string) ([]Eve
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]EventGraphRecord, 0)
-	for rows.Next() {
-		var payload string
-		if err := rows.Scan(&payload); err != nil {
-			return nil, err
-		}
-		var graph EventGraphRecord
-		if err := json.Unmarshal([]byte(payload), &graph); err != nil {
-			return nil, fmt.Errorf("decode event graph payload: %w", err)
-		}
-		out = append(out, graph)
-	}
-	return out, rows.Err()
+	return decodePayloadRows[EventGraphRecord](rows, "event graph")
 }
 
 func (s *SQLiteStore) upsertEventGraph(ctx context.Context, graph EventGraphRecord) error {

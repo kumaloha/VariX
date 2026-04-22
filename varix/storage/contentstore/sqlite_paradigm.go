@@ -174,20 +174,7 @@ func (s *SQLiteStore) ListParadigmsBySubject(ctx context.Context, userID, subjec
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]ParadigmRecord, 0)
-	for rows.Next() {
-		var payload string
-		if err := rows.Scan(&payload); err != nil {
-			return nil, err
-		}
-		var record ParadigmRecord
-		if err := json.Unmarshal([]byte(payload), &record); err != nil {
-			return nil, fmt.Errorf("decode paradigm payload: %w", err)
-		}
-		out = append(out, record)
-	}
-	return out, rows.Err()
+	return decodePayloadRows[ParadigmRecord](rows, "paradigm")
 }
 
 func (s *SQLiteStore) ListParadigms(ctx context.Context, userID string) ([]ParadigmRecord, error) {
@@ -195,20 +182,7 @@ func (s *SQLiteStore) ListParadigms(ctx context.Context, userID string) ([]Parad
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]ParadigmRecord, 0)
-	for rows.Next() {
-		var payload string
-		if err := rows.Scan(&payload); err != nil {
-			return nil, err
-		}
-		var record ParadigmRecord
-		if err := json.Unmarshal([]byte(payload), &record); err != nil {
-			return nil, fmt.Errorf("decode paradigm payload: %w", err)
-		}
-		out = append(out, record)
-	}
-	return out, rows.Err()
+	return decodePayloadRows[ParadigmRecord](rows, "paradigm")
 }
 
 func (s *SQLiteStore) upsertParadigm(ctx context.Context, record ParadigmRecord) error {
