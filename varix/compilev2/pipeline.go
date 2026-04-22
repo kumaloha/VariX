@@ -242,25 +242,31 @@ func decodeStage1OffGraph(raw any) []offGraphItem {
 
 func fillMissingStage1IDs(state graphState) graphState {
 	for i := range state.Nodes {
-		if strings.TrimSpace(state.Nodes[i].ID) == "" {
-			state.Nodes[i].ID = fmt.Sprintf("n%d", i+1)
-		}
-		if strings.TrimSpace(state.Nodes[i].SourceQuote) == "" {
-			state.Nodes[i].SourceQuote = state.Nodes[i].Text
-		}
+		fillMissingStage1Identity(&state.Nodes[i].ID, fmt.Sprintf("n%d", i+1))
+		fillMissingStage1Text(&state.Nodes[i].SourceQuote, state.Nodes[i].Text)
 	}
 	for i := range state.OffGraph {
-		if strings.TrimSpace(state.OffGraph[i].ID) == "" {
-			state.OffGraph[i].ID = fmt.Sprintf("o%d", i+1)
-		}
+		fillMissingStage1Identity(&state.OffGraph[i].ID, fmt.Sprintf("o%d", i+1))
 		if strings.TrimSpace(state.OffGraph[i].Role) == "" {
 			state.OffGraph[i].Role = "supplementary"
 		}
-		if strings.TrimSpace(state.OffGraph[i].SourceQuote) == "" {
-			state.OffGraph[i].SourceQuote = state.OffGraph[i].Text
-		}
+		fillMissingStage1Text(&state.OffGraph[i].SourceQuote, state.OffGraph[i].Text)
 	}
 	return state
+}
+
+func fillMissingStage1Identity(field *string, fallback string) {
+	if field == nil || strings.TrimSpace(*field) != "" {
+		return
+	}
+	*field = fallback
+}
+
+func fillMissingStage1Text(field *string, fallback string) {
+	if field == nil || strings.TrimSpace(*field) != "" {
+		return
+	}
+	*field = fallback
 }
 
 func stage3Classify(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState) (graphState, error) {
