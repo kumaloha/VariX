@@ -196,7 +196,7 @@ func decodeStage1Nodes(raw any) []graphNode {
 		case map[string]any:
 			out = append(out, graphNode{
 				ID:          strings.TrimSpace(asString(v["id"])),
-				Text:        strings.TrimSpace(firstNonEmpty(asString(v["text"]), asString(v["content"]))),
+				Text:        strings.TrimSpace(compile.FirstNonEmpty(asString(v["text"]), asString(v["content"]))),
 				SourceQuote: strings.TrimSpace(asString(v["source_quote"])),
 			})
 		}
@@ -213,8 +213,8 @@ func decodeStage1Edges(raw any) []graphEdge {
 			continue
 		}
 		out = append(out, graphEdge{
-			From: strings.TrimSpace(firstNonEmpty(asString(v["from"]), asString(v["source"]))),
-			To:   strings.TrimSpace(firstNonEmpty(asString(v["to"]), asString(v["target"]))),
+			From: strings.TrimSpace(compile.FirstNonEmpty(asString(v["from"]), asString(v["source"]))),
+			To:   strings.TrimSpace(compile.FirstNonEmpty(asString(v["to"]), asString(v["target"]))),
 		})
 	}
 	return out
@@ -715,12 +715,8 @@ func shortestPath(adj map[string][]string, start, target string) []string {
 }
 
 func appendPathNode(path []string, next string) []string {
-	cloned := cloneStrings(path)
+	cloned := compile.CloneStrings(path)
 	return append(cloned, next)
-}
-
-func cloneStrings(values []string) []string {
-	return append([]string(nil), values...)
 }
 
 func dedupeEdges(edges []graphEdge) []graphEdge {
@@ -1011,15 +1007,6 @@ func directnessScore(text string) int {
 func asString(value any) string {
 	if s, ok := value.(string); ok {
 		return s
-	}
-	return ""
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
 	}
 	return ""
 }

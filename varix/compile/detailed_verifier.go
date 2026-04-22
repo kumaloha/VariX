@@ -8,12 +8,12 @@ import (
 )
 
 const (
-	promptNodeVerifierBull         = "node_bull"
-	promptNodeVerifierBear         = "node_bear"
-	promptNodeVerifierJudge        = "node_judge"
-	promptPathVerifierBull         = "path_bull"
-	promptPathVerifierBear         = "path_bear"
-	promptPathVerifierJudge        = "path_judge"
+	promptNodeVerifierBull  = "node_bull"
+	promptNodeVerifierBear  = "node_bear"
+	promptNodeVerifierJudge = "node_judge"
+	promptPathVerifierBull  = "path_bull"
+	promptPathVerifierBear  = "path_bear"
+	promptPathVerifierJudge = "path_judge"
 )
 
 func runDetailedVerifier(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, output Output) (Verification, error) {
@@ -180,7 +180,7 @@ func verifyPathBatchDetailed(ctx context.Context, rt verifierCall, model string,
 	}
 	judgePrompt, err := buildPathVerificationPrompt(bundle, output, nodeVerifications, batch, map[string]any{
 		"bull_path_verifications": bullPayload.PathVerifications,
-		"bear_path_objections":   bearPayload,
+		"bear_path_objections":    bearPayload,
 	})
 	if err != nil {
 		return nil, err
@@ -253,25 +253,25 @@ func applyCompatibilityVerificationViews(verification *Verification, nodes []Gra
 			verification.FactChecks = append(verification.FactChecks, FactCheck{
 				NodeID: item.NodeID,
 				Status: mapNodeStatusToFactStatus(item.Status),
-				Reason: firstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
+				Reason: FirstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
 			})
 		case NodeExplicitCondition:
 			verification.ExplicitConditionChecks = append(verification.ExplicitConditionChecks, ExplicitConditionCheck{
 				NodeID: item.NodeID,
 				Status: mapNodeStatusToExplicitStatus(item.Status),
-				Reason: firstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
+				Reason: FirstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
 			})
 		case NodeImplicitCondition:
 			verification.ImplicitConditionChecks = append(verification.ImplicitConditionChecks, ImplicitConditionCheck{
 				NodeID: item.NodeID,
 				Status: mapNodeStatusToFactStatus(item.Status),
-				Reason: firstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
+				Reason: FirstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
 			})
 		case NodePrediction:
 			verification.PredictionChecks = append(verification.PredictionChecks, PredictionCheck{
 				NodeID: item.NodeID,
 				Status: mapNodeStatusToPredictionStatus(item.Status),
-				Reason: firstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
+				Reason: FirstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
 				AsOf:   item.AsOf,
 			})
 		}
@@ -367,7 +367,7 @@ func normalizePathVerifications(paths []TransmissionPath, got []PathVerification
 			item = PathVerification{
 				Driver:   path.Driver,
 				Target:   path.Target,
-				Steps:    cloneStrings(path.Steps),
+				Steps:    CloneStrings(path.Steps),
 				Status:   PathVerificationProblem,
 				Complete: false,
 				Rigorous: false,
@@ -375,7 +375,7 @@ func normalizePathVerifications(paths []TransmissionPath, got []PathVerification
 			}
 		}
 		if len(item.Steps) == 0 {
-			item.Steps = cloneStrings(path.Steps)
+			item.Steps = CloneStrings(path.Steps)
 		}
 		out = append(out, item)
 	}

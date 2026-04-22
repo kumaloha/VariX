@@ -139,7 +139,7 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, prompts *pr
 		}
 		verification.Passes = append(verification.Passes, VerificationPass{
 			Kind:             result.kind,
-			NodeIDs:          cloneStrings(result.nodeIDs),
+			NodeIDs:          CloneStrings(result.nodeIDs),
 			Coverage:         result.coverage,
 			RetrievalSummary: result.retrievalSummary,
 			Claim:            cloneStageSummary(result.claim),
@@ -433,7 +433,7 @@ func buildFactRetrievalPayload(ctx context.Context, bundle Bundle, nodes []Graph
 	summary := &VerificationRetrievalSummary{
 		RetrievedNodeIDs:     make([]string, 0, len(retrieval)),
 		NoResultNodeIDs:      make([]string, 0, minInt(len(nodes), maxFactRetrievalNodes)),
-		BudgetLimitedNodeIDs: cloneStrings(nodeIDs(nodes[minInt(len(nodes), maxFactRetrievalNodes):])),
+		BudgetLimitedNodeIDs: CloneStrings(nodeIDs(nodes[minInt(len(nodes), maxFactRetrievalNodes):])),
 		PromptContextReduced: len(nodes) > maxFactRetrievalNodes,
 	}
 	seen := make(map[string]struct{}, len(retrieval))
@@ -465,8 +465,8 @@ func buildFactRetrievalPayload(ctx context.Context, bundle Bundle, nodes []Graph
 
 func buildCoverage(expectedNodeIDs, returnedNodeIDs []string) VerificationPassCoverage {
 	coverage := VerificationPassCoverage{
-		ExpectedNodeIDs: cloneStrings(expectedNodeIDs),
-		ReturnedNodeIDs: cloneStrings(returnedNodeIDs),
+		ExpectedNodeIDs: CloneStrings(expectedNodeIDs),
+		ReturnedNodeIDs: CloneStrings(returnedNodeIDs),
 		Valid:           true,
 	}
 	expected := make(map[string]struct{}, len(expectedNodeIDs))
@@ -574,12 +574,12 @@ func newStageSummary(model string, completedAt time.Time, parseOK bool, outputNo
 		Model:         strings.TrimSpace(model),
 		CompletedAt:   completedAt.UTC(),
 		ParseOK:       parseOK,
-		OutputNodeIDs: cloneStrings(outputNodeIDs),
+		OutputNodeIDs: CloneStrings(outputNodeIDs),
 	}
 }
 
 func verifierStageSummary(responseModel, fallbackModel string, completedAt time.Time, outputNodeIDs []string) *VerificationStageSummary {
-	return newStageSummary(firstNonEmpty(responseModel, fallbackModel), completedAt, true, outputNodeIDs)
+	return newStageSummary(FirstNonEmpty(responseModel, fallbackModel), completedAt, true, outputNodeIDs)
 }
 
 func cloneStageSummary(in *VerificationStageSummary) *VerificationStageSummary {
@@ -587,7 +587,7 @@ func cloneStageSummary(in *VerificationStageSummary) *VerificationStageSummary {
 		return nil
 	}
 	out := *in
-	out.OutputNodeIDs = cloneStrings(in.OutputNodeIDs)
+	out.OutputNodeIDs = CloneStrings(in.OutputNodeIDs)
 	return &out
 }
 
@@ -639,15 +639,6 @@ func factChallengeNodeIDs(challenges []factChallenge) []string {
 	return ids
 }
 
-func cloneStrings(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make([]string, len(values))
-	copy(out, values)
-	return out
-}
-
 func containsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
@@ -678,15 +669,6 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
 }
 
 const (

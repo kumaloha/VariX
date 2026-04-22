@@ -231,7 +231,7 @@ func (c *Client) startDebugRun(bundle compile.Bundle) string {
 	if c == nil || strings.TrimSpace(os.Getenv("COMPILE_STAGE_DEBUG")) == "" || strings.TrimSpace(c.projectRoot) == "" {
 		return ""
 	}
-	unitID := sanitizeDebugPath(firstNonEmpty(bundle.UnitID, bundle.ExternalID, "unknown"))
+	unitID := sanitizeDebugPath(compile.FirstNonEmpty(bundle.UnitID, bundle.ExternalID, "unknown"))
 	ts := time.Now().UTC().Format("20060102T150405Z")
 	dir := filepath.Join(c.projectRoot, ".omx", "debug", "compilev2", unitID, ts)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

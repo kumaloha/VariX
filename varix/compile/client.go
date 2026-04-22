@@ -465,7 +465,7 @@ func alignTransmissionPathDrivers(drivers []string, paths []TransmissionPath) []
 		for _, driver := range matches {
 			cloned := path
 			cloned.Driver = driver
-			cloned.Steps = cloneStrings(path.Steps)
+			cloned.Steps = CloneStrings(path.Steps)
 			aligned = append(aligned, cloned)
 		}
 	}
