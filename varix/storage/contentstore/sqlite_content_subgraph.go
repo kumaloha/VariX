@@ -74,7 +74,7 @@ func getContentSubgraph(ctx context.Context, q interface {
 func (s *SQLiteStore) enqueuePendingVerifyItemsFromSubgraph(ctx context.Context, subgraph graphmodel.ContentSubgraph) error {
 	baseSchedule := strings.TrimSpace(subgraph.CompiledAt)
 	if baseSchedule == "" {
-		baseSchedule = time.Now().UTC().Format(time.RFC3339)
+		baseSchedule = normalizeNow(time.Time{}).Format(time.RFC3339)
 	}
 	for _, node := range subgraph.Nodes {
 		if node.VerificationStatus != graphmodel.VerificationPending {
@@ -180,7 +180,7 @@ func (s *SQLiteStore) ApplyVerifyVerdictToContentSubgraph(ctx context.Context, p
 	default:
 		return fmt.Errorf("verify verdict object_type %q is unsupported", verdict.ObjectType)
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := normalizeNow(time.Time{}).Format(time.RFC3339)
 	subgraph.UpdatedAt = now
 	if err := s.UpsertContentSubgraph(ctx, subgraph); err != nil {
 		return err
@@ -234,7 +234,7 @@ func (s *SQLiteStore) refreshProjectionForSubgraphUsers(ctx context.Context, sub
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
+	now := normalizeNow(time.Time{})
 	for _, userID := range userIDs {
 		if err := run(userID, now); err != nil {
 			return err
