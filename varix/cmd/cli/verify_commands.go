@@ -155,7 +155,7 @@ func firstVerificationTime(v c.Verification) time.Time {
 	if !v.VerifiedAt.IsZero() {
 		return v.VerifiedAt
 	}
-	return time.Now().UTC()
+	return currentUTC()
 }
 
 func runVerifyQueue(args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -174,7 +174,7 @@ func runVerifyQueue(args []string, projectRoot string, stdout, stderr io.Writer)
 	}
 	defer store.Close()
 	if *summary {
-		detail, err := store.GetVerifyQueueSummaryDetailed(context.Background(), time.Now().UTC())
+		detail, err := store.GetVerifyQueueSummaryDetailed(context.Background(), currentUTC())
 		if err != nil {
 			writeErr(stderr, err)
 			return 1
@@ -202,7 +202,7 @@ func runVerifySweep(args []string, projectRoot string, stdout, stderr io.Writer)
 		return 1
 	}
 	defer store.Close()
-	result, err := store.RunVerifyQueueSweepFromContentGraphState(context.Background(), time.Now().UTC(), *limit)
+	result, err := store.RunVerifyQueueSweepFromContentGraphState(context.Background(), currentUTC(), *limit)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1

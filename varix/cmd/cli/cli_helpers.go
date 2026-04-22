@@ -6,6 +6,7 @@ import (
 	"flag"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/kumaloha/VariX/varix/bootstrap"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
@@ -67,4 +68,8 @@ func writeErr(stderr io.Writer, err error) {
 
 func cloneStringSlice(values []string) []string {
 	return append([]string(nil), values...)
+}
+
+func currentUTC() time.Time {
+	return time.Now().UTC()
 }
