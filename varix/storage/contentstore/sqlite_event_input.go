@@ -190,12 +190,15 @@ func eventCandidateScope(node graphmodel.GraphNode) string {
 }
 
 func deriveEventBucket(node graphmodel.GraphNode) string {
-	if strings.TrimSpace(node.TimeBucket) != "" {
-		return strings.TrimSpace(node.TimeBucket)
+	timeBucket := strings.TrimSpace(node.TimeBucket)
+	if timeBucket != "" {
+		return timeBucket
 	}
-	if strings.TrimSpace(node.TimeStart) != "" && strings.TrimSpace(node.TimeEnd) != "" {
-		start, errStart := time.Parse(time.RFC3339, node.TimeStart)
-		end, errEnd := time.Parse(time.RFC3339, node.TimeEnd)
+	timeStart := strings.TrimSpace(node.TimeStart)
+	timeEnd := strings.TrimSpace(node.TimeEnd)
+	if timeStart != "" && timeEnd != "" {
+		start, errStart := time.Parse(time.RFC3339, timeStart)
+		end, errEnd := time.Parse(time.RFC3339, timeEnd)
 		if errStart == nil && errEnd == nil {
 			days := int(end.Sub(start).Hours() / 24)
 			switch {
