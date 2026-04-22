@@ -62,19 +62,22 @@ func (s *SQLiteStore) RunEventGraphProjection(ctx context.Context, userID string
 		return nil, err
 	}
 	for _, candidate := range candidates {
+		sourceSubgraphIDs := uniqueStrings(candidate.SourceSubgraphIDs)
+		sourceArticleIDs := uniqueStrings(candidate.SourceArticleIDs)
+		nodeIDs := uniqueStrings(candidate.NodeIDs)
 		graph := EventGraphRecord{
 			EventGraphID:          buildEventGraphID(userID, candidate.Scope, candidate.AnchorSubject, candidate.TimeBucket),
 			UserID:                userID,
 			Scope:                 candidate.Scope,
 			AnchorSubject:         candidate.AnchorSubject,
 			TimeBucket:            candidate.TimeBucket,
-			SourceSubgraphIDs:     uniqueStrings(candidate.SourceSubgraphIDs),
-			SourceArticleIDs:      uniqueStrings(candidate.SourceArticleIDs),
-			NodeIDs:               uniqueStrings(candidate.NodeIDs),
+			SourceSubgraphIDs:     sourceSubgraphIDs,
+			SourceArticleIDs:      sourceArticleIDs,
+			NodeIDs:               nodeIDs,
 			RepresentativeChanges: eventRepresentativeChanges(candidate.NodeIDs, nodeChangesByID),
 			TraceabilityMap:       eventTraceabilityMap(candidate.NodeIDs, traceabilityByNodeID),
-			SourceSubgraphCount:   len(uniqueStrings(candidate.SourceSubgraphIDs)),
-			PrimaryNodeCount:      len(uniqueStrings(candidate.NodeIDs)),
+			SourceSubgraphCount:   len(sourceSubgraphIDs),
+			PrimaryNodeCount:      len(nodeIDs),
 			VerificationSummary:   summarizeVerificationStatuses(candidate.NodeIDs, verificationByNodeID),
 			GeneratedAt:           now.UTC().Format(time.RFC3339),
 			UpdatedAt:             now.UTC().Format(time.RFC3339),
