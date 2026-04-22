@@ -216,26 +216,11 @@ func (s *SQLiteStore) refreshMemoryContentGraphsFromSubgraph(ctx context.Context
 }
 
 func (s *SQLiteStore) refreshEventGraphsForSubgraph(ctx context.Context, subgraph graphmodel.ContentSubgraph) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT user_id FROM memory_content_graphs WHERE source_platform = ? AND source_external_id = ?`, subgraph.SourcePlatform, subgraph.SourceExternalID)
+	userIDs, err := s.userIDsForMemoryContentGraphSource(ctx, subgraph.SourcePlatform, subgraph.SourceExternalID)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	userIDs := make([]string, 0)
-	for rows.Next() {
-		var userID string
-		if err := rows.Scan(&userID); err != nil {
-			return err
-		}
-		userIDs = append(userIDs, strings.TrimSpace(userID))
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
 	for _, userID := range userIDs {
-		if userID == "" {
-			continue
-		}
 		if _, err := s.RunEventGraphProjection(ctx, userID, time.Now().UTC()); err != nil {
 			return err
 		}
@@ -244,31 +229,39 @@ func (s *SQLiteStore) refreshEventGraphsForSubgraph(ctx context.Context, subgrap
 }
 
 func (s *SQLiteStore) refreshParadigmsForSubgraph(ctx context.Context, subgraph graphmodel.ContentSubgraph) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT user_id FROM memory_content_graphs WHERE source_platform = ? AND source_external_id = ?`, subgraph.SourcePlatform, subgraph.SourceExternalID)
+	userIDs, err := s.userIDsForMemoryContentGraphSource(ctx, subgraph.SourcePlatform, subgraph.SourceExternalID)
 	if err != nil {
 		return err
+	}
+	for _, userID := range userIDs {
+		if _, err := s.RunParadigmProjection(ctx, userID, time.Now().UTC()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SQLiteStore) userIDsForMemoryContentGraphSource(ctx context.Context, sourcePlatform, sourceExternalID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT user_id FROM memory_content_graphs WHERE source_platform = ? AND source_external_id = ?`, sourcePlatform, sourceExternalID)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
 	userIDs := make([]string, 0)
 	for rows.Next() {
 		var userID string
 		if err := rows.Scan(&userID); err != nil {
-			return err
+			return nil, err
 		}
-		userIDs = append(userIDs, strings.TrimSpace(userID))
+		userID = strings.TrimSpace(userID)
+		if userID != "" {
+			userIDs = append(userIDs, userID)
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return nil, err
 	}
-	for _, userID := range userIDs {
-		if userID == "" {
-			continue
-		}
-		if _, err := s.RunParadigmProjection(ctx, userID, time.Now().UTC()); err != nil {
-			return err
-		}
-	}
-	return nil
+	return userIDs, nil
 }
 
 func (s *SQLiteStore) GetContentSubgraphByArticleID(ctx context.Context, articleID string) (graphmodel.ContentSubgraph, error) {

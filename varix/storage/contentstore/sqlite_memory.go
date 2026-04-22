@@ -193,10 +193,7 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 	if err := tx.Commit(); err != nil {
 		return memory.AcceptResult{}, err
 	}
-	if _, err := s.RunEventGraphProjection(ctx, req.UserID, now); err != nil {
-		return memory.AcceptResult{}, err
-	}
-	if _, err := s.RunParadigmProjection(ctx, req.UserID, now); err != nil {
+	if err := s.refreshProjectionLayersForUser(ctx, req.UserID, now); err != nil {
 		return memory.AcceptResult{}, err
 	}
 

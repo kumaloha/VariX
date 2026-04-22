@@ -34,13 +34,7 @@ func (s *SQLiteStore) PersistMemoryContentGraph(ctx context.Context, userID stri
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	if _, err := s.RunEventGraphProjection(ctx, userID, acceptedAt); err != nil {
-		return err
-	}
-	if _, err := s.RunParadigmProjection(ctx, userID, acceptedAt); err != nil {
-		return err
-	}
-	return nil
+	return s.refreshProjectionLayersForUser(ctx, userID, acceptedAt)
 }
 
 func persistMemoryContentGraphSubgraphTx(ctx context.Context, tx *sql.Tx, userID string, subgraph graphmodel.ContentSubgraph, acceptedAt time.Time) error {
@@ -145,6 +139,21 @@ func (s *SQLiteStore) BuildEventInputCandidates(ctx context.Context, userID stri
 		return out[i].TimeBucket < out[j].TimeBucket
 	})
 	return out, nil
+}
+
+func (s *SQLiteStore) refreshProjectionLayersForUser(ctx context.Context, userID string, at time.Time) error {
+	userID, err := normalizeRequiredUserID(userID)
+	if err != nil {
+		return err
+	}
+	at = normalizeNow(at)
+	if _, err := s.RunEventGraphProjection(ctx, userID, at); err != nil {
+		return err
+	}
+	if _, err := s.RunParadigmProjection(ctx, userID, at); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *SQLiteStore) resolveCanonicalSubject(ctx context.Context, subject string, cache map[string]string) (string, error) {
