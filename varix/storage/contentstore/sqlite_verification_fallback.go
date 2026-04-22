@@ -44,7 +44,7 @@ func (s *SQLiteStore) BuildVerificationRecordFromContentSubgraph(ctx context.Con
 	}
 	verifiedAt := parseSQLiteTime(subgraph.UpdatedAt)
 	if verifiedAt.IsZero() {
-		verifiedAt = time.Now().UTC()
+		verifiedAt = normalizeRecordedTime(verifiedAt)
 	}
 	verification.VerifiedAt = verifiedAt
 	return compile.VerificationRecord{UnitID: subgraph.ArticleID, Source: subgraph.SourcePlatform, ExternalID: subgraph.SourceExternalID, RootExternalID: subgraph.RootExternalID, Model: subgraph.CompileVersion, Verification: verification, VerifiedAt: verifiedAt}, nil

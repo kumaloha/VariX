@@ -62,9 +62,7 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 		return memory.OrganizationOutput{}, err
 	}
 	job.CreatedAt = parseSQLiteTime(createdAt)
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

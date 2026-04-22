@@ -68,7 +68,7 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 		})
 	}
 
-	now := time.Now().UTC()
+	now := normalizeNow(time.Time{})
 	triggerType := "accept_single"
 	if len(snapshots) > 1 {
 		triggerType = "accept_batch"

@@ -45,9 +45,7 @@ func persistMemoryContentGraphSubgraphTx(ctx context.Context, tx *sql.Tx, userID
 	if err != nil {
 		return err
 	}
-	if acceptedAt.IsZero() {
-		acceptedAt = time.Now().UTC()
-	}
+	acceptedAt = normalizeRecordedTime(acceptedAt)
 	_, err = tx.ExecContext(ctx, `INSERT INTO memory_content_graphs(user_id, source_platform, source_external_id, root_external_id, subgraph_id, payload_json, accepted_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, source_platform, source_external_id) DO UPDATE SET
