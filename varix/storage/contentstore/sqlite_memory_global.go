@@ -14,33 +14,21 @@ import (
 )
 
 func (s *SQLiteStore) RunGlobalMemoryOrganization(ctx context.Context, userID string, now time.Time) (memory.GlobalOrganizationOutput, error) {
-	if strings.TrimSpace(userID) == "" {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
 		return memory.GlobalOrganizationOutput{}, fmt.Errorf("user id is required")
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 
-	nodes, err := s.ListUserMemory(ctx, strings.TrimSpace(userID))
+	nodes, err := s.ListUserMemory(ctx, userID)
 	if err != nil {
 		return memory.GlobalOrganizationOutput{}, err
 	}
 
-	globalNodes := make([]memory.AcceptedNode, 0, len(nodes))
-	for _, node := range nodes {
-		node.NodeID = globalMemoryNodeRef(node)
-		globalNodes = append(globalNodes, node)
-	}
-
-	active := make([]memory.AcceptedNode, 0, len(globalNodes))
-	inactive := make([]memory.AcceptedNode, 0, len(globalNodes))
-	for _, node := range globalNodes {
-		if isAcceptedNodeActiveAt(node, now) {
-			active = append(active, node)
-		} else {
-			inactive = append(inactive, node)
-		}
-	}
+	globalNodes := globalizeAcceptedNodes(nodes)
+	active, inactive := splitAcceptedNodesByActivity(globalNodes, now)
 
 	dedupeGroups := buildDedupeGroups(active, nil, nil)
 	contradictionGroups := buildContradictionGroups(active)
@@ -48,7 +36,7 @@ func (s *SQLiteStore) RunGlobalMemoryOrganization(ctx context.Context, userID st
 	openQuestions := buildGlobalOpenQuestions(clusters)
 
 	output := memory.GlobalOrganizationOutput{
-		UserID:              strings.TrimSpace(userID),
+		UserID:              userID,
 		GeneratedAt:         now,
 		ActiveNodes:         active,
 		InactiveNodes:       inactive,
@@ -155,7 +143,7 @@ func buildGlobalClusters(nodes []memory.AcceptedNode, dedupeGroups []memory.Dedu
 			if !sameGlobalClusterFamily(left, right) {
 				continue
 			}
-			if phrase, ok := sharedSemanticPhrase(left.NodeText, right.NodeText); ok && strings.TrimSpace(phrase) != "" {
+			if nonEmptySemanticPhrase(left.NodeText, right.NodeText) != "" {
 				addEdge(left.NodeID, right.NodeID)
 			}
 		}
@@ -671,4 +659,26 @@ func listAllUserMemoryTx(ctx context.Context, tx *sql.Tx, userID string) ([]memo
 	}
 	defer rows.Close()
 	return scanMemoryNodes(rows)
+}
+
+func globalizeAcceptedNodes(nodes []memory.AcceptedNode) []memory.AcceptedNode {
+	globalNodes := make([]memory.AcceptedNode, 0, len(nodes))
+	for _, node := range nodes {
+		node.NodeID = globalMemoryNodeRef(node)
+		globalNodes = append(globalNodes, node)
+	}
+	return globalNodes
+}
+
+func splitAcceptedNodesByActivity(nodes []memory.AcceptedNode, now time.Time) ([]memory.AcceptedNode, []memory.AcceptedNode) {
+	active := make([]memory.AcceptedNode, 0, len(nodes))
+	inactive := make([]memory.AcceptedNode, 0, len(nodes))
+	for _, node := range nodes {
+		if isAcceptedNodeActiveAt(node, now) {
+			active = append(active, node)
+		} else {
+			inactive = append(inactive, node)
+		}
+	}
+	return active, inactive
 }
