@@ -22,7 +22,7 @@ func FromCompileRecord(record compile.Record) (ContentSubgraph, error) {
 	}
 	compiledAt := record.CompiledAt.UTC()
 	if compiledAt.IsZero() {
-		compiledAt = time.Now().UTC()
+		compiledAt = compile.NowUTC()
 	}
 	roleByText := compileRoleByText(record.Output)
 	primaryTexts := compilePrimaryTexts(record.Output)

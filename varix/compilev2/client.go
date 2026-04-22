@@ -165,7 +165,7 @@ func (c *Client) Compile(ctx context.Context, bundle compile.Bundle) (compile.Re
 			CompileStageElapsedMS: stageMetrics,
 		},
 		Output:     out,
-		CompiledAt: time.Now().UTC(),
+		CompiledAt: compile.NowUTC(),
 	}, nil
 }
 
@@ -223,7 +223,7 @@ func debugV2Stage(bundle compile.Bundle, stageName, message string) {
 	if unitID == "" {
 		unitID = strings.TrimSpace(bundle.ExternalID)
 	}
-	fmt.Fprintf(os.Stderr, "[compilev2-stage] %s %s %s\n", time.Now().UTC().Format(time.RFC3339), stageName, unitID)
+	fmt.Fprintf(os.Stderr, "[compilev2-stage] %s %s %s\n", compile.NowUTC().Format(time.RFC3339), stageName, unitID)
 	fmt.Fprintf(os.Stderr, "[compilev2-stage] %s %s\n", stageName, message)
 }
 
@@ -232,7 +232,7 @@ func (c *Client) startDebugRun(bundle compile.Bundle) string {
 		return ""
 	}
 	unitID := sanitizeDebugPath(compile.FirstNonEmpty(bundle.UnitID, bundle.ExternalID, "unknown"))
-	ts := time.Now().UTC().Format("20060102T150405Z")
+	ts := compile.NowUTC().Format("20060102T150405Z")
 	dir := filepath.Join(c.projectRoot, ".omx", "debug", "compilev2", unitID, ts)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return ""

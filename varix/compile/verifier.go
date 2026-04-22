@@ -17,7 +17,7 @@ var buildFactRetrievalContext = func(ctx context.Context, bundle Bundle, nodes [
 }
 
 var verifierNow = func() time.Time {
-	return time.Now().UTC()
+	return NowUTC()
 }
 
 type verifierPassResult struct {

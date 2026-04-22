@@ -182,7 +182,7 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 		Model:          c.model,
 		Metrics:        metrics,
 		Output:         output,
-		CompiledAt:     time.Now().UTC(),
+		CompiledAt:     NowUTC(),
 	}, nil
 }
 
@@ -354,7 +354,7 @@ func debugCompileStage(bundle Bundle, stageName string, message string) {
 	if unitID == "" {
 		unitID = strings.TrimSpace(bundle.ExternalID)
 	}
-	fmt.Fprintf(os.Stderr, "[compile-stage] %s %s %s\n", time.Now().UTC().Format(time.RFC3339), stageName, unitID)
+	fmt.Fprintf(os.Stderr, "[compile-stage] %s %s %s\n", NowUTC().Format(time.RFC3339), stageName, unitID)
 	fmt.Fprintf(os.Stderr, "[compile-stage] %s %s\n", stageName, message)
 }
 
@@ -557,7 +557,7 @@ func buildCompatibilityGraph(bundle Bundle, driverTarget DriverTargetOutput, pat
 	nextID := 1
 	now := bundle.PostedAt.UTC()
 	if bundle.PostedAt.IsZero() {
-		now = time.Now().UTC()
+		now = NowUTC()
 	}
 
 	addNode := func(kind NodeKind, text string) string {
