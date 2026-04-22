@@ -708,10 +708,19 @@ func shortestPath(adj map[string][]string, start, target string) []string {
 				continue
 			}
 			seen[next] = struct{}{}
-			queue = append(queue, item{id: next, path: append(append([]string(nil), cur.path...), next)})
+			queue = append(queue, item{id: next, path: appendPathNode(cur.path, next)})
 		}
 	}
 	return nil
+}
+
+func appendPathNode(path []string, next string) []string {
+	cloned := cloneStrings(path)
+	return append(cloned, next)
+}
+
+func cloneStrings(values []string) []string {
+	return append([]string(nil), values...)
 }
 
 func dedupeEdges(edges []graphEdge) []graphEdge {
