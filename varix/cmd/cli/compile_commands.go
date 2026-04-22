@@ -662,7 +662,7 @@ func graphFirstNodeLabel(node graphmodel.GraphNode) string {
 		return strings.TrimSpace(node.RawText)
 	case strings.TrimSpace(node.SourceQuote) != "":
 		return strings.TrimSpace(node.SourceQuote)
-	case strings.TrimSpace(node.SubjectText) != "" && strings.TrimSpace(node.ChangeText) != "" && strings.TrimSpace(node.SubjectText) != strings.TrimSpace(node.ChangeText):
+	case c.HasDistinctNonEmptyPair(node.SubjectText, node.ChangeText):
 		return strings.TrimSpace(node.SubjectText) + " " + strings.TrimSpace(node.ChangeText)
 	default:
 		return strings.TrimSpace(c.FirstNonEmpty(node.SubjectText, node.ChangeText, node.ID))

@@ -1117,7 +1117,7 @@ func runMemoryContentGraphs(args []string, projectRoot string, stdout, stderr io
 		}
 	}
 	items, err := store.ListMemoryContentGraphs(context.Background(), strings.TrimSpace(*userID))
-	if err == nil && strings.TrimSpace(*platform) != "" && strings.TrimSpace(*externalID) != "" {
+	if err == nil && hasContentTarget(*platform, *externalID) {
 		filtered := make([]graphmodel.ContentSubgraph, 0, len(items))
 		for _, item := range items {
 			if item.SourcePlatform == strings.TrimSpace(*platform) && item.SourceExternalID == strings.TrimSpace(*externalID) {
