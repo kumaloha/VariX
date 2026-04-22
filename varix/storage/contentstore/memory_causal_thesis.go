@@ -3,21 +3,11 @@ package contentstore
 import (
 	"sort"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
 )
 
 func buildCausalThesis(thesis memory.CandidateThesis, nodesByID map[string]memory.AcceptedNode) memory.CausalThesis {
-	nodes := make([]memory.AcceptedNode, 0, len(thesis.NodeIDs))
-	sourceRefs := make([]string, 0, len(thesis.NodeIDs))
-	for _, id := range thesis.NodeIDs {
-		node, ok := nodesByID[id]
-		if !ok {
-			continue
-		}
-		nodes = append(nodes, node)
-		sourceRefs = append(sourceRefs, node.SourcePlatform+":"+node.SourceExternalID)
-	}
+	nodes, sourceRefs := collectAcceptedNodes(thesis.NodeIDs, nodesByID)
 	roles := assignNodeRoles(nodes)
 	edges := buildCausalEdges(nodes, roles)
 	corePath := extractCorePath(nodes, roles)
@@ -42,22 +32,7 @@ func buildCausalThesis(thesis memory.CandidateThesis, nodesByID map[string]memor
 func assignNodeRoles(nodes []memory.AcceptedNode) map[string]string {
 	out := make(map[string]string, len(nodes))
 	for _, node := range nodes {
-		switch node.NodeKind {
-		case string(compile.NodeFact):
-			out[node.NodeID] = "fact"
-		case string(compile.NodeExplicitCondition):
-			out[node.NodeID] = "condition"
-		case string(compile.NodeMechanism):
-			out[node.NodeID] = "mechanism"
-		case string(compile.NodeImplicitCondition):
-			out[node.NodeID] = "mechanism"
-		case string(compile.NodeConclusion):
-			out[node.NodeID] = "conclusion"
-		case string(compile.NodePrediction):
-			out[node.NodeID] = "prediction"
-		default:
-			out[node.NodeID] = "supporting"
-		}
+		out[node.NodeID] = nodeRoleForKind(node.NodeKind)
 	}
 	return out
 }

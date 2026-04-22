@@ -27,7 +27,7 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 		node.NodeID = ref
 		byID[ref] = node
 		nodeIDs = append(nodeIDs, ref)
-		sourceKey := node.SourcePlatform + ":" + node.SourceExternalID
+		sourceKey := thesisSourceRef(node)
 		sourceCounts[sourceKey]++
 		if node.NodeKind == string(compile.NodeConclusion) {
 			sourceConclusionCounts[sourceKey]++
@@ -55,7 +55,7 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 			left := byID[nodeIDs[i]]
 			right := byID[nodeIDs[j]]
 			if left.SourcePlatform == right.SourcePlatform && left.SourceExternalID == right.SourceExternalID {
-				sourceKey := left.SourcePlatform + ":" + left.SourceExternalID
+				sourceKey := thesisSourceRef(left)
 				if sameSourceCausalPairAllowed(left, right, sourceCounts[sourceKey], sourceConclusionCounts[sourceKey]) {
 					addEdge(left.NodeID, right.NodeID)
 					continue
@@ -76,7 +76,7 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 				addEdge(left.NodeID, right.NodeID)
 				continue
 			}
-			if phrase, ok := sharedSemanticPhrase(left.NodeText, right.NodeText); ok && strings.TrimSpace(phrase) != "" {
+			if nonEmptySemanticPhrase(left.NodeText, right.NodeText) != "" {
 				addEdge(left.NodeID, right.NodeID)
 			}
 		}
@@ -90,11 +90,7 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 		}
 		component := collectComponent(start, adj, seen)
 		sort.Strings(component)
-		sourceRefs := make([]string, 0, len(component))
-		for _, id := range component {
-			node := byID[id]
-			sourceRefs = append(sourceRefs, fmt.Sprintf("%s:%s", node.SourcePlatform, node.SourceExternalID))
-		}
+		_, sourceRefs := collectAcceptedNodes(component, byID)
 		out = append(out, memory.CandidateThesis{
 			ThesisID:      fmt.Sprintf("thesis-%d", len(out)+1),
 			UserID:        byID[start].UserID,
@@ -131,7 +127,7 @@ func sameSourceCausalPairAllowed(left, right memory.AcceptedNode, sourceCount in
 	if sharedObjectLabel(left.NodeText, right.NodeText) != "" {
 		return true
 	}
-	if phrase, ok := sharedSemanticPhrase(left.NodeText, right.NodeText); ok && strings.TrimSpace(phrase) != "" {
+	if nonEmptySemanticPhrase(left.NodeText, right.NodeText) != "" {
 		return true
 	}
 	return false
@@ -170,7 +166,7 @@ func thesisTopicLabel(component []string, byID map[string]memory.AcceptedNode) s
 	if label := sharedObjectLabel(left, right); label != "" {
 		return label
 	}
-	if phrase, ok := sharedSemanticPhrase(left, right); ok && strings.TrimSpace(phrase) != "" {
+	if phrase := nonEmptySemanticPhrase(left, right); phrase != "" {
 		return fmt.Sprintf("关于「%s」的判断", phrase)
 	}
 	if label := factConclusionTopicLabel(component, byID); label != "" {
@@ -216,7 +212,7 @@ func thesisClusterReason(component []string, byID map[string]memory.AcceptedNode
 			if sharedMechanismTheme(left.NodeText, right.NodeText) {
 				return "shared_mechanism_theme"
 			}
-			if phrase, ok := sharedSemanticPhrase(left.NodeText, right.NodeText); ok && strings.TrimSpace(phrase) != "" {
+			if nonEmptySemanticPhrase(left.NodeText, right.NodeText) != "" {
 				return "shared_semantic_phrase"
 			}
 		}
