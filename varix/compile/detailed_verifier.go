@@ -248,34 +248,39 @@ func applyCompatibilityVerificationViews(verification *Verification, nodes []Gra
 		if !ok {
 			continue
 		}
+		reason := compatibilityReason(item)
 		switch node.Kind {
 		case NodeFact, NodeMechanism:
 			verification.FactChecks = append(verification.FactChecks, FactCheck{
 				NodeID: item.NodeID,
 				Status: mapNodeStatusToFactStatus(item.Status),
-				Reason: FirstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
+				Reason: reason,
 			})
 		case NodeExplicitCondition:
 			verification.ExplicitConditionChecks = append(verification.ExplicitConditionChecks, ExplicitConditionCheck{
 				NodeID: item.NodeID,
 				Status: mapNodeStatusToExplicitStatus(item.Status),
-				Reason: FirstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
+				Reason: reason,
 			})
 		case NodeImplicitCondition:
 			verification.ImplicitConditionChecks = append(verification.ImplicitConditionChecks, ImplicitConditionCheck{
 				NodeID: item.NodeID,
 				Status: mapNodeStatusToFactStatus(item.Status),
-				Reason: FirstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
+				Reason: reason,
 			})
 		case NodePrediction:
 			verification.PredictionChecks = append(verification.PredictionChecks, PredictionCheck{
 				NodeID: item.NodeID,
 				Status: mapNodeStatusToPredictionStatus(item.Status),
-				Reason: FirstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; "))),
+				Reason: reason,
 				AsOf:   item.AsOf,
 			})
 		}
 	}
+}
+
+func compatibilityReason(item NodeVerification) string {
+	return FirstNonEmpty(strings.TrimSpace(item.Reason), strings.TrimSpace(strings.Join(item.Evidence, "; ")))
 }
 
 func mapNodeStatusToFactStatus(status NodeVerificationStatus) FactStatus {
