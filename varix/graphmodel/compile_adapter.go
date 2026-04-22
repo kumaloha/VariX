@@ -199,16 +199,18 @@ func timeText(start, end time.Time) string {
 	if start.IsZero() && end.IsZero() {
 		return ""
 	}
+	startText := formatMaybeTime(start)
+	endText := formatMaybeTime(end)
 	if !start.IsZero() && !end.IsZero() && start.Equal(end) {
-		return start.UTC().Format(time.RFC3339)
+		return startText
 	}
 	if !start.IsZero() && !end.IsZero() {
-		return start.UTC().Format(time.RFC3339) + " -> " + end.UTC().Format(time.RFC3339)
+		return startText + " -> " + endText
 	}
 	if !start.IsZero() {
-		return start.UTC().Format(time.RFC3339)
+		return startText
 	}
-	return end.UTC().Format(time.RFC3339)
+	return endText
 }
 
 func mapCompileNodeKind(kind compile.NodeKind) NodeKind {
