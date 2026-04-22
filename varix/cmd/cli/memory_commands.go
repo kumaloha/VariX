@@ -554,7 +554,7 @@ func runMemoryGlobalV2Organized(args []string, projectRoot string, stdout, stder
 	out, err := store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
 	if err != nil {
 		if err == sql.ErrNoRows {
-			fmt.Fprintf(stderr, "no v2 global memory output yet; run: varix memory global-v2-organize-run --user %s\n", strings.TrimSpace(*userID))
+			writeMissingMemoryAction(stderr, "no v2 global memory output yet", "varix memory global-v2-organize-run", strings.TrimSpace(*userID))
 			return 1
 		}
 		fmt.Fprintln(stderr, err)
@@ -629,7 +629,7 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
-			fmt.Fprintf(stderr, "no v2 card output yet; run: varix memory global-v2-card --run --user %s\n", trimmedUserID)
+			writeMissingMemoryAction(stderr, "no v2 card output yet", "varix memory global-v2-card --run", trimmedUserID)
 			return 1
 		}
 		fmt.Fprintln(stderr, err)
@@ -690,7 +690,7 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 		v1, err = store.GetLatestGlobalMemoryOrganizationOutput(context.Background(), trimmedUserID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				fmt.Fprintf(stderr, "no global memory outputs yet; run: varix memory global-compare --run --user %s\n", trimmedUserID)
+				writeMissingMemoryAction(stderr, "no global memory outputs yet", "varix memory global-compare --run", trimmedUserID)
 				return 1
 			}
 			fmt.Fprintln(stderr, err)
@@ -699,7 +699,7 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 		v2, err = store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), trimmedUserID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				fmt.Fprintf(stderr, "no global memory outputs yet; run: varix memory global-compare --run --user %s\n", trimmedUserID)
+				writeMissingMemoryAction(stderr, "no global memory outputs yet", "varix memory global-compare --run", trimmedUserID)
 				return 1
 			}
 			fmt.Fprintln(stderr, err)
@@ -855,6 +855,10 @@ func isGlobalV2ItemType(itemType string) bool {
 	default:
 		return false
 	}
+}
+
+func writeMissingMemoryAction(w io.Writer, message, command, userID string) {
+	fmt.Fprintf(w, "%s; run: %s --user %s\n", message, command, userID)
 }
 
 func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMemoryV2Output, itemType string) string {
