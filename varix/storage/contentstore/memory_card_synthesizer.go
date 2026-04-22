@@ -20,7 +20,7 @@ func buildCognitiveCards(thesis memory.CausalThesis, nodesByID map[string]memory
 		KeyEvidence:     keyEvidenceTexts(thesis, nodesByID),
 		Conditions:      cardConditions(thesis, nodesByID),
 		Predictions:     predictionTexts(thesis, nodesByID),
-		SourceRefs:      append([]string(nil), thesis.SourceRefs...),
+		SourceRefs:      cloneStringSlice(thesis.SourceRefs),
 		ConfidenceLabel: cardConfidence(thesis),
 	}
 	return []memory.CognitiveCard{card}

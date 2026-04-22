@@ -23,6 +23,18 @@ type relationFirstProjection struct {
 	conflictViews     []memory.ConflictView
 }
 
+type relationProjectionState struct {
+	entityStates       map[string]*memory.CanonicalEntity
+	relationIndex      map[string]memory.Relation
+	mechanisms         []memory.Mechanism
+	mechanismNodes     []memory.MechanismNode
+	mechanismEdges     []memory.MechanismEdge
+	pathOutcomes       []memory.PathOutcome
+	driverStates       map[string]*aggregateState
+	targetStates       map[string]*aggregateState
+	conclusionByThesis map[string][]memory.CognitiveConclusion
+}
+
 func (s *SQLiteStore) buildRelationFirstProjection(
 	ctx context.Context,
 	now time.Time,
@@ -37,23 +49,7 @@ func (s *SQLiteStore) buildRelationFirstProjection(
 	if err != nil {
 		return relationFirstProjection{}, err
 	}
-
-	entityStates := map[string]*memory.CanonicalEntity{}
-	relationIndex := map[string]memory.Relation{}
-	mechanisms := make([]memory.Mechanism, 0, len(causalTheses))
-	mechanismNodes := make([]memory.MechanismNode, 0)
-	mechanismEdges := make([]memory.MechanismEdge, 0)
-	pathOutcomes := make([]memory.PathOutcome, 0, len(causalTheses))
-	driverStates := map[string]*aggregateState{}
-	targetStates := map[string]*aggregateState{}
-
-	conclusionByThesis := make(map[string][]memory.CognitiveConclusion)
-	for _, conclusion := range conclusions {
-		if strings.TrimSpace(conclusion.CausalThesisID) == "" {
-			continue
-		}
-		conclusionByThesis[conclusion.CausalThesisID] = append(conclusionByThesis[conclusion.CausalThesisID], conclusion)
-	}
+	state := newRelationProjectionState(causalTheses, conclusions)
 
 	for _, thesis := range causalTheses {
 		if len(thesis.CorePathNodeIDs) == 0 {
@@ -65,8 +61,8 @@ func (s *SQLiteStore) buildRelationFirstProjection(
 		}
 		driverEntityID := relationEntityID(memory.CanonicalEntityDriver, driverLabel)
 		targetEntityID := relationEntityID(memory.CanonicalEntityTarget, targetLabel)
-		addCanonicalEntity(entityStates, driverEntityID, memory.CanonicalEntityDriver, driverLabel, now)
-		addCanonicalEntity(entityStates, targetEntityID, memory.CanonicalEntityTarget, targetLabel, now)
+		addCanonicalEntity(state.entityStates, driverEntityID, memory.CanonicalEntityDriver, driverLabel, now)
+		addCanonicalEntity(state.entityStates, targetEntityID, memory.CanonicalEntityTarget, targetLabel, now)
 
 		relationID := thesis.ThesisID + "-relation"
 		relation := memory.Relation{
@@ -77,7 +73,7 @@ func (s *SQLiteStore) buildRelationFirstProjection(
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		}
-		relationIndex[relationID] = relation
+		state.relationIndex[relationID] = relation
 
 		mechanismID := thesis.CausalThesisID + "-mechanism"
 		traceabilityStatus := traceabilityStatusForThesis(thesis)
@@ -92,7 +88,7 @@ func (s *SQLiteStore) buildRelationFirstProjection(
 			CreatedAt:          now,
 			UpdatedAt:          now,
 		}
-		mechanisms = append(mechanisms, mechanism)
+		state.mechanisms = append(state.mechanisms, mechanism)
 
 		nodeIDMap := make(map[string]string, len(thesis.CorePathNodeIDs))
 		for idx, globalNodeID := range thesis.CorePathNodeIDs {
@@ -100,7 +96,7 @@ func (s *SQLiteStore) buildRelationFirstProjection(
 			nodeType := normalizedTransmissionNodeType(thesis.NodeRoles[globalNodeID], idx, len(thesis.CorePathNodeIDs))
 			mechanismNodeID := fmt.Sprintf("%s-node-%d", mechanismID, idx+1)
 			nodeIDMap[globalNodeID] = mechanismNodeID
-			mechanismNodes = append(mechanismNodes, memory.MechanismNode{
+			state.mechanismNodes = append(state.mechanismNodes, memory.MechanismNode{
 				MechanismNodeID:        mechanismNodeID,
 				MechanismID:            mechanismID,
 				NodeType:               nodeType,
@@ -117,7 +113,7 @@ func (s *SQLiteStore) buildRelationFirstProjection(
 			toGlobal := thesis.CorePathNodeIDs[idx+1]
 			edgeID := fmt.Sprintf("%s-edge-%d", mechanismID, idx+1)
 			edgeIDs = append(edgeIDs, edgeID)
-			mechanismEdges = append(mechanismEdges, memory.MechanismEdge{
+			state.mechanismEdges = append(state.mechanismEdges, memory.MechanismEdge{
 				MechanismEdgeID: edgeID,
 				MechanismID:     mechanismID,
 				FromNodeID:      nodeIDMap[fromGlobal],
@@ -133,7 +129,7 @@ func (s *SQLiteStore) buildRelationFirstProjection(
 			nodePath = append(nodePath, nodeIDMap[globalNodeID])
 		}
 		predictionNodeIDs, predictionStartAt, predictionDueAt := predictionContractForPath(thesis.CorePathNodeIDs, nodeIDMap, compiledNodes)
-		pathOutcomes = append(pathOutcomes, memory.PathOutcome{
+		state.pathOutcomes = append(state.pathOutcomes, memory.PathOutcome{
 			PathOutcomeID:     mechanismID + "-path-1",
 			MechanismID:       mechanismID,
 			NodePath:          nodePath,
@@ -148,64 +144,85 @@ func (s *SQLiteStore) buildRelationFirstProjection(
 			CreatedAt:         now,
 		})
 
-		driverState := ensureAggregateState(driverStates, driverEntityID)
+		driverState := ensureAggregateState(state.driverStates, driverEntityID)
 		driverState.relationIDs = append(driverState.relationIDs, relationID)
 		driverState.neighborEntityIDs = append(driverState.neighborEntityIDs, targetEntityID)
 		driverState.mechanismLabels = append(driverState.mechanismLabels, targetLabel)
 		driverState.coverageScore = maxFloat(driverState.coverageScore, boundedConfidence(thesis.CompletenessScore))
 		driverState.traceabilityStatus = strongerTraceability(driverState.traceabilityStatus, traceabilityStatus)
-		for _, conclusion := range conclusionByThesis[thesis.CausalThesisID] {
+		for _, conclusion := range state.conclusionByThesis[thesis.CausalThesisID] {
 			driverState.activeConclusionIDs = append(driverState.activeConclusionIDs, conclusion.ConclusionID)
 		}
 
-		targetState := ensureAggregateState(targetStates, targetEntityID)
+		targetState := ensureAggregateState(state.targetStates, targetEntityID)
 		targetState.relationIDs = append(targetState.relationIDs, relationID)
 		targetState.neighborEntityIDs = append(targetState.neighborEntityIDs, driverEntityID)
 		targetState.mechanismLabels = append(targetState.mechanismLabels, driverLabel)
 		targetState.coverageScore = maxFloat(targetState.coverageScore, boundedConfidence(thesis.CompletenessScore))
 		targetState.traceabilityStatus = strongerTraceability(targetState.traceabilityStatus, traceabilityStatus)
-		for _, conclusion := range conclusionByThesis[thesis.CausalThesisID] {
+		for _, conclusion := range state.conclusionByThesis[thesis.CausalThesisID] {
 			targetState.activeConclusionIDs = append(targetState.activeConclusionIDs, conclusion.ConclusionID)
 		}
 	}
 
-	canonicalEntities := make([]memory.CanonicalEntity, 0, len(entityStates))
-	for _, entity := range entityStates {
+	canonicalEntities := make([]memory.CanonicalEntity, 0, len(state.entityStates))
+	for _, entity := range state.entityStates {
 		entity.Aliases = normalizeCanonicalAliases(entity.CanonicalName, entity.Aliases)
 		canonicalEntities = append(canonicalEntities, *entity)
 	}
 	sort.Slice(canonicalEntities, func(i, j int) bool { return canonicalEntities[i].EntityID < canonicalEntities[j].EntityID })
 
-	relations := make([]memory.Relation, 0, len(relationIndex))
-	for _, relation := range relationIndex {
+	relations := make([]memory.Relation, 0, len(state.relationIndex))
+	for _, relation := range state.relationIndex {
 		relations = append(relations, relation)
 	}
 	sort.Slice(relations, func(i, j int) bool { return relations[i].RelationID < relations[j].RelationID })
-	sort.Slice(mechanisms, func(i, j int) bool { return mechanisms[i].MechanismID < mechanisms[j].MechanismID })
-	sort.Slice(mechanismNodes, func(i, j int) bool {
-		if mechanismNodes[i].MechanismID != mechanismNodes[j].MechanismID {
-			return mechanismNodes[i].MechanismID < mechanismNodes[j].MechanismID
+	sort.Slice(state.mechanisms, func(i, j int) bool { return state.mechanisms[i].MechanismID < state.mechanisms[j].MechanismID })
+	sort.Slice(state.mechanismNodes, func(i, j int) bool {
+		if state.mechanismNodes[i].MechanismID != state.mechanismNodes[j].MechanismID {
+			return state.mechanismNodes[i].MechanismID < state.mechanismNodes[j].MechanismID
 		}
-		return mechanismNodes[i].SortOrder < mechanismNodes[j].SortOrder
+		return state.mechanismNodes[i].SortOrder < state.mechanismNodes[j].SortOrder
 	})
-	sort.Slice(mechanismEdges, func(i, j int) bool {
-		if mechanismEdges[i].MechanismID != mechanismEdges[j].MechanismID {
-			return mechanismEdges[i].MechanismID < mechanismEdges[j].MechanismID
+	sort.Slice(state.mechanismEdges, func(i, j int) bool {
+		if state.mechanismEdges[i].MechanismID != state.mechanismEdges[j].MechanismID {
+			return state.mechanismEdges[i].MechanismID < state.mechanismEdges[j].MechanismID
 		}
-		return mechanismEdges[i].PathOrder < mechanismEdges[j].PathOrder
+		return state.mechanismEdges[i].PathOrder < state.mechanismEdges[j].PathOrder
 	})
-	sort.Slice(pathOutcomes, func(i, j int) bool { return pathOutcomes[i].PathOutcomeID < pathOutcomes[j].PathOutcomeID })
+	sort.Slice(state.pathOutcomes, func(i, j int) bool { return state.pathOutcomes[i].PathOutcomeID < state.pathOutcomes[j].PathOutcomeID })
 
 	return relationFirstProjection{
 		canonicalEntities: canonicalEntities,
 		relations:         relations,
-		mechanisms:        mechanisms,
-		mechanismNodes:    mechanismNodes,
-		mechanismEdges:    mechanismEdges,
-		pathOutcomes:      pathOutcomes,
-		driverAggregates:  buildDriverAggregatesFromState(driverStates, now),
-		targetAggregates:  buildTargetAggregatesFromState(targetStates, now),
+		mechanisms:        state.mechanisms,
+		mechanismNodes:    state.mechanismNodes,
+		mechanismEdges:    state.mechanismEdges,
+		pathOutcomes:      state.pathOutcomes,
+		driverAggregates:  buildDriverAggregatesFromState(state.driverStates, now),
+		targetAggregates:  buildTargetAggregatesFromState(state.targetStates, now),
 	}, nil
+}
+
+func newRelationProjectionState(causalTheses []memory.CausalThesis, conclusions []memory.CognitiveConclusion) relationProjectionState {
+	state := relationProjectionState{
+		entityStates:       map[string]*memory.CanonicalEntity{},
+		relationIndex:      map[string]memory.Relation{},
+		mechanisms:         make([]memory.Mechanism, 0, len(causalTheses)),
+		mechanismNodes:     make([]memory.MechanismNode, 0),
+		mechanismEdges:     make([]memory.MechanismEdge, 0),
+		pathOutcomes:       make([]memory.PathOutcome, 0, len(causalTheses)),
+		driverStates:       map[string]*aggregateState{},
+		targetStates:       map[string]*aggregateState{},
+		conclusionByThesis: make(map[string][]memory.CognitiveConclusion),
+	}
+	for _, conclusion := range conclusions {
+		if strings.TrimSpace(conclusion.CausalThesisID) == "" {
+			continue
+		}
+		state.conclusionByThesis[conclusion.CausalThesisID] = append(state.conclusionByThesis[conclusion.CausalThesisID], conclusion)
+	}
+	return state
 }
 
 func (s *SQLiteStore) compiledNodesForTheses(ctx context.Context, theses []memory.CausalThesis) (map[string]compile.GraphNode, error) {

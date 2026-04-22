@@ -23,9 +23,9 @@ func buildCognitiveConclusion(thesis memory.CausalThesis, cards []memory.Cogniti
 		ConclusionID:       thesis.CausalThesisID + "-conclusion",
 		CausalThesisID:     thesis.CausalThesisID,
 		Headline:           headline,
-		Subheadline:        strings.TrimSpace(cards[0].Summary),
+		Subheadline:        buildCardOrConclusionSubheadline(cards[0].Summary),
 		BackingCardIDs:     backing,
-		WhyItExists:        strings.TrimSpace(cards[0].Summary),
+		WhyItExists:        buildCardOrConclusionSubheadline(cards[0].Summary),
 		TraceabilityStatus: "grounded",
 	}, true
 }
@@ -151,38 +151,38 @@ func abstractHeadlineFromPressureAndVolatility(driver, headline, prediction stri
 func buildTopMemoryItems(conflicts []memory.ConflictSet, conclusions []memory.CognitiveConclusion, cards []memory.CognitiveCard, now time.Time) []memory.TopMemoryItem {
 	items := make([]memory.TopMemoryItem, 0, len(conflicts)+len(conclusions)+len(cards))
 	for _, conflict := range conflicts {
-		items = append(items, memory.TopMemoryItem{
-			ItemID:          conflict.ConflictID,
-			ItemType:        memory.TopMemoryItemConflict,
-			Headline:        firstNonEmpty(conflict.ConflictTopic, "存在认知矛盾"),
-			Subheadline:     humanizeConflictReason(conflict.ConflictReason),
-			BackingObjectID: conflict.ConflictID,
-			SignalStrength:  memory.SignalHigh,
-			UpdatedAt:       firstNonZeroTime(conflict.UpdatedAt, now),
-		})
+		items = append(items, newTopMemoryItem(
+			conflict.ConflictID,
+			memory.TopMemoryItemConflict,
+			firstNonEmpty(conflict.ConflictTopic, "存在认知矛盾"),
+			humanizeConflictReason(conflict.ConflictReason),
+			conflict.ConflictID,
+			memory.SignalHigh,
+			firstNonZeroTime(conflict.UpdatedAt, now),
+		))
 	}
 	for _, conclusion := range conclusions {
-		items = append(items, memory.TopMemoryItem{
-			ItemID:          conclusion.ConclusionID,
-			ItemType:        memory.TopMemoryItemConclusion,
-			Headline:        conclusion.Headline,
-			Subheadline:     conclusion.Subheadline,
-			BackingObjectID: conclusion.ConclusionID,
-			SignalStrength:  signalStrengthForConclusion(conclusion),
-			UpdatedAt:       now,
-		})
+		items = append(items, newTopMemoryItem(
+			conclusion.ConclusionID,
+			memory.TopMemoryItemConclusion,
+			conclusion.Headline,
+			conclusion.Subheadline,
+			conclusion.ConclusionID,
+			signalStrengthForConclusion(conclusion),
+			now,
+		))
 	}
 	if len(items) == 0 {
 		for _, card := range cards {
-			items = append(items, memory.TopMemoryItem{
-				ItemID:          card.CardID,
-				ItemType:        memory.TopMemoryItemCard,
-				Headline:        card.Title,
-				Subheadline:     card.Summary,
-				BackingObjectID: card.CardID,
-				SignalStrength:  signalStrengthForCard(card),
-				UpdatedAt:       now,
-			})
+			items = append(items, newTopMemoryItem(
+				card.CardID,
+				memory.TopMemoryItemCard,
+				card.Title,
+				card.Summary,
+				card.CardID,
+				signalStrengthForCard(card),
+				now,
+			))
 		}
 	}
 	return items
