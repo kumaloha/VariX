@@ -394,15 +394,10 @@ func buildCanonicalProposition(component []string, byID map[string]memory.Accept
 		return proposition
 	}
 	repID := chooseRepresentativeNode(component, byID)
-	text := strings.TrimSpace(byID[repID].NodeText)
+	text := normalizedClusterText(byID[repID].NodeText)
 	if text == "" {
 		return "未命名认知簇"
 	}
-	text = strings.TrimPrefix(text, "若")
-	text = strings.TrimPrefix(text, "如果")
-	text = strings.TrimPrefix(text, "一旦")
-	text = strings.TrimPrefix(text, "假如")
-	text = strings.TrimSpace(text)
 	return truncateText(text, 80)
 }
 
@@ -446,15 +441,10 @@ func deriveNeutralProposition(component []string, byID map[string]memory.Accepte
 	}
 	var canonicals []string
 	for _, id := range component {
-		text := strings.TrimSpace(byID[id].NodeText)
+		text := normalizedClusterText(byID[id].NodeText)
 		if text == "" {
 			continue
 		}
-		text = strings.TrimPrefix(text, "若")
-		text = strings.TrimPrefix(text, "如果")
-		text = strings.TrimPrefix(text, "一旦")
-		text = strings.TrimPrefix(text, "假如")
-		text = strings.TrimSpace(text)
 		canonical := canonicalNodeText(text)
 		if canonical != "" {
 			canonicals = append(canonicals, canonical)
@@ -549,15 +539,10 @@ func summarizeRoleTexts(ids []string, byID map[string]memory.AcceptedNode) strin
 	}
 	items := make([]string, 0, 2)
 	for _, id := range ids {
-		text := strings.TrimSpace(byID[id].NodeText)
+		text := normalizedClusterText(byID[id].NodeText)
 		if text == "" {
 			continue
 		}
-		text = strings.TrimPrefix(text, "若")
-		text = strings.TrimPrefix(text, "如果")
-		text = strings.TrimPrefix(text, "一旦")
-		text = strings.TrimPrefix(text, "假如")
-		text = strings.TrimSpace(text)
 		items = append(items, truncateText(text, 40))
 		if len(items) == 2 {
 			break
@@ -659,6 +644,14 @@ func listAllUserMemoryTx(ctx context.Context, tx *sql.Tx, userID string) ([]memo
 	}
 	defer rows.Close()
 	return scanMemoryNodes(rows)
+}
+
+func normalizedClusterText(text string) string {
+	text = strings.TrimSpace(text)
+	for _, prefix := range []string{"若", "如果", "一旦", "假如"} {
+		text = strings.TrimPrefix(text, prefix)
+	}
+	return strings.TrimSpace(text)
 }
 
 func globalizeAcceptedNodes(nodes []memory.AcceptedNode) []memory.AcceptedNode {
