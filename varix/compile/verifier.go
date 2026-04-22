@@ -117,12 +117,12 @@ func runVerifier(ctx context.Context, rt verifierCall, model string, prompts *pr
 	}
 
 	verification := Verification{
-		Version:         "verify_v2",
-		RolloutStage:    verifierRolloutStage(passResults),
-		RealizedChecks:  make([]RealizedCheck, 0),
+		Version:               "verify_v2",
+		RolloutStage:          verifierRolloutStage(passResults),
+		RealizedChecks:        make([]RealizedCheck, 0),
 		FutureConditionChecks: make([]FutureConditionCheck, 0),
-		Passes:          make([]VerificationPass, 0, len(passResults)),
-		CoverageSummary: aggregateCoverageSummary(passResults),
+		Passes:                make([]VerificationPass, 0, len(passResults)),
+		CoverageSummary:       aggregateCoverageSummary(passResults),
 	}
 	for _, result := range passResults {
 		verification.RealizedChecks = append(verification.RealizedChecks, result.realizedChecks...)
@@ -182,7 +182,7 @@ func verifyRealized(ctx context.Context, rt verifierCall, model string, prompts 
 	if err := unmarshalVerifierPayload(claimResp.Text, &claimPayload); err != nil {
 		return verifierPassResult{}, fmt.Errorf("parse fact claim output: %w", err)
 	}
-	claimSummary := newStageSummary(firstNonEmpty(claimResp.Model, model), claimCompletedAt, true, factCheckNodeIDs(claimPayload.FactChecks))
+	claimSummary := verifierStageSummary(claimResp.Model, model, claimCompletedAt, factCheckNodeIDs(claimPayload.FactChecks))
 
 	challengeInstruction, err := prompts.verifierInstruction(promptFactVerifierChallenge)
 	if err != nil {
@@ -208,7 +208,7 @@ func verifyRealized(ctx context.Context, rt verifierCall, model string, prompts 
 	if err := unmarshalVerifierPayload(challengeResp.Text, &challengePayload); err != nil {
 		return verifierPassResult{}, fmt.Errorf("parse fact challenge output: %w", err)
 	}
-	challengeSummary := newStageSummary(firstNonEmpty(challengeResp.Model, model), challengeCompletedAt, true, factChallengeNodeIDs(challengePayload.Challenges))
+	challengeSummary := verifierStageSummary(challengeResp.Model, model, challengeCompletedAt, factChallengeNodeIDs(challengePayload.Challenges))
 
 	adjudicationInstruction, err := prompts.verifierInstruction(promptFactVerifierAdjudication)
 	if err != nil {
@@ -245,7 +245,7 @@ func verifyRealized(ctx context.Context, rt verifierCall, model string, prompts 
 		factChecks:       compatibilityFactChecks,
 		claim:            claimSummary,
 		challenge:        challengeSummary,
-		adjudication:     newStageSummary(firstNonEmpty(adjudicationResp.Model, model), adjudicationCompletedAt, true, finalNodeIDs),
+		adjudication:     verifierStageSummary(adjudicationResp.Model, model, adjudicationCompletedAt, finalNodeIDs),
 		coverage:         buildCoverage(nodeIDs(nodes), finalNodeIDs),
 		retrievalSummary: retrievalSummary,
 		debateEnabled:    true,
@@ -276,14 +276,14 @@ func verifyPredictions(ctx context.Context, rt verifierCall, model string, promp
 		return verifierPassResult{}, fmt.Errorf("parse prediction verifier output: %w", err)
 	}
 	finalNodeIDs := predictionCheckNodeIDs(payload.PredictionChecks)
-	stage := newStageSummary(firstNonEmpty(resp.Model, model), completedAt, true, finalNodeIDs)
+	stage := verifierStageSummary(resp.Model, model, completedAt, finalNodeIDs)
 	return verifierPassResult{
-		kind:             VerificationPassPrediction,
-		nodeIDs:          nodeIDs(nodes),
+		kind:                  VerificationPassPrediction,
+		nodeIDs:               nodeIDs(nodes),
 		futureConditionChecks: toFutureConditionChecksFromPredictions(payload.PredictionChecks),
-		predictionChecks: payload.PredictionChecks,
-		adjudication:     stage,
-		coverage:         buildCoverage(nodeIDs(nodes), finalNodeIDs),
+		predictionChecks:      payload.PredictionChecks,
+		adjudication:          stage,
+		coverage:              buildCoverage(nodeIDs(nodes), finalNodeIDs),
 	}, nil
 }
 
@@ -311,7 +311,7 @@ func verifyExplicitConditions(ctx context.Context, rt verifierCall, model string
 		return verifierPassResult{}, fmt.Errorf("parse explicit condition verifier output: %w", err)
 	}
 	finalNodeIDs := explicitConditionCheckNodeIDs(payload.ExplicitConditionChecks)
-	stage := newStageSummary(firstNonEmpty(resp.Model, model), completedAt, true, finalNodeIDs)
+	stage := verifierStageSummary(resp.Model, model, completedAt, finalNodeIDs)
 	return verifierPassResult{
 		kind:                    VerificationPassExplicitCondition,
 		nodeIDs:                 nodeIDs(nodes),
@@ -347,7 +347,7 @@ func verifyImplicitConditions(ctx context.Context, rt verifierCall, model string
 		return verifierPassResult{}, fmt.Errorf("parse implicit condition verifier output: %w", err)
 	}
 	finalNodeIDs := implicitConditionCheckNodeIDs(payload.ImplicitConditionChecks)
-	stage := newStageSummary(firstNonEmpty(resp.Model, model), completedAt, true, finalNodeIDs)
+	stage := verifierStageSummary(resp.Model, model, completedAt, finalNodeIDs)
 	return verifierPassResult{
 		kind:                    VerificationPassImplicitCondition,
 		nodeIDs:                 nodeIDs(nodes),
@@ -626,6 +626,10 @@ func newStageSummary(model string, completedAt time.Time, parseOK bool, outputNo
 	}
 }
 
+func verifierStageSummary(responseModel, fallbackModel string, completedAt time.Time, outputNodeIDs []string) *VerificationStageSummary {
+	return newStageSummary(firstNonEmpty(responseModel, fallbackModel), completedAt, true, outputNodeIDs)
+}
+
 func cloneStageSummary(in *VerificationStageSummary) *VerificationStageSummary {
 	if in == nil {
 		return nil
@@ -734,13 +738,13 @@ func firstNonEmpty(values ...string) string {
 }
 
 const (
-	VerificationPassRealized          VerificationPassKind = "realized"
-	promptFactVerifierClaim         = "fact_claim"
-	promptFactVerifierChallenge     = "fact_challenge"
-	promptFactVerifierAdjudication  = "fact_adjudicate"
-	promptPredictionVerifier        = "prediction"
-	promptExplicitConditionVerifier = "explicit_condition"
-	promptImplicitConditionVerifier = "implicit_condition"
+	VerificationPassRealized        VerificationPassKind = "realized"
+	promptFactVerifierClaim                              = "fact_claim"
+	promptFactVerifierChallenge                          = "fact_challenge"
+	promptFactVerifierAdjudication                       = "fact_adjudicate"
+	promptPredictionVerifier                             = "prediction"
+	promptExplicitConditionVerifier                      = "explicit_condition"
+	promptImplicitConditionVerifier                      = "implicit_condition"
 )
 
 func isConditionVerifierNode(node GraphNode) bool {
