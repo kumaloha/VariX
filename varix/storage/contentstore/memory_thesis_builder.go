@@ -35,7 +35,7 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 
 	adj := map[string]map[string]struct{}{}
 	addEdge := func(a, b string) {
-		if strings.TrimSpace(a) == "" || strings.TrimSpace(b) == "" || a == b {
+		if !hasDistinctNonEmptyPair(a, b) {
 			return
 		}
 		if adj[a] == nil {

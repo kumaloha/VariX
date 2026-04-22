@@ -114,6 +114,12 @@ func persistLatestUserScopedOutput(ctx context.Context, db *sql.DB, table string
 	return err
 }
 
+func hasDistinctNonEmptyPair(left, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	return left != "" && right != "" && left != right
+}
+
 func decodePayloadRows[T any](rows *sql.Rows, decodeLabel string) ([]T, error) {
 	defer rows.Close()
 	out := make([]T, 0)

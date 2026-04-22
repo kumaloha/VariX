@@ -73,7 +73,7 @@ func buildGlobalClusters(nodes []memory.AcceptedNode, dedupeGroups []memory.Dedu
 
 	adj := map[string]map[string]struct{}{}
 	addEdge := func(a, b string) {
-		if strings.TrimSpace(a) == "" || strings.TrimSpace(b) == "" || a == b {
+		if !hasDistinctNonEmptyPair(a, b) {
 			return
 		}
 		if adj[a] == nil {
