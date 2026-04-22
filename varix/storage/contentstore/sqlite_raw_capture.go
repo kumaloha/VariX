@@ -183,7 +183,9 @@ func (s *SQLiteStore) MarkSourceLookupResult(ctx context.Context, raw types.RawC
 }
 
 func normalizeRawCapture(raw types.RawContent) (types.RawContent, error) {
-	if strings.TrimSpace(raw.Source) == "" || strings.TrimSpace(raw.ExternalID) == "" {
+	raw.Source = strings.TrimSpace(raw.Source)
+	raw.ExternalID = strings.TrimSpace(raw.ExternalID)
+	if raw.Source == "" || raw.ExternalID == "" {
 		return types.RawContent{}, fmt.Errorf("invalid raw capture")
 	}
 	if raw.Provenance != nil && raw.Provenance.NeedsSourceLookup && raw.Provenance.SourceLookup.Status == "" {
