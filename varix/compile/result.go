@@ -677,20 +677,16 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		if err := validateKnownNodeIDs("fact check", []string{check.NodeID}, nodeIDs); err != nil {
 			return err
 		}
-		switch check.Status {
-		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
-		default:
-			return fmt.Errorf("unsupported fact status: %s", check.Status)
+		if err := validateFactStatus("fact", check.Status); err != nil {
+			return err
 		}
 	}
 	for _, check := range o.Verification.RealizedChecks {
 		if err := validateKnownNodeIDs("realized check", []string{check.NodeID}, nodeIDs); err != nil {
 			return err
 		}
-		switch check.Status {
-		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
-		default:
-			return fmt.Errorf("unsupported realized status: %s", check.Status)
+		if err := validateFactStatus("realized", check.Status); err != nil {
+			return err
 		}
 	}
 	for _, check := range o.Verification.FutureConditionChecks {
@@ -702,30 +698,24 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		if err := validateKnownNodeIDs("explicit condition check", []string{check.NodeID}, nodeIDs); err != nil {
 			return err
 		}
-		switch check.Status {
-		case ExplicitConditionStatusHigh, ExplicitConditionStatusMedium, ExplicitConditionStatusLow, ExplicitConditionStatusUnknown:
-		default:
-			return fmt.Errorf("unsupported explicit condition status: %s", check.Status)
+		if err := validateExplicitConditionStatus(check.Status); err != nil {
+			return err
 		}
 	}
 	for _, check := range o.Verification.ImplicitConditionChecks {
 		if err := validateKnownNodeIDs("implicit condition check", []string{check.NodeID}, nodeIDs); err != nil {
 			return err
 		}
-		switch check.Status {
-		case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
-		default:
-			return fmt.Errorf("unsupported implicit condition status: %s", check.Status)
+		if err := validateFactStatus("implicit condition", check.Status); err != nil {
+			return err
 		}
 	}
 	for _, check := range o.Verification.PredictionChecks {
 		if err := validateKnownNodeIDs("prediction check", []string{check.NodeID}, nodeIDs); err != nil {
 			return err
 		}
-		switch check.Status {
-		case PredictionStatusUnresolved, PredictionStatusResolvedTrue, PredictionStatusResolvedFalse, PredictionStatusStaleUnresolved:
-		default:
-			return fmt.Errorf("unsupported prediction status: %s", check.Status)
+		if err := validatePredictionStatus(check.Status); err != nil {
+			return err
 		}
 	}
 	for _, pass := range o.Verification.Passes {
@@ -911,6 +901,33 @@ func validateKnownNodeIDs(label string, ids []string, nodeIDs map[string]struct{
 		}
 	}
 	return nil
+}
+
+func validateFactStatus(label string, status FactStatus) error {
+	switch status {
+	case FactStatusClearlyTrue, FactStatusClearlyFalse, FactStatusUnverifiable:
+		return nil
+	default:
+		return fmt.Errorf("unsupported %s status: %s", label, status)
+	}
+}
+
+func validateExplicitConditionStatus(status ExplicitConditionStatus) error {
+	switch status {
+	case ExplicitConditionStatusHigh, ExplicitConditionStatusMedium, ExplicitConditionStatusLow, ExplicitConditionStatusUnknown:
+		return nil
+	default:
+		return fmt.Errorf("unsupported explicit condition status: %s", status)
+	}
+}
+
+func validatePredictionStatus(status PredictionStatus) error {
+	switch status {
+	case PredictionStatusUnresolved, PredictionStatusResolvedTrue, PredictionStatusResolvedFalse, PredictionStatusStaleUnresolved:
+		return nil
+	default:
+		return fmt.Errorf("unsupported prediction status: %s", status)
+	}
 }
 
 func validateRequiredStringList(field string, values []string) error {
