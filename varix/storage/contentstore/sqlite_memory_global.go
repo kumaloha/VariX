@@ -490,7 +490,7 @@ func buildSynthesizedEdges(coreSupporting, coreConditional, coreConclusions, cor
 	add := func(froms, tos []string, kind string) {
 		for _, from := range froms {
 			for _, to := range tos {
-				if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" || from == to {
+				if !hasDistinctNonEmptyPair(from, to) {
 					continue
 				}
 				edges = append(edges, memory.GlobalClusterEdge{From: from, To: to, Kind: kind})
