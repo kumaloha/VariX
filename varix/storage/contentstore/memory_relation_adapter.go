@@ -144,25 +144,25 @@ func (s *SQLiteStore) buildRelationFirstProjection(
 			CreatedAt:         now,
 		})
 
-		driverState := ensureAggregateState(state.driverStates, driverEntityID)
-		driverState.relationIDs = append(driverState.relationIDs, relationID)
-		driverState.neighborEntityIDs = append(driverState.neighborEntityIDs, targetEntityID)
-		driverState.mechanismLabels = append(driverState.mechanismLabels, targetLabel)
-		driverState.coverageScore = maxFloat(driverState.coverageScore, boundedConfidence(thesis.CompletenessScore))
-		driverState.traceabilityStatus = strongerTraceability(driverState.traceabilityStatus, traceabilityStatus)
-		for _, conclusion := range state.conclusionByThesis[thesis.CausalThesisID] {
-			driverState.activeConclusionIDs = append(driverState.activeConclusionIDs, conclusion.ConclusionID)
-		}
-
-		targetState := ensureAggregateState(state.targetStates, targetEntityID)
-		targetState.relationIDs = append(targetState.relationIDs, relationID)
-		targetState.neighborEntityIDs = append(targetState.neighborEntityIDs, driverEntityID)
-		targetState.mechanismLabels = append(targetState.mechanismLabels, driverLabel)
-		targetState.coverageScore = maxFloat(targetState.coverageScore, boundedConfidence(thesis.CompletenessScore))
-		targetState.traceabilityStatus = strongerTraceability(targetState.traceabilityStatus, traceabilityStatus)
-		for _, conclusion := range state.conclusionByThesis[thesis.CausalThesisID] {
-			targetState.activeConclusionIDs = append(targetState.activeConclusionIDs, conclusion.ConclusionID)
-		}
+		conclusionIDs := conclusionIDsForThesis(state.conclusionByThesis[thesis.CausalThesisID])
+		updateAggregateState(
+			ensureAggregateState(state.driverStates, driverEntityID),
+			relationID,
+			targetEntityID,
+			targetLabel,
+			boundedConfidence(thesis.CompletenessScore),
+			traceabilityStatus,
+			conclusionIDs,
+		)
+		updateAggregateState(
+			ensureAggregateState(state.targetStates, targetEntityID),
+			relationID,
+			driverEntityID,
+			driverLabel,
+			boundedConfidence(thesis.CompletenessScore),
+			traceabilityStatus,
+			conclusionIDs,
+		)
 	}
 
 	canonicalEntities := make([]memory.CanonicalEntity, 0, len(state.entityStates))
@@ -508,4 +508,24 @@ func maxFloat(left, right float64) float64 {
 		return right
 	}
 	return left
+}
+
+func conclusionIDsForThesis(conclusions []memory.CognitiveConclusion) []string {
+	out := make([]string, 0, len(conclusions))
+	for _, conclusion := range conclusions {
+		out = append(out, conclusion.ConclusionID)
+	}
+	return out
+}
+
+func updateAggregateState(state *aggregateState, relationID, neighborEntityID, mechanismLabel string, coverageScore float64, traceabilityStatus memory.TraceabilityStatus, conclusionIDs []string) {
+	if state == nil {
+		return
+	}
+	state.relationIDs = append(state.relationIDs, relationID)
+	state.neighborEntityIDs = append(state.neighborEntityIDs, neighborEntityID)
+	state.mechanismLabels = append(state.mechanismLabels, mechanismLabel)
+	state.coverageScore = maxFloat(state.coverageScore, coverageScore)
+	state.traceabilityStatus = strongerTraceability(state.traceabilityStatus, traceabilityStatus)
+	state.activeConclusionIDs = append(state.activeConclusionIDs, conclusionIDs...)
 }
