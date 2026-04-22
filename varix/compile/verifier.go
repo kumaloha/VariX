@@ -159,61 +159,34 @@ func verifyRealized(ctx context.Context, rt verifierCall, model string, prompts 
 	if err != nil {
 		return verifierPassResult{}, err
 	}
-	claimInstruction, err := prompts.verifierInstruction(promptFactVerifierClaim)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
-
 	claimPrompt, err := buildFactVerificationPrompt(bundle, nodes, retrievalContext, retrievalSummary, nil)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
-	claimReq, err := BuildQwen36ProviderRequest(model, bundle, claimInstruction, claimPrompt)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
-	claimResp, claimCompletedAt, err := callVerifierStage(ctx, rt, claimReq)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
 	var claimPayload struct {
 		FactChecks []FactCheck `json:"fact_checks"`
 	}
-	if err := unmarshalVerifierPayload(claimResp.Text, &claimPayload); err != nil {
-		return verifierPassResult{}, fmt.Errorf("parse fact claim output: %w", err)
-	}
-	claimSummary := verifierStageSummary(claimResp.Model, model, claimCompletedAt, factCheckNodeIDs(claimPayload.FactChecks))
-
-	challengeInstruction, err := prompts.verifierInstruction(promptFactVerifierChallenge)
+	claimResp, claimCompletedAt, err := runVerifierPromptStage(ctx, rt, model, prompts, bundle, promptFactVerifierClaim, claimPrompt, "fact claim", &claimPayload)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
+	claimSummary := verifierStageSummary(claimResp.Model, model, claimCompletedAt, factCheckNodeIDs(claimPayload.FactChecks))
+
 	challengePrompt, err := buildFactVerificationPrompt(bundle, nodes, retrievalContext, retrievalSummary, map[string]any{
 		"claim_checks": claimPayload.FactChecks,
 	})
 	if err != nil {
 		return verifierPassResult{}, err
 	}
-	challengeReq, err := BuildQwen36ProviderRequest(model, bundle, challengeInstruction, challengePrompt)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
-	challengeResp, challengeCompletedAt, err := callVerifierStage(ctx, rt, challengeReq)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
 	var challengePayload struct {
 		Challenges []factChallenge `json:"challenges"`
 	}
-	if err := unmarshalVerifierPayload(challengeResp.Text, &challengePayload); err != nil {
-		return verifierPassResult{}, fmt.Errorf("parse fact challenge output: %w", err)
-	}
-	challengeSummary := verifierStageSummary(challengeResp.Model, model, challengeCompletedAt, factChallengeNodeIDs(challengePayload.Challenges))
-
-	adjudicationInstruction, err := prompts.verifierInstruction(promptFactVerifierAdjudication)
+	challengeResp, challengeCompletedAt, err := runVerifierPromptStage(ctx, rt, model, prompts, bundle, promptFactVerifierChallenge, challengePrompt, "fact challenge", &challengePayload)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
+	challengeSummary := verifierStageSummary(challengeResp.Model, model, challengeCompletedAt, factChallengeNodeIDs(challengePayload.Challenges))
+
 	adjudicationPrompt, err := buildFactVerificationPrompt(bundle, nodes, retrievalContext, retrievalSummary, map[string]any{
 		"claim_checks": claimPayload.FactChecks,
 		"challenges":   challengePayload.Challenges,
@@ -221,19 +194,12 @@ func verifyRealized(ctx context.Context, rt verifierCall, model string, prompts 
 	if err != nil {
 		return verifierPassResult{}, err
 	}
-	adjudicationReq, err := BuildQwen36ProviderRequest(model, bundle, adjudicationInstruction, adjudicationPrompt)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
-	adjudicationResp, adjudicationCompletedAt, err := callVerifierStage(ctx, rt, adjudicationReq)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
 	var adjudicationPayload struct {
 		FactChecks []FactCheck `json:"fact_checks"`
 	}
-	if err := unmarshalVerifierPayload(adjudicationResp.Text, &adjudicationPayload); err != nil {
-		return verifierPassResult{}, fmt.Errorf("parse fact adjudication output: %w", err)
+	adjudicationResp, adjudicationCompletedAt, err := runVerifierPromptStage(ctx, rt, model, prompts, bundle, promptFactVerifierAdjudication, adjudicationPrompt, "fact adjudication", &adjudicationPayload)
+	if err != nil {
+		return verifierPassResult{}, err
 	}
 
 	finalNodeIDs := factCheckNodeIDs(adjudicationPayload.FactChecks)
