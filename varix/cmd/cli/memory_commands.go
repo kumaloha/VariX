@@ -1204,6 +1204,8 @@ func runMemoryProjectAll(args []string, projectRoot string, stdout, stderr io.Wr
 		fmt.Fprintln(stderr, "usage: varix memory project-all --user <user_id>")
 		return 2
 	}
+	trimmedUserID := strings.TrimSpace(*userID)
+	now := time.Now().UTC()
 	store, err := openStore(projectRoot)
 	if err != nil {
 		writeErr(stderr, err)
@@ -1211,27 +1213,27 @@ func runMemoryProjectAll(args []string, projectRoot string, stdout, stderr io.Wr
 	}
 	defer store.Close()
 	eventStart := time.Now()
-	events, err := store.RunEventGraphProjection(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+	events, err := store.RunEventGraphProjection(context.Background(), trimmedUserID, now)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	eventDurationMS := time.Since(eventStart).Milliseconds()
 	paradigmStart := time.Now()
-	paradigms, err := store.RunParadigmProjection(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+	paradigms, err := store.RunParadigmProjection(context.Background(), trimmedUserID, now)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	paradigmDurationMS := time.Since(paradigmStart).Milliseconds()
 	globalStart := time.Now()
-	global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+	global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), trimmedUserID, now)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	globalDurationMS := time.Since(globalStart).Milliseconds()
-	contentGraphs, err := store.ListMemoryContentGraphs(context.Background(), strings.TrimSpace(*userID))
+	contentGraphs, err := store.ListMemoryContentGraphs(context.Background(), trimmedUserID)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -1288,30 +1290,33 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 		return 1
 	}
 	defer store.Close()
+	trimmedUserID := strings.TrimSpace(*userID)
+	trimmedPlatform := strings.TrimSpace(*platform)
+	trimmedExternalID := strings.TrimSpace(*externalID)
 	now := time.Now().UTC()
 	switch selectedLayer {
 	case "content":
-		if err := store.PersistMemoryContentGraphFromCompiledOutput(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*platform), strings.TrimSpace(*externalID), now); err != nil {
+		if err := store.PersistMemoryContentGraphFromCompiledOutput(context.Background(), trimmedUserID, trimmedPlatform, trimmedExternalID, now); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		contentGraphs, err := store.ListMemoryContentGraphs(context.Background(), strings.TrimSpace(*userID))
+		contentGraphs, err := store.ListMemoryContentGraphs(context.Background(), trimmedUserID)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		count := 0
 		for _, graph := range contentGraphs {
-			if graph.SourcePlatform == strings.TrimSpace(*platform) && graph.SourceExternalID == strings.TrimSpace(*externalID) {
+			if graph.SourcePlatform == trimmedPlatform && graph.SourceExternalID == trimmedExternalID {
 				count++
 			}
 		}
 		payload, err := json.MarshalIndent(map[string]any{
 			"ok":             true,
 			"layer":          "content",
-			"user":           strings.TrimSpace(*userID),
-			"platform":       strings.TrimSpace(*platform),
-			"id":             strings.TrimSpace(*externalID),
+			"user":           trimmedUserID,
+			"platform":       trimmedPlatform,
+			"id":             trimmedExternalID,
 			"content_graphs": count,
 		}, "", "  ")
 		if err != nil {
@@ -1322,12 +1327,12 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 		return 0
 	case "event":
 		start := time.Now()
-		events, err := store.RunEventGraphProjection(context.Background(), strings.TrimSpace(*userID), now)
+		events, err := store.RunEventGraphProjection(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		payload, err := json.MarshalIndent(map[string]any{"ok": true, "layer": "event", "user": strings.TrimSpace(*userID), "event_graphs": len(events), "metrics": map[string]any{"event_graph_rebuild_ms": time.Since(start).Milliseconds()}}, "", "  ")
+		payload, err := json.MarshalIndent(map[string]any{"ok": true, "layer": "event", "user": trimmedUserID, "event_graphs": len(events), "metrics": map[string]any{"event_graph_rebuild_ms": time.Since(start).Milliseconds()}}, "", "  ")
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -1336,12 +1341,12 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 		return 0
 	case "paradigm":
 		start := time.Now()
-		paradigms, err := store.RunParadigmProjection(context.Background(), strings.TrimSpace(*userID), now)
+		paradigms, err := store.RunParadigmProjection(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		payload, err := json.MarshalIndent(map[string]any{"ok": true, "layer": "paradigm", "user": strings.TrimSpace(*userID), "paradigms": len(paradigms), "metrics": map[string]any{"paradigm_recompute_ms": time.Since(start).Milliseconds()}}, "", "  ")
+		payload, err := json.MarshalIndent(map[string]any{"ok": true, "layer": "paradigm", "user": trimmedUserID, "paradigms": len(paradigms), "metrics": map[string]any{"paradigm_recompute_ms": time.Since(start).Milliseconds()}}, "", "  ")
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -1350,12 +1355,12 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 		return 0
 	case "global-v2":
 		start := time.Now()
-		global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), now)
+		global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		payload, err := json.MarshalIndent(map[string]any{"ok": true, "layer": "global-v2", "user": strings.TrimSpace(*userID), "global_v2": global.OutputID, "metrics": map[string]any{"global_v2_rebuild_ms": time.Since(start).Milliseconds()}}, "", "  ")
+		payload, err := json.MarshalIndent(map[string]any{"ok": true, "layer": "global-v2", "user": trimmedUserID, "global_v2": global.OutputID, "metrics": map[string]any{"global_v2_rebuild_ms": time.Since(start).Milliseconds()}}, "", "  ")
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -1363,27 +1368,27 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 		fmt.Fprintln(stdout, string(payload))
 		return 0
 	case "all":
-		contentGraphs, err := store.ListMemoryContentGraphs(context.Background(), strings.TrimSpace(*userID))
+		contentGraphs, err := store.ListMemoryContentGraphs(context.Background(), trimmedUserID)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		eventStart := time.Now()
-		events, err := store.RunEventGraphProjection(context.Background(), strings.TrimSpace(*userID), now)
+		events, err := store.RunEventGraphProjection(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		eventDurationMS := time.Since(eventStart).Milliseconds()
 		paradigmStart := time.Now()
-		paradigms, err := store.RunParadigmProjection(context.Background(), strings.TrimSpace(*userID), now)
+		paradigms, err := store.RunParadigmProjection(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		paradigmDurationMS := time.Since(paradigmStart).Milliseconds()
 		globalStart := time.Now()
-		global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), now)
+		global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -1392,7 +1397,7 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 		payload, err := json.MarshalIndent(map[string]any{
 			"ok":             true,
 			"layer":          "all",
-			"user":           strings.TrimSpace(*userID),
+			"user":           trimmedUserID,
 			"content_graphs": len(contentGraphs),
 			"event_graphs":   len(events),
 			"paradigms":      len(paradigms),
