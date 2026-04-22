@@ -636,8 +636,8 @@ func (o Output) Validate() error {
 }
 
 func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
-	if strings.TrimSpace(o.Summary) == "" {
-		return fmt.Errorf("summary is required")
+	if err := validateRequiredSummary(o.Summary); err != nil {
+		return err
 	}
 	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
 		return err
@@ -854,8 +854,8 @@ func (o EvidenceExplanationOutput) ValidateChallenge() error {
 }
 
 func (o UnifiedCompileOutput) ValidateGeneratorOrJudge() error {
-	if strings.TrimSpace(o.Summary) == "" {
-		return fmt.Errorf("summary is required")
+	if err := validateRequiredSummary(o.Summary); err != nil {
+		return err
 	}
 	if err := validateRequiredStringList("drivers", o.Drivers); err != nil {
 		return err
@@ -900,8 +900,8 @@ func (o UnifiedCompileOutput) ValidateChallenge() error {
 }
 
 func (o ThesisOutput) Validate() error {
-	if strings.TrimSpace(o.Summary) == "" {
-		return fmt.Errorf("summary is required")
+	if err := validateRequiredSummary(o.Summary); err != nil {
+		return err
 	}
 	if err := validateStringLists(
 		stringListField{name: "drivers", values: o.Drivers},
@@ -915,6 +915,13 @@ func (o ThesisOutput) Validate() error {
 type stringListField struct {
 	name   string
 	values []string
+}
+
+func validateRequiredSummary(summary string) error {
+	if strings.TrimSpace(summary) == "" {
+		return fmt.Errorf("summary is required")
+	}
+	return nil
 }
 
 func validateRequiredStringList(field string, values []string) error {
