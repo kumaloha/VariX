@@ -74,20 +74,7 @@ func (s *SQLiteStore) ListDueVerifyQueueItems(ctx context.Context, now time.Time
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	items := make([]graphmodel.VerifyQueueItem, 0)
-	for rows.Next() {
-		var item graphmodel.VerifyQueueItem
-		var objectType, status, scheduledAt string
-		if err := rows.Scan(&item.ID, &objectType, &item.ObjectID, &item.SourceArticleID, &item.Priority, &scheduledAt, &item.Attempts, &item.LastError, &status); err != nil {
-			return nil, err
-		}
-		item.ObjectType = graphmodel.VerifyQueueObjectType(objectType)
-		item.Status = graphmodel.VerifyQueueStatus(status)
-		item.ScheduledAt = parseSQLiteTime(scheduledAt).UTC().Format(time.RFC3339)
-		items = append(items, item)
-	}
-	return items, rows.Err()
+	return scanVerifyQueueItems(rows)
 }
 
 func (s *SQLiteStore) ListVerifyQueueItems(ctx context.Context, limit int) ([]graphmodel.VerifyQueueItem, error) {
@@ -102,20 +89,7 @@ func (s *SQLiteStore) ListVerifyQueueItems(ctx context.Context, limit int) ([]gr
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	items := make([]graphmodel.VerifyQueueItem, 0)
-	for rows.Next() {
-		var item graphmodel.VerifyQueueItem
-		var objectType, status, scheduledAt string
-		if err := rows.Scan(&item.ID, &objectType, &item.ObjectID, &item.SourceArticleID, &item.Priority, &scheduledAt, &item.Attempts, &item.LastError, &status); err != nil {
-			return nil, err
-		}
-		item.ObjectType = graphmodel.VerifyQueueObjectType(objectType)
-		item.Status = graphmodel.VerifyQueueStatus(status)
-		item.ScheduledAt = parseSQLiteTime(scheduledAt).UTC().Format(time.RFC3339)
-		items = append(items, item)
-	}
-	return items, rows.Err()
+	return scanVerifyQueueItems(rows)
 }
 
 func (s *SQLiteStore) ClaimDueVerifyQueueItems(ctx context.Context, now time.Time, limit int) ([]graphmodel.VerifyQueueItem, error) {
@@ -136,20 +110,8 @@ func (s *SQLiteStore) ClaimDueVerifyQueueItems(ctx context.Context, now time.Tim
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	items := make([]graphmodel.VerifyQueueItem, 0)
-	for rows.Next() {
-		var item graphmodel.VerifyQueueItem
-		var objectType, status, scheduledAt string
-		if err := rows.Scan(&item.ID, &objectType, &item.ObjectID, &item.SourceArticleID, &item.Priority, &scheduledAt, &item.Attempts, &item.LastError, &status); err != nil {
-			return nil, err
-		}
-		item.ObjectType = graphmodel.VerifyQueueObjectType(objectType)
-		item.Status = graphmodel.VerifyQueueStatus(status)
-		item.ScheduledAt = parseSQLiteTime(scheduledAt).UTC().Format(time.RFC3339)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
+	items, err := scanVerifyQueueItems(rows)
+	if err != nil {
 		return nil, err
 	}
 	for i := range items {
@@ -334,20 +296,32 @@ func (s *SQLiteStore) ListVerifyQueueItemsByStatus(ctx context.Context, status s
 	if err != nil {
 		return nil, err
 	}
+	return scanVerifyQueueItems(rows)
+}
+
+func scanVerifyQueueItems(rows *sql.Rows) ([]graphmodel.VerifyQueueItem, error) {
 	defer rows.Close()
 	items := make([]graphmodel.VerifyQueueItem, 0)
 	for rows.Next() {
-		var item graphmodel.VerifyQueueItem
-		var objectType, rowStatus, scheduledAt string
-		if err := rows.Scan(&item.ID, &objectType, &item.ObjectID, &item.SourceArticleID, &item.Priority, &scheduledAt, &item.Attempts, &item.LastError, &rowStatus); err != nil {
+		item, err := scanVerifyQueueItem(rows)
+		if err != nil {
 			return nil, err
 		}
-		item.ObjectType = graphmodel.VerifyQueueObjectType(objectType)
-		item.Status = graphmodel.VerifyQueueStatus(rowStatus)
-		item.ScheduledAt = parseSQLiteTime(scheduledAt).UTC().Format(time.RFC3339)
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func scanVerifyQueueItem(rows *sql.Rows) (graphmodel.VerifyQueueItem, error) {
+	var item graphmodel.VerifyQueueItem
+	var objectType, status, scheduledAt string
+	if err := rows.Scan(&item.ID, &objectType, &item.ObjectID, &item.SourceArticleID, &item.Priority, &scheduledAt, &item.Attempts, &item.LastError, &status); err != nil {
+		return graphmodel.VerifyQueueItem{}, err
+	}
+	item.ObjectType = graphmodel.VerifyQueueObjectType(objectType)
+	item.Status = graphmodel.VerifyQueueStatus(status)
+	item.ScheduledAt = parseSQLiteTime(scheduledAt).UTC().Format(time.RFC3339)
+	return item, nil
 }
 
 func (s *SQLiteStore) GetVerifyQueueSummary(ctx context.Context) (map[graphmodel.VerifyQueueStatus]int, error) {
