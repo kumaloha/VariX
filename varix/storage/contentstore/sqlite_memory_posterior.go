@@ -75,10 +75,7 @@ func (s *SQLiteStore) RunPosteriorVerification(ctx context.Context, req memory.P
 	if strings.TrimSpace(req.SourceExternalID) != "" && strings.TrimSpace(req.SourcePlatform) == "" {
 		return memory.PosteriorRunResult{}, fmt.Errorf("source platform is required when source external id is provided")
 	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	now = now.UTC()
+	now = normalizeNow(now)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
