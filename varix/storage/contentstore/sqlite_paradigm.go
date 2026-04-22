@@ -93,20 +93,22 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 				if err != nil {
 					return nil, err
 				}
+				driverSubject = strings.TrimSpace(driverSubject)
+				targetSubject = strings.TrimSpace(targetSubject)
 				bucket := strings.TrimSpace(firstNonEmpty(driver.TimeBucket, target.TimeBucket, deriveEventBucket(driver), deriveEventBucket(target), "timeless"))
 				key := normalizeCanonicalAlias(driverSubject) + "|" + normalizeCanonicalAlias(targetSubject) + "|" + bucket
 				st := byKey[key]
 				if st == nil {
 					st = &state{
-						driver:       strings.TrimSpace(driverSubject),
-						target:       strings.TrimSpace(targetSubject),
+						driver:       driverSubject,
+						target:       targetSubject,
 						bucket:       bucket,
 						traceability: map[string][]string{},
 					}
 					byKey[key] = st
 				}
 				st.subgraphs = append(st.subgraphs, subgraph.ID)
-				st.eventGraphs = append(st.eventGraphs, buildEventGraphID(userID, "driver", strings.TrimSpace(driverSubject), bucket))
+				st.eventGraphs = append(st.eventGraphs, buildEventGraphID(userID, "driver", driverSubject, bucket))
 				st.changes = append(st.changes, strings.TrimSpace(driver.ChangeText), strings.TrimSpace(target.ChangeText))
 				st.traceability[subgraph.ID] = uniqueStrings(append(st.traceability[subgraph.ID], driver.ID, target.ID))
 				switch target.VerificationStatus {
