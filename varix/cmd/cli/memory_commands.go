@@ -18,7 +18,7 @@ import (
 
 func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert> ...")
 		return 2
 	}
 	switch args[0] {
@@ -64,8 +64,16 @@ func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Write
 		return runMemoryParadigmEvidence(args[1:], projectRoot, stdout, stderr)
 	case "project-all":
 		return runMemoryProjectAll(args[1:], projectRoot, stdout, stderr)
+	case "backfill":
+		return runMemoryBackfill(args[1:], projectRoot, stdout, stderr)
+	case "cleanup-stale":
+		return runMemoryCleanupStale(args[1:], projectRoot, stdout, stderr)
+	case "canonical-entities":
+		return runMemoryCanonicalEntities(args[1:], projectRoot, stdout, stderr)
+	case "canonical-entity-upsert":
+		return runMemoryCanonicalEntityUpsert(args[1:], projectRoot, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all> ...")
+		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert> ...")
 		return 2
 	}
 }
@@ -225,10 +233,14 @@ func runMemoryJobs(args []string, projectRoot string, stdout, stderr io.Writer) 
 	fs := flag.NewFlagSet("memory jobs", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
+	status := fs.String("status", "", "optional filter: queued, running, done")
+	summary := fs.Bool("summary", false, "print status counts instead of full jobs")
+	platform := fs.String("platform", "", "optional source platform filter")
+	externalID := fs.String("id", "", "optional source external id filter (requires --platform)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*userID) == "" {
+	if strings.TrimSpace(*userID) == "" || (strings.TrimSpace(*externalID) != "" && strings.TrimSpace(*platform) == "") {
 		fmt.Fprintln(stderr, "usage: varix memory jobs --user <user_id>")
 		return 2
 	}
@@ -248,6 +260,79 @@ func runMemoryJobs(args []string, projectRoot string, stdout, stderr io.Writer) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if strings.TrimSpace(*platform) != "" {
+		filtered := make([]memory.OrganizationJob, 0, len(jobs))
+		for _, job := range jobs {
+			if job.SourcePlatform != strings.TrimSpace(*platform) {
+				continue
+			}
+			if strings.TrimSpace(*externalID) != "" && job.SourceExternalID != strings.TrimSpace(*externalID) {
+				continue
+			}
+			filtered = append(filtered, job)
+		}
+		jobs = filtered
+	}
+	if strings.TrimSpace(*status) != "" {
+		filtered := make([]memory.OrganizationJob, 0, len(jobs))
+		for _, job := range jobs {
+			if job.Status == strings.TrimSpace(*status) {
+				filtered = append(filtered, job)
+			}
+		}
+		jobs = filtered
+	}
+	if *summary {
+		counts := map[string]int{}
+		now := time.Now().UTC()
+		var oldestQueuedAt time.Time
+		var oldestRunningAt time.Time
+		for _, job := range jobs {
+			counts[job.Status]++
+			switch job.Status {
+			case "queued":
+				if oldestQueuedAt.IsZero() || (!job.CreatedAt.IsZero() && job.CreatedAt.Before(oldestQueuedAt)) {
+					oldestQueuedAt = job.CreatedAt
+				}
+			case "running":
+				staleAt := job.CreatedAt
+				if !job.StartedAt.IsZero() {
+					staleAt = job.StartedAt
+				}
+				if oldestRunningAt.IsZero() || (!staleAt.IsZero() && staleAt.Before(oldestRunningAt)) {
+					oldestRunningAt = staleAt
+				}
+			}
+			switch job.Status {
+			case "queued":
+				if !job.CreatedAt.IsZero() && now.Sub(job.CreatedAt) > 24*time.Hour {
+					counts["stale_candidates"]++
+					counts["stale_queued"]++
+				}
+			case "running":
+				staleAt := job.CreatedAt
+				if !job.StartedAt.IsZero() {
+					staleAt = job.StartedAt
+				}
+				if !staleAt.IsZero() && now.Sub(staleAt) > 24*time.Hour {
+					counts["stale_candidates"]++
+					counts["stale_running"]++
+				}
+			}
+		}
+		payload, err := json.MarshalIndent(map[string]any{
+			"user":              strings.TrimSpace(*userID),
+			"counts":            counts,
+			"oldest_queued_at":  formatMaybeRFC3339(oldestQueuedAt),
+			"oldest_running_at": formatMaybeRFC3339(oldestRunningAt),
+		}, "", "  ")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(payload))
+		return 0
+	}
 	payload, err := json.MarshalIndent(jobs, "", "  ")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -255,6 +340,13 @@ func runMemoryJobs(args []string, projectRoot string, stdout, stderr io.Writer) 
 	}
 	fmt.Fprintln(stdout, string(payload))
 	return 0
+}
+
+func formatMaybeRFC3339(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 func runMemoryPosteriorRun(args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -946,20 +1038,16 @@ func runMemoryEventGraphs(args []string, projectRoot string, stdout, stderr io.W
 			return 1
 		}
 	}
-	items, err := store.ListEventGraphs(context.Background(), strings.TrimSpace(*userID))
+	var items []contentstore.EventGraphRecord
+	if strings.TrimSpace(*subject) != "" {
+		items, err = store.ListEventGraphsBySubject(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*subject))
+	} else {
+		items, err = store.ListEventGraphs(context.Background(), strings.TrimSpace(*userID))
+	}
 	if err == nil && strings.TrimSpace(*scope) != "" {
 		filtered := make([]contentstore.EventGraphRecord, 0, len(items))
 		for _, item := range items {
 			if item.Scope == strings.TrimSpace(*scope) {
-				filtered = append(filtered, item)
-			}
-		}
-		items = filtered
-	}
-	if err == nil && strings.TrimSpace(*subject) != "" {
-		filtered := make([]contentstore.EventGraphRecord, 0, len(items))
-		for _, item := range items {
-			if item.AnchorSubject == strings.TrimSpace(*subject) {
 				filtered = append(filtered, item)
 			}
 		}
@@ -1090,6 +1178,13 @@ func runMemoryContentGraphs(args []string, projectRoot string, stdout, stderr io
 		items = filtered
 	}
 	if err == nil && strings.TrimSpace(*subject) != "" {
+		resolvedSubject, resolveErr := store.FindCanonicalEntityByAlias(context.Background(), strings.TrimSpace(*subject))
+		if resolveErr == nil && strings.TrimSpace(resolvedSubject.CanonicalName) != "" {
+			*subject = strings.TrimSpace(resolvedSubject.CanonicalName)
+		} else if resolveErr != nil && !errors.Is(resolveErr, sql.ErrNoRows) {
+			fmt.Fprintln(stderr, resolveErr)
+			return 1
+		}
 		filtered := make([]graphmodel.ContentSubgraph, 0, len(items))
 		for _, item := range items {
 			matched := false
@@ -1203,27 +1298,456 @@ func runMemoryProjectAll(args []string, projectRoot string, stdout, stderr io.Wr
 		return 1
 	}
 	defer store.Close()
+	eventStart := time.Now()
 	events, err := store.RunEventGraphProjection(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	eventDurationMS := time.Since(eventStart).Milliseconds()
+	paradigmStart := time.Now()
 	paradigms, err := store.RunParadigmProjection(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	paradigmDurationMS := time.Since(paradigmStart).Milliseconds()
+	globalStart := time.Now()
 	global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	globalDurationMS := time.Since(globalStart).Milliseconds()
 	contentGraphs, err := store.ListMemoryContentGraphs(context.Background(), strings.TrimSpace(*userID))
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	payload, err := json.MarshalIndent(map[string]any{"ok": true, "content_graphs": len(contentGraphs), "event_graphs": len(events), "paradigms": len(paradigms), "global_v2": global.OutputID}, "", "  ")
+	payload, err := json.MarshalIndent(map[string]any{
+		"ok":             true,
+		"content_graphs": len(contentGraphs),
+		"event_graphs":   len(events),
+		"paradigms":      len(paradigms),
+		"global_v2":      global.OutputID,
+		"metrics": map[string]any{
+			"event_graph_rebuild_ms": eventDurationMS,
+			"paradigm_recompute_ms":  paradigmDurationMS,
+			"global_v2_rebuild_ms":   globalDurationMS,
+		},
+	}, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory backfill", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	layer := fs.String("layer", "", "content | event | paradigm | global-v2 | all")
+	platform := fs.String("platform", "", "source platform (required for content layer)")
+	externalID := fs.String("id", "", "source external id (required for content layer)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	selectedLayer := strings.TrimSpace(*layer)
+	switch selectedLayer {
+	case "content":
+		if strings.TrimSpace(*userID) == "" || strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+			fmt.Fprintln(stderr, "usage: varix memory backfill --layer content --user <user_id> --platform <platform> --id <external_id>")
+			return 2
+		}
+	case "event", "paradigm", "global-v2", "all":
+		if strings.TrimSpace(*userID) == "" {
+			fmt.Fprintln(stderr, "usage: varix memory backfill --layer <event|paradigm|global-v2|all> --user <user_id>")
+			return 2
+		}
+	default:
+		fmt.Fprintln(stderr, "usage: varix memory backfill --layer <content|event|paradigm|global-v2|all> ...")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	now := time.Now().UTC()
+	switch selectedLayer {
+	case "content":
+		if err := store.PersistMemoryContentGraphFromCompiledOutput(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*platform), strings.TrimSpace(*externalID), now); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		contentGraphs, err := store.ListMemoryContentGraphs(context.Background(), strings.TrimSpace(*userID))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		count := 0
+		for _, graph := range contentGraphs {
+			if graph.SourcePlatform == strings.TrimSpace(*platform) && graph.SourceExternalID == strings.TrimSpace(*externalID) {
+				count++
+			}
+		}
+		payload, err := json.MarshalIndent(map[string]any{
+			"ok":             true,
+			"layer":          "content",
+			"user":           strings.TrimSpace(*userID),
+			"platform":       strings.TrimSpace(*platform),
+			"id":             strings.TrimSpace(*externalID),
+			"content_graphs": count,
+		}, "", "  ")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(payload))
+		return 0
+	case "event":
+		start := time.Now()
+		events, err := store.RunEventGraphProjection(context.Background(), strings.TrimSpace(*userID), now)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		payload, err := json.MarshalIndent(map[string]any{"ok": true, "layer": "event", "user": strings.TrimSpace(*userID), "event_graphs": len(events), "metrics": map[string]any{"event_graph_rebuild_ms": time.Since(start).Milliseconds()}}, "", "  ")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(payload))
+		return 0
+	case "paradigm":
+		start := time.Now()
+		paradigms, err := store.RunParadigmProjection(context.Background(), strings.TrimSpace(*userID), now)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		payload, err := json.MarshalIndent(map[string]any{"ok": true, "layer": "paradigm", "user": strings.TrimSpace(*userID), "paradigms": len(paradigms), "metrics": map[string]any{"paradigm_recompute_ms": time.Since(start).Milliseconds()}}, "", "  ")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(payload))
+		return 0
+	case "global-v2":
+		start := time.Now()
+		global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), now)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		payload, err := json.MarshalIndent(map[string]any{"ok": true, "layer": "global-v2", "user": strings.TrimSpace(*userID), "global_v2": global.OutputID, "metrics": map[string]any{"global_v2_rebuild_ms": time.Since(start).Milliseconds()}}, "", "  ")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(payload))
+		return 0
+	case "all":
+		contentGraphs, err := store.ListMemoryContentGraphs(context.Background(), strings.TrimSpace(*userID))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		eventStart := time.Now()
+		events, err := store.RunEventGraphProjection(context.Background(), strings.TrimSpace(*userID), now)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		eventDurationMS := time.Since(eventStart).Milliseconds()
+		paradigmStart := time.Now()
+		paradigms, err := store.RunParadigmProjection(context.Background(), strings.TrimSpace(*userID), now)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		paradigmDurationMS := time.Since(paradigmStart).Milliseconds()
+		globalStart := time.Now()
+		global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), now)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		globalDurationMS := time.Since(globalStart).Milliseconds()
+		payload, err := json.MarshalIndent(map[string]any{
+			"ok":             true,
+			"layer":          "all",
+			"user":           strings.TrimSpace(*userID),
+			"content_graphs": len(contentGraphs),
+			"event_graphs":   len(events),
+			"paradigms":      len(paradigms),
+			"global_v2":      global.OutputID,
+			"metrics": map[string]any{
+				"event_graph_rebuild_ms": eventDurationMS,
+				"paradigm_recompute_ms":  paradigmDurationMS,
+				"global_v2_rebuild_ms":   globalDurationMS,
+			},
+		}, "", "  ")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(payload))
+		return 0
+	default:
+		fmt.Fprintln(stderr, "usage: varix memory backfill --layer <content|event|paradigm|global-v2|all> ...")
+		return 2
+	}
+}
+
+func runMemoryCleanupStale(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory cleanup-stale", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "user id")
+	olderThan := fs.Duration("older-than", 24*time.Hour, "delete queued/running jobs older than this duration")
+	platform := fs.String("platform", "", "optional source platform filter")
+	externalID := fs.String("id", "", "optional source external id filter (requires --platform)")
+	dryRun := fs.Bool("dry-run", false, "report stale jobs without deleting them")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*userID) == "" || (strings.TrimSpace(*externalID) != "" && strings.TrimSpace(*platform) == "") {
+		fmt.Fprintln(stderr, "usage: varix memory cleanup-stale --user <user_id> [--older-than 24h] [--platform <platform> --id <external_id>]")
+		return 2
+	}
+	if *olderThan <= 0 {
+		fmt.Fprintln(stderr, "--older-than must be positive")
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	cutoff := time.Now().UTC().Add(-*olderThan)
+	var deleted int64
+	if *dryRun {
+		deleted, err = store.CountStaleMemoryJobs(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*platform), strings.TrimSpace(*externalID), cutoff)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	} else {
+		deleted, err = store.CleanupStaleMemoryJobs(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*platform), strings.TrimSpace(*externalID), cutoff)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
+	payload, err := json.MarshalIndent(map[string]any{
+		"ok":            true,
+		"user":          strings.TrimSpace(*userID),
+		"deleted_jobs":  deleted,
+		"dry_run":       *dryRun,
+		"cutoff_before": cutoff.Format(time.RFC3339),
+	}, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func runMemoryCanonicalEntities(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory canonical-entities", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	entityID := fs.String("id", "", "optional canonical entity id filter")
+	alias := fs.String("alias", "", "optional alias lookup filter")
+	entityType := fs.String("type", "", "optional filter: driver | target | both")
+	status := fs.String("status", "", "optional filter: active | merged | split | retired")
+	card := fs.Bool("card", false, "render a readable canonical entity view")
+	summary := fs.Bool("summary", false, "print aggregate counts instead of full entities")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	var items []memory.CanonicalEntity
+	if strings.TrimSpace(*entityID) != "" {
+		entity, err := store.GetCanonicalEntity(context.Background(), strings.TrimSpace(*entityID))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		items = []memory.CanonicalEntity{entity}
+	} else if strings.TrimSpace(*alias) != "" {
+		entity, err := store.FindCanonicalEntityByAlias(context.Background(), strings.TrimSpace(*alias))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		items = []memory.CanonicalEntity{entity}
+	} else {
+		items, err = store.ListCanonicalEntities(context.Background())
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
+	if strings.TrimSpace(*entityType) != "" {
+		filtered := make([]memory.CanonicalEntity, 0, len(items))
+		for _, item := range items {
+			if string(item.EntityType) == strings.TrimSpace(*entityType) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	if strings.TrimSpace(*status) != "" {
+		filtered := make([]memory.CanonicalEntity, 0, len(items))
+		for _, item := range items {
+			if string(item.Status) == strings.TrimSpace(*status) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	if *summary {
+		byType := map[string]int{}
+		byStatus := map[string]int{}
+		totalAliases := 0
+		for _, item := range items {
+			byType[string(item.EntityType)]++
+			byStatus[string(item.Status)]++
+			totalAliases += len(item.Aliases)
+		}
+		payload, err := json.MarshalIndent(map[string]any{
+			"total_entities": len(items),
+			"total_aliases":  totalAliases,
+			"by_type":        byType,
+			"by_status":      byStatus,
+		}, "", "  ")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(payload))
+		return 0
+	}
+	if *card {
+		if len(items) == 0 {
+			fmt.Fprintln(stdout, "No canonical entities matched")
+			return 0
+		}
+		var b strings.Builder
+		for _, item := range items {
+			fmt.Fprintf(&b, "Canonical Entity\n- entity_id: %s\n- canonical_name: %s\n- type: %s\n- status: %s\n", item.EntityID, item.CanonicalName, item.EntityType, item.Status)
+			if len(item.Aliases) > 0 {
+				fmt.Fprintf(&b, "- aliases: %s\n", strings.Join(item.Aliases, ", "))
+			}
+			b.WriteString("\n")
+		}
+		fmt.Fprint(stdout, b.String())
+		return 0
+	}
+	payload, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func runMemoryCanonicalEntityUpsert(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory canonical-entity-upsert", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	entityID := fs.String("id", "", "canonical entity id")
+	entityType := fs.String("type", "", "driver | target | both")
+	name := fs.String("name", "", "canonical display name")
+	aliasesRaw := fs.String("aliases", "", "optional comma-separated aliases")
+	status := fs.String("status", string(memory.CanonicalEntityActive), "active | merged | split | retired")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(*entityID) == "" || strings.TrimSpace(*entityType) == "" || strings.TrimSpace(*name) == "" {
+		fmt.Fprintln(stderr, "usage: varix memory canonical-entity-upsert --id <entity_id> --type <driver|target|both> --name <canonical_name> [--aliases a,b]")
+		return 2
+	}
+	var typ memory.CanonicalEntityType
+	switch strings.TrimSpace(*entityType) {
+	case string(memory.CanonicalEntityDriver):
+		typ = memory.CanonicalEntityDriver
+	case string(memory.CanonicalEntityTarget):
+		typ = memory.CanonicalEntityTarget
+	case string(memory.CanonicalEntityBoth):
+		typ = memory.CanonicalEntityBoth
+	default:
+		fmt.Fprintln(stderr, "--type must be one of: driver, target, both")
+		return 2
+	}
+	var entityStatus memory.CanonicalEntityStatus
+	switch strings.TrimSpace(*status) {
+	case string(memory.CanonicalEntityActive):
+		entityStatus = memory.CanonicalEntityActive
+	case string(memory.CanonicalEntityMerged):
+		entityStatus = memory.CanonicalEntityMerged
+	case string(memory.CanonicalEntitySplit):
+		entityStatus = memory.CanonicalEntitySplit
+	case string(memory.CanonicalEntityRetired):
+		entityStatus = memory.CanonicalEntityRetired
+	default:
+		fmt.Fprintln(stderr, "--status must be one of: active, merged, split, retired")
+		return 2
+	}
+	aliases := make([]string, 0)
+	for _, part := range strings.Split(strings.TrimSpace(*aliasesRaw), ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			aliases = append(aliases, trimmed)
+		}
+	}
+	app, err := buildApp(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	entity := memory.CanonicalEntity{
+		EntityID:      strings.TrimSpace(*entityID),
+		EntityType:    typ,
+		CanonicalName: strings.TrimSpace(*name),
+		Aliases:       aliases,
+		Status:        entityStatus,
+	}
+	if err := store.UpsertCanonicalEntity(context.Background(), entity); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	payload, err := json.MarshalIndent(map[string]any{"ok": true, "entity_id": entity.EntityID}, "", "  ")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

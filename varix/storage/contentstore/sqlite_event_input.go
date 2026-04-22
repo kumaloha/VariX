@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -83,6 +84,7 @@ func (s *SQLiteStore) BuildEventInputCandidates(ctx context.Context, userID stri
 	}
 	defer rows.Close()
 	byKey := map[string]*EventInputCandidate{}
+	canonicalCache := map[string]string{}
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -100,7 +102,11 @@ func (s *SQLiteStore) BuildEventInputCandidates(ctx context.Context, userID stri
 			if scope == "" {
 				continue
 			}
-			anchor := strings.TrimSpace(firstNonEmpty(node.SubjectCanonical, node.SubjectText))
+			anchor, err := s.resolveCanonicalSubject(ctx, strings.TrimSpace(firstNonEmpty(node.SubjectCanonical, node.SubjectText)), canonicalCache)
+			if err != nil {
+				return nil, err
+			}
+			anchor = strings.TrimSpace(anchor)
 			if anchor == "" {
 				continue
 			}
@@ -139,6 +145,34 @@ func (s *SQLiteStore) BuildEventInputCandidates(ctx context.Context, userID stri
 		return out[i].TimeBucket < out[j].TimeBucket
 	})
 	return out, nil
+}
+
+func (s *SQLiteStore) resolveCanonicalSubject(ctx context.Context, subject string, cache map[string]string) (string, error) {
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return "", nil
+	}
+	if cache != nil {
+		if resolved, ok := cache[subject]; ok {
+			return resolved, nil
+		}
+	}
+	resolved := subject
+	entity, err := s.FindCanonicalEntityByAlias(ctx, subject)
+	switch {
+	case err == nil:
+		if display := normalizeCanonicalDisplay(entity.CanonicalName); display != "" {
+			resolved = display
+		}
+	case errors.Is(err, sql.ErrNoRows):
+		// keep original subject
+	default:
+		return "", err
+	}
+	if cache != nil {
+		cache[subject] = resolved
+	}
+	return resolved, nil
 }
 
 func eventCandidateScope(node graphmodel.GraphNode) string {

@@ -109,13 +109,14 @@ func marshalStoredCompileRecord(record compile.Record) ([]byte, error) {
 		Confidence         string                     `json:"confidence,omitempty"`
 	}
 	type storedRecord struct {
-		UnitID         string       `json:"unit_id"`
-		Source         string       `json:"source"`
-		ExternalID     string       `json:"external_id"`
-		RootExternalID string       `json:"root_external_id,omitempty"`
-		Model          string       `json:"model"`
-		Output         storedOutput `json:"output"`
-		CompiledAt     time.Time    `json:"compiled_at"`
+		UnitID         string                `json:"unit_id"`
+		Source         string                `json:"source"`
+		ExternalID     string                `json:"external_id"`
+		RootExternalID string                `json:"root_external_id,omitempty"`
+		Model          string                `json:"model"`
+		Metrics        compile.RecordMetrics `json:"metrics,omitempty"`
+		Output         storedOutput          `json:"output"`
+		CompiledAt     time.Time             `json:"compiled_at"`
 	}
 	return json.Marshal(storedRecord{
 		UnitID:         record.UnitID,
@@ -123,6 +124,7 @@ func marshalStoredCompileRecord(record compile.Record) ([]byte, error) {
 		ExternalID:     record.ExternalID,
 		RootExternalID: record.RootExternalID,
 		Model:          record.Model,
+		Metrics:        record.Metrics,
 		Output: storedOutput{
 			Summary:            record.Output.Summary,
 			Drivers:            record.Output.Drivers,

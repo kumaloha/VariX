@@ -47,6 +47,10 @@ var memoryCommands = []string{
 	"paradigms",
 	"paradigm-evidence",
 	"project-all",
+	"backfill",
+	"cleanup-stale",
+	"canonical-entities",
+	"canonical-entity-upsert",
 }
 
 func isIngestCommand(name string) bool {

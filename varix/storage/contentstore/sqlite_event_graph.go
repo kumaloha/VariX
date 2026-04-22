@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -99,6 +100,10 @@ func (s *SQLiteStore) RunEventGraphProjection(ctx context.Context, userID string
 }
 
 func (s *SQLiteStore) ListEventGraphsBySubject(ctx context.Context, userID, subject string) ([]EventGraphRecord, error) {
+	subject, err := s.resolveCanonicalListSubject(ctx, subject)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT payload_json FROM event_graphs WHERE user_id = ? AND anchor_subject = ? ORDER BY anchor_subject ASC, scope ASC, time_bucket ASC`, strings.TrimSpace(userID), strings.TrimSpace(subject))
 	if err != nil {
 		return nil, err
@@ -117,6 +122,25 @@ func (s *SQLiteStore) ListEventGraphsBySubject(ctx context.Context, userID, subj
 		out = append(out, graph)
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLiteStore) resolveCanonicalListSubject(ctx context.Context, subject string) (string, error) {
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return "", nil
+	}
+	entity, err := s.FindCanonicalEntityByAlias(ctx, subject)
+	switch {
+	case err == nil:
+		if display := normalizeCanonicalDisplay(entity.CanonicalName); display != "" {
+			return display, nil
+		}
+		return subject, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return subject, nil
+	default:
+		return "", err
+	}
 }
 
 func (s *SQLiteStore) ListEventGraphsByScope(ctx context.Context, userID, scope string) ([]EventGraphRecord, error) {

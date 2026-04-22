@@ -202,19 +202,36 @@ Graph-first inspection commands:
 - `varix memory paradigm-evidence --user <user_id>`
 - `varix memory paradigm-evidence --paradigm-id <id> --user <user_id>`
 - `varix memory project-all --user <user_id>`
+- `varix memory backfill --layer content --user <user_id> --platform <platform> --id <external_id>`
+- `varix memory backfill --layer event|paradigm|global-v2|all --user <user_id>`
+- `varix memory cleanup-stale --user <user_id> --older-than 24h`
+- `varix memory cleanup-stale --user <user_id> --older-than 24h --platform <platform> [--id <external_id>]`
+- `varix memory cleanup-stale --user <user_id> --older-than 24h --dry-run`
+- `varix memory jobs --user <user_id> --status queued|running|done`
+- `varix memory jobs --user <user_id> --platform <platform> [--id <external_id>]`
+- `varix memory jobs --user <user_id> --summary`
+- `varix memory canonical-entities`
+- `varix memory canonical-entities --id <entity_id>`
+- `varix memory canonical-entities --alias <alias>`
+- `varix memory canonical-entities --type <driver|target|both> --status <active|merged|split|retired>`
+- `varix memory canonical-entities --card`
+- `varix memory canonical-entities --summary`
+- `varix memory canonical-entity-upsert --id <entity_id> --type <driver|target|both> --name <canonical_name> [--aliases a,b]`
 - `varix memory content-graphs --user <user_id>`
 - `varix memory content-graphs --platform <platform> --id <external_id> --user <user_id>`
 - `varix memory content-graphs --card --user <user_id> --platform <platform> --id <external_id>`
 - `varix memory content-graphs --run --user <user_id> --platform <platform> --id <external_id>`
 - `varix memory event-graphs --user <user_id>`
 - `varix memory event-graphs --scope driver|target --user <user_id>`
+- `varix memory event-graphs --subject <subject> --user <user_id>` (canonical alias lookup supported)
 - `varix memory event-graphs --card --user <user_id>`
 - `varix memory event-graphs --card --scope driver|target --user <user_id>`
+- `varix memory event-graphs --card --subject <subject> --user <user_id>` (canonical alias lookup supported)
 - `varix memory event-graphs --run --user <user_id>`
 - `varix memory paradigms --user <user_id>`
-- `varix memory paradigms --subject <subject> --user <user_id>`
+- `varix memory paradigms --subject <subject> --user <user_id>` (canonical alias lookup supported)
 - `varix memory paradigms --card --user <user_id>`
-- `varix memory paradigms --card --subject <subject> --user <user_id>`
+- `varix memory paradigms --card --subject <subject> --user <user_id>` (canonical alias lookup supported)
 - `varix memory paradigms --run --user <user_id>`
 
 Verify execution commands:
@@ -223,6 +240,14 @@ Verify execution commands:
 - `varix verify queue --summary`
 - `varix verify sweep --limit 20`
 - `verify sweep` consumes due queue items using current content-graph state and propagates verdict updates back into graph/memory/event/paradigm projections
+- `verify queue --summary` now includes queue status counts, object types, `total_count`, due count, oldest scheduled item, and `pending_age_buckets`
+
+Project-wide refresh / metrics:
+- `memory project-all --user <user_id>` now reports `event_graph_rebuild_ms`, `paradigm_recompute_ms`, and `global_v2_rebuild_ms`
+- `memory jobs --summary` now reports status counts, `stale_candidates`, `stale_queued`, `stale_running`, `oldest_queued_at`, and `oldest_running_at`
+- `memory canonical-entity-upsert` is the operator surface for human-reviewed canonical alias overrides
+- `memory canonical-entity-upsert --status <active|merged|split|retired>` controls canonical entity lifecycle state explicitly
+- `memory canonical-entities --summary` reports canonical entity counts by type/status and total alias volume
 
 Human-readable cards:
 - `varix memory global-v2-card --user <user_id>`

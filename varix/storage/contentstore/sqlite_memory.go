@@ -290,6 +290,98 @@ func (s *SQLiteStore) ListMemoryJobs(ctx context.Context, userID string) ([]memo
 	return out, rows.Err()
 }
 
+func (s *SQLiteStore) CleanupStaleMemoryJobs(ctx context.Context, userID, sourcePlatform, sourceExternalID string, cutoff time.Time) (int64, error) {
+	if strings.TrimSpace(userID) == "" {
+		return 0, fmt.Errorf("user id is required")
+	}
+	if cutoff.IsZero() {
+		return 0, fmt.Errorf("cutoff is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	jobIDs, err := listStaleMemoryJobIDs(ctx, tx, userID, sourcePlatform, sourceExternalID, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	var deleted int64
+	for _, jobID := range jobIDs {
+		result, err := tx.ExecContext(ctx, `DELETE FROM memory_organization_jobs WHERE job_id = ?`, jobID)
+		if err != nil {
+			return deleted, err
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return deleted, err
+		}
+		deleted += affected
+	}
+	if err := tx.Commit(); err != nil {
+		return deleted, err
+	}
+	return deleted, nil
+}
+
+func (s *SQLiteStore) CountStaleMemoryJobs(ctx context.Context, userID, sourcePlatform, sourceExternalID string, cutoff time.Time) (int64, error) {
+	if strings.TrimSpace(userID) == "" {
+		return 0, fmt.Errorf("user id is required")
+	}
+	if cutoff.IsZero() {
+		return 0, fmt.Errorf("cutoff is required")
+	}
+	jobIDs, err := listStaleMemoryJobIDs(ctx, s.db, userID, sourcePlatform, sourceExternalID, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(jobIDs)), nil
+}
+
+func listStaleMemoryJobIDs(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, userID, sourcePlatform, sourceExternalID string, cutoff time.Time) ([]int64, error) {
+	query := `SELECT job_id, status, created_at, started_at
+		FROM memory_organization_jobs
+		WHERE user_id = ?
+		  AND status IN ('queued', 'running')`
+	args := []any{strings.TrimSpace(userID)}
+	if strings.TrimSpace(sourcePlatform) != "" {
+		query += ` AND source_platform = ?`
+		args = append(args, strings.TrimSpace(sourcePlatform))
+	}
+	if strings.TrimSpace(sourceExternalID) != "" {
+		query += ` AND source_external_id = ?`
+		args = append(args, strings.TrimSpace(sourceExternalID))
+	}
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	jobIDs := make([]int64, 0)
+	for rows.Next() {
+		var jobID int64
+		var status string
+		var createdAt string
+		var startedAt sql.NullString
+		if err := rows.Scan(&jobID, &status, &createdAt, &startedAt); err != nil {
+			return nil, err
+		}
+		staleAt := parseSQLiteTime(createdAt)
+		if status == "running" && startedAt.Valid && strings.TrimSpace(startedAt.String) != "" {
+			staleAt = parseSQLiteTime(startedAt.String)
+		}
+		if staleAt.Before(cutoff) {
+			jobIDs = append(jobIDs, jobID)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return jobIDs, nil
+}
+
 func queryMemoryNodeTx(ctx context.Context, tx *sql.Tx, userID, sourcePlatform, sourceExternalID, nodeID string) (memory.AcceptedNode, error) {
 	var node memory.AcceptedNode
 	var sourceCompiledAt string

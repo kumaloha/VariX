@@ -370,6 +370,14 @@ func TestClientCompileUsesDirectThreeStepPipeline(t *testing.T) {
 	if got, want := record.Output.Summary, "增长与回报预期继续压过政治风险定价，海外资金继续流入美国资产，因此没有形成 sell America 交易。"; got != want {
 		t.Fatalf("Summary = %q, want %q", got, want)
 	}
+	if record.Metrics.CompileElapsedMS <= 0 {
+		t.Fatalf("CompileElapsedMS = %d, want positive compile elapsed metric", record.Metrics.CompileElapsedMS)
+	}
+	for _, stage := range []string{"unified_generator", "unified_challenge", "unified_judge"} {
+		if record.Metrics.CompileStageElapsedMS[stage] <= 0 {
+			t.Fatalf("CompileStageElapsedMS = %#v, want positive duration for %q", record.Metrics.CompileStageElapsedMS, stage)
+		}
+	}
 }
 
 func TestParseOutputAcceptsJSONString(t *testing.T) {

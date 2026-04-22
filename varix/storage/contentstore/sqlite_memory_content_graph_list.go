@@ -52,6 +52,10 @@ func (s *SQLiteStore) ListMemoryContentGraphsBySource(ctx context.Context, userI
 }
 
 func (s *SQLiteStore) ListMemoryContentGraphsBySubject(ctx context.Context, userID, subject string) ([]graphmodel.ContentSubgraph, error) {
+	subject, err := s.resolveCanonicalListSubject(ctx, subject)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT payload_json FROM memory_content_graphs WHERE user_id = ? ORDER BY source_platform ASC, source_external_id ASC`, strings.TrimSpace(userID))
 	if err != nil {
 		return nil, err
@@ -82,6 +86,10 @@ func (s *SQLiteStore) ListMemoryContentGraphsBySubject(ctx context.Context, user
 }
 
 func (s *SQLiteStore) ListMemoryContentGraphsBySourceAndSubject(ctx context.Context, userID, sourcePlatform, sourceExternalID, subject string) ([]graphmodel.ContentSubgraph, error) {
+	subject, err := s.resolveCanonicalListSubject(ctx, subject)
+	if err != nil {
+		return nil, err
+	}
 	items, err := s.ListMemoryContentGraphsBySource(ctx, userID, sourcePlatform, sourceExternalID)
 	if err != nil {
 		return nil, err

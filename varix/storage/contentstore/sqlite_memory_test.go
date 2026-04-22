@@ -74,6 +74,40 @@ func TestSQLiteStore_AcceptMemoryNodePersistsStateEventAndJob(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_CleanupStaleMemoryJobsHandlesMixedPrecisionTimestamps(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.db.Exec(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at)
+		VALUES (1, 'u-mixed-precision', 'twitter', 'stale-no-fraction', 'queued', '2026-04-21T12:00:00Z')`); err != nil {
+		t.Fatalf("insert stale-no-fraction error = %v", err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at)
+		VALUES (2, 'u-mixed-precision', 'twitter', 'fresh-fraction', 'queued', '2026-04-21T12:00:00.9Z')`); err != nil {
+		t.Fatalf("insert fresh-fraction error = %v", err)
+	}
+
+	deleted, err := store.CleanupStaleMemoryJobs(context.Background(), "u-mixed-precision", "", "", time.Date(2026, 4, 21, 12, 0, 0, 500_000_000, time.UTC))
+	if err != nil {
+		t.Fatalf("CleanupStaleMemoryJobs() error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+
+	jobs, err := store.ListMemoryJobs(context.Background(), "u-mixed-precision")
+	if err != nil {
+		t.Fatalf("ListMemoryJobs() error = %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].SourceExternalID != "fresh-fraction" {
+		t.Fatalf("jobs = %#v, want only fresh-fraction to remain", jobs)
+	}
+}
+
 func TestSQLiteStore_AcceptMemoryNodesDeriveValidityFromOccurredAndPredictionTimes(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))

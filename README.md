@@ -14,6 +14,10 @@ Default behavior:
 - `compile run` returns cached compile output when it already exists
 - `compile run --force` recomputes and overwrites the stored result
 - `compile show|summary|compare|card` read persisted compile output directly
+- `compile run` and `compile show` now expose `metrics.compile_elapsed_ms`
+  in the JSON record payload for compile observability
+- `compile summary` and `compile compare` now render compile elapsed time plus
+  stage timing summaries in their human-readable output
 
 Current contract:
 - latest-only storage
@@ -64,17 +68,54 @@ Useful memory commands:
   to render cards for one matching subject
 - `memory content-graphs --run --user <user> --platform <platform> --id <external_id>`
   to rebuild one graph-first content snapshot from the latest compiled output
+- `memory backfill --layer content --user <user> --platform <platform> --id <external_id>`
+  to backfill one content graph from compiled output
+- `memory backfill --layer event|paradigm|global-v2|all --user <user>`
+  to rebuild graph-first aggregate layers from persisted content graphs
+- `memory cleanup-stale --user <user> --older-than 24h`
+  to delete stale queued/running memory organization jobs older than the threshold
+- `memory cleanup-stale --user <user> --older-than 24h --platform <platform> [--id <external_id>]`
+  to scope stale-job cleanup to one source platform or one source item
+- `memory cleanup-stale --user <user> --older-than 24h --dry-run`
+  to preview how many stale jobs would be deleted without mutating data
+- `memory jobs --user <user> --status queued|running|done`
+  to inspect one job status lane only
+- `memory jobs --user <user> --platform <platform> [--id <external_id>]`
+  to scope job inspection to one source platform or one source item
+- `memory jobs --user <user> --summary`
+  to inspect job counts, `stale_candidates`, `stale_queued`, `stale_running`,
+  and oldest queued/running timestamps
+- `memory canonical-entities`
+  to inspect persisted canonical subject/entity anchors and aliases
+- `memory canonical-entities --id <entity_id>`
+  to inspect one canonical entity directly by id
+- `memory canonical-entities --alias <alias>`
+  to resolve one alias to its persisted canonical entity
+- `memory canonical-entities --type <driver|target|both> --status <active|merged|split|retired>`
+  to filter the canonical entity catalog by type and lifecycle state
+- `memory canonical-entities --card`
+  to render canonical entities in a readable operator-facing view
+- `memory canonical-entities --summary`
+  to inspect canonical entity counts by type/status plus total alias volume
+- `memory canonical-entity-upsert --id <entity_id> --type <driver|target|both> --name <canonical_name> [--aliases a,b]`
+  to apply a human-reviewed canonical override/alias mapping
+- `memory canonical-entity-upsert --status <active|merged|split|retired> ...`
+  to explicitly control canonical entity lifecycle state when applying an override
 - `memory event-graphs --user <user>` to inspect projected event-layer objects
 - `memory event-graphs --scope driver|target --user <user>` to narrow by event scope
 - `memory event-graphs --subject <subject> --user <user>` to narrow by anchor subject
+  (supports canonical alias lookup)
 - `memory event-graphs --card --user <user>` to render a readable event card view
 - `memory event-graphs --card --scope driver|target --user <user>` to render only one scope as cards
 - `memory event-graphs --card --subject <subject> --user <user>` to render cards for one anchor subject
+  (supports canonical alias lookup)
 - `memory event-graphs --run --user <user>` to force a fresh event projection
 - `memory paradigms --user <user>` to inspect projected paradigm objects
 - `memory paradigms --subject <subject> --user <user>` to narrow by subject
+  (supports canonical alias lookup)
 - `memory paradigms --card --user <user>` to render a readable paradigm card view
 - `memory paradigms --card --subject <subject> --user <user>` to render cards for one subject
+  (supports canonical alias lookup)
 - `memory paradigms --run --user <user>` to force a fresh paradigm projection
 - `memory global-organize-run|global-organized|global-card` for the existing
   cluster-first global memory view
@@ -92,6 +133,10 @@ Useful memory commands:
 - `memory global-compare --run` to recompute both sides before comparing
 - `memory global-compare --item-type conclusion|conflict --limit N` to narrow
   the v2 side and shorten large compare outputs
+- `memory project-all --user <user>` now emits rebuild metrics for event graphs,
+  paradigms, and global-v2 output
+- `verify queue --summary` now emits queue status counts, object types, due count,
+  `total_count`, oldest scheduled item, and `pending_age_buckets`
 
 Useful verify commands:
 - `verify queue --limit N` to inspect the current queue across statuses

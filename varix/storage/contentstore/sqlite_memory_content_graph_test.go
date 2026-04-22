@@ -300,6 +300,59 @@ func TestSQLiteStore_ListMemoryContentGraphsBySubjectFiltersSnapshots(t *testing
 	}
 }
 
+func TestSQLiteStore_ListMemoryContentGraphsBySubjectSupportsAliasLookup(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+		EntityID:      "driver-fed",
+		EntityType:    memory.CanonicalEntityDriver,
+		CanonicalName: "美联储",
+		Aliases:       []string{"联储"},
+		Status:        memory.CanonicalEntityActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("UpsertCanonicalEntity() error = %v", err)
+	}
+	sg := graphmodel.ContentSubgraph{
+		ID:               "subject-alias-cg",
+		ArticleID:        "subject-alias-cg",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "subject-alias-cg",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{{
+			ID:                 "n1",
+			SourceArticleID:    "subject-alias-cg",
+			SourcePlatform:     "twitter",
+			SourceExternalID:   "subject-alias-cg",
+			RawText:            "美联储加息0.25%",
+			SubjectText:        "美联储",
+			ChangeText:         "加息0.25%",
+			Kind:               graphmodel.NodeKindObservation,
+			IsPrimary:          true,
+			VerificationStatus: graphmodel.VerificationPending,
+		}},
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-subject-alias-cg", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	items, err := store.ListMemoryContentGraphsBySubject(context.Background(), "u-subject-alias-cg", "联储")
+	if err != nil {
+		t.Fatalf("ListMemoryContentGraphsBySubject() error = %v", err)
+	}
+	if len(items) != 1 || items[0].SourceExternalID != "subject-alias-cg" {
+		t.Fatalf("items = %#v, want alias lookup to return matching content graph", items)
+	}
+}
+
 func TestSQLiteStore_ListMemoryContentGraphsBySourceAndSubjectUsesIntersection(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
@@ -322,5 +375,42 @@ func TestSQLiteStore_ListMemoryContentGraphsBySourceAndSubjectUsesIntersection(t
 	}
 	if len(items) != 0 {
 		t.Fatalf("items = %#v, want empty intersection", items)
+	}
+}
+
+func TestSQLiteStore_ListMemoryContentGraphsBySourceAndSubjectSupportsAliasLookup(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+		EntityID:      "driver-fed",
+		EntityType:    memory.CanonicalEntityDriver,
+		CanonicalName: "美联储",
+		Aliases:       []string{"联储"},
+		Status:        memory.CanonicalEntityActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("UpsertCanonicalEntity() error = %v", err)
+	}
+	for _, sg := range []graphmodel.ContentSubgraph{
+		{ID: "cg-alias-ss-1", ArticleID: "cg-alias-ss-1", SourcePlatform: "twitter", SourceExternalID: "cg-alias-ss-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "cg-alias-ss-1", SourcePlatform: "twitter", SourceExternalID: "cg-alias-ss-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+		{ID: "cg-alias-ss-2", ArticleID: "cg-alias-ss-2", SourcePlatform: "twitter", SourceExternalID: "cg-alias-ss-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "cg-alias-ss-2", SourcePlatform: "twitter", SourceExternalID: "cg-alias-ss-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+	} {
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-cg-alias-ss", sg, now); err != nil {
+			t.Fatalf("PersistMemoryContentGraph(%s) error = %v", sg.ID, err)
+		}
+	}
+	items, err := store.ListMemoryContentGraphsBySourceAndSubject(context.Background(), "u-cg-alias-ss", "twitter", "cg-alias-ss-1", "联储")
+	if err != nil {
+		t.Fatalf("ListMemoryContentGraphsBySourceAndSubject() error = %v", err)
+	}
+	if len(items) != 1 || items[0].SourceExternalID != "cg-alias-ss-1" {
+		t.Fatalf("items = %#v, want alias lookup to return cg-alias-ss-1 only", items)
 	}
 }

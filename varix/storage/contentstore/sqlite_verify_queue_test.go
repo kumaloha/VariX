@@ -2,6 +2,7 @@ package contentstore
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -349,6 +350,174 @@ func TestSQLiteStore_RunVerifyQueueSweepUpdatesContentGraphForPendingRetryVerdic
 	}
 }
 
+func TestSQLiteStore_RunVerifyQueueSweepUsesRetryBackoffPolicyOnEvaluatorError(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{
+		ID:              "q-retry-error",
+		ObjectType:      graphmodel.VerifyQueueObjectNode,
+		ObjectID:        "n1",
+		SourceArticleID: "u1",
+		Priority:        10,
+		ScheduledAt:     now.Format(time.RFC3339),
+		Attempts:        1,
+		Status:          graphmodel.VerifyQueueStatusRetry,
+	}); err != nil {
+		t.Fatalf("EnqueueVerifyQueueItem() error = %v", err)
+	}
+	if _, err := store.RunVerifyQueueSweep(context.Background(), now, 10, func(item graphmodel.VerifyQueueItem) (graphmodel.VerifyVerdict, error) {
+		return graphmodel.VerifyVerdict{}, errors.New("boom")
+	}); err != nil {
+		t.Fatalf("RunVerifyQueueSweep() error = %v", err)
+	}
+	item, err := getVerifyQueueItem(context.Background(), store.db, "q-retry-error")
+	if err != nil {
+		t.Fatalf("getVerifyQueueItem() error = %v", err)
+	}
+	if item.Status != graphmodel.VerifyQueueStatusRetry {
+		t.Fatalf("Status = %q, want retry", item.Status)
+	}
+	if item.ScheduledAt != now.Add(5*time.Minute).Format(time.RFC3339) {
+		t.Fatalf("ScheduledAt = %q, want %q", item.ScheduledAt, now.Add(5*time.Minute).Format(time.RFC3339))
+	}
+}
+
+func TestSQLiteStore_RunVerifyQueueSweepUsesRetryBackoffPolicyOnFirstFailure(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{
+		ID:              "q-retry-first",
+		ObjectType:      graphmodel.VerifyQueueObjectNode,
+		ObjectID:        "n1",
+		SourceArticleID: "u1",
+		Priority:        10,
+		ScheduledAt:     now.Format(time.RFC3339),
+		Status:          graphmodel.VerifyQueueStatusQueued,
+	}); err != nil {
+		t.Fatalf("EnqueueVerifyQueueItem() error = %v", err)
+	}
+	if _, err := store.RunVerifyQueueSweep(context.Background(), now, 10, func(item graphmodel.VerifyQueueItem) (graphmodel.VerifyVerdict, error) {
+		return graphmodel.VerifyVerdict{}, errors.New("boom")
+	}); err != nil {
+		t.Fatalf("RunVerifyQueueSweep() error = %v", err)
+	}
+	item, err := getVerifyQueueItem(context.Background(), store.db, "q-retry-first")
+	if err != nil {
+		t.Fatalf("getVerifyQueueItem() error = %v", err)
+	}
+	if item.ScheduledAt != now.Add(time.Minute).Format(time.RFC3339) {
+		t.Fatalf("ScheduledAt = %q, want %q", item.ScheduledAt, now.Add(time.Minute).Format(time.RFC3339))
+	}
+}
+
+func TestSQLiteStore_RunVerifyQueueSweepUsesRetryBackoffPolicyForPendingWithoutNextVerifyAt(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	subgraph := graphmodel.ContentSubgraph{
+		ID:               "retry-policy-pending",
+		ArticleID:        "retry-policy-pending",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "retry-policy-pending",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{{
+			ID:                 "n1",
+			SourceArticleID:    "retry-policy-pending",
+			SourcePlatform:     "twitter",
+			SourceExternalID:   "retry-policy-pending",
+			RawText:            "未来一周美股承压",
+			SubjectText:        "美股",
+			ChangeText:         "承压",
+			Kind:               graphmodel.NodeKindPrediction,
+			GraphRole:          graphmodel.GraphRoleTarget,
+			IsPrimary:          true,
+			VerificationStatus: graphmodel.VerificationPending,
+			TimeBucket:         "1w",
+		}},
+	}
+	if err := store.UpsertContentSubgraph(context.Background(), subgraph); err != nil {
+		t.Fatalf("UpsertContentSubgraph() error = %v", err)
+	}
+	if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{
+		ID:              "q-retry-pending",
+		ObjectType:      graphmodel.VerifyQueueObjectNode,
+		ObjectID:        "n1",
+		SourceArticleID: "retry-policy-pending",
+		Priority:        10,
+		ScheduledAt:     now.Format(time.RFC3339),
+		Attempts:        2,
+		Status:          graphmodel.VerifyQueueStatusRetry,
+	}); err != nil {
+		t.Fatalf("EnqueueVerifyQueueItem() error = %v", err)
+	}
+	if _, err := store.RunVerifyQueueSweep(context.Background(), now, 10, func(item graphmodel.VerifyQueueItem) (graphmodel.VerifyVerdict, error) {
+		return graphmodel.VerifyVerdict{ObjectType: item.ObjectType, ObjectID: item.ObjectID, Verdict: graphmodel.VerificationPending, Reason: "still waiting", AsOf: now.Format(time.RFC3339)}, nil
+	}); err != nil {
+		t.Fatalf("RunVerifyQueueSweep() error = %v", err)
+	}
+	item, err := getVerifyQueueItem(context.Background(), store.db, "q-retry-pending")
+	if err != nil {
+		t.Fatalf("getVerifyQueueItem() error = %v", err)
+	}
+	if item.ScheduledAt != now.Add(15*time.Minute).Format(time.RFC3339) {
+		t.Fatalf("ScheduledAt = %q, want %q", item.ScheduledAt, now.Add(15*time.Minute).Format(time.RFC3339))
+	}
+}
+
+func TestSQLiteStore_RunVerifyQueueSweepUsesRetryBackoffPolicyAtOneHourCeiling(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.EnqueueVerifyQueueItem(context.Background(), graphmodel.VerifyQueueItem{
+		ID:              "q-retry-ceiling",
+		ObjectType:      graphmodel.VerifyQueueObjectNode,
+		ObjectID:        "n1",
+		SourceArticleID: "u1",
+		Priority:        10,
+		ScheduledAt:     now.Format(time.RFC3339),
+		Attempts:        4,
+		Status:          graphmodel.VerifyQueueStatusRetry,
+	}); err != nil {
+		t.Fatalf("EnqueueVerifyQueueItem() error = %v", err)
+	}
+	if _, err := store.RunVerifyQueueSweep(context.Background(), now, 10, func(item graphmodel.VerifyQueueItem) (graphmodel.VerifyVerdict, error) {
+		return graphmodel.VerifyVerdict{}, errors.New("boom")
+	}); err != nil {
+		t.Fatalf("RunVerifyQueueSweep() error = %v", err)
+	}
+	item, err := getVerifyQueueItem(context.Background(), store.db, "q-retry-ceiling")
+	if err != nil {
+		t.Fatalf("getVerifyQueueItem() error = %v", err)
+	}
+	if item.ScheduledAt != now.Add(time.Hour).Format(time.RFC3339) {
+		t.Fatalf("ScheduledAt = %q, want %q", item.ScheduledAt, now.Add(time.Hour).Format(time.RFC3339))
+	}
+}
+
 func TestSQLiteStore_ListVerifyQueueItemsReturnsAllStatuses(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
@@ -662,5 +831,35 @@ func TestSQLiteStore_GetVerifyQueueSummaryIncludesObjectTypeBreakdown(t *testing
 	}
 	if summary.ObjectTypes[graphmodel.VerifyQueueObjectNode] != 1 || summary.ObjectTypes[graphmodel.VerifyQueueObjectEdge] != 1 {
 		t.Fatalf("summary object types = %#v, want node=1 edge=1", summary.ObjectTypes)
+	}
+	if summary.TotalCount != 2 {
+		t.Fatalf("TotalCount = %d, want 2", summary.TotalCount)
+	}
+}
+
+func TestSQLiteStore_GetVerifyQueueSummaryIncludesPendingAgeBuckets(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC)
+	for _, item := range []graphmodel.VerifyQueueItem{
+		{ID: "q-age-future", ObjectType: graphmodel.VerifyQueueObjectNode, ObjectID: "n1", SourceArticleID: "u1", Priority: 10, ScheduledAt: now.Add(30 * time.Minute).Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued},
+		{ID: "q-age-short", ObjectType: graphmodel.VerifyQueueObjectNode, ObjectID: "n2", SourceArticleID: "u1", Priority: 10, ScheduledAt: now.Add(-30 * time.Minute).Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusQueued},
+		{ID: "q-age-mid", ObjectType: graphmodel.VerifyQueueObjectEdge, ObjectID: "e1", SourceArticleID: "u1", Priority: 10, ScheduledAt: now.Add(-2 * time.Hour).Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusRetry},
+		{ID: "q-age-long", ObjectType: graphmodel.VerifyQueueObjectEdge, ObjectID: "e2", SourceArticleID: "u1", Priority: 10, ScheduledAt: now.Add(-48 * time.Hour).Format(time.RFC3339), Status: graphmodel.VerifyQueueStatusRetry},
+	} {
+		if err := store.EnqueueVerifyQueueItem(context.Background(), item); err != nil {
+			t.Fatalf("EnqueueVerifyQueueItem(%s) error = %v", item.ID, err)
+		}
+	}
+	summary, err := store.GetVerifyQueueSummaryDetailed(context.Background(), now)
+	if err != nil {
+		t.Fatalf("GetVerifyQueueSummaryDetailed() error = %v", err)
+	}
+	if summary.PendingAgeBuckets["future"] != 1 || summary.PendingAgeBuckets["overdue_lt_1h"] != 1 || summary.PendingAgeBuckets["overdue_1h_to_24h"] != 1 || summary.PendingAgeBuckets["overdue_gt_24h"] != 1 {
+		t.Fatalf("PendingAgeBuckets = %#v, want one item in each bucket", summary.PendingAgeBuckets)
 	}
 }

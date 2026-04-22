@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -203,6 +205,377 @@ func TestRunMemoryPosteriorRunRequiresUser(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "usage: varix memory posterior-run") {
 		t.Fatalf("stderr = %q, want usage", stderr.String())
+	}
+}
+
+func TestRunMemoryJobsSupportsStatusFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (1, 'u-jobs-filter', 'twitter', 'queued-job', 'queued', '%s')`, now.Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, started_at) VALUES (2, 'u-jobs-filter', 'twitter', 'running-job', 'running', '%s', '%s')`, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, finished_at) VALUES (3, 'u-jobs-filter', 'twitter', 'done-job', 'done', '%s', '%s')`, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "jobs", "--user", "u-jobs-filter", "--status", "running"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory jobs --status code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []memory.OrganizationJob
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(memory jobs --status) error = %v", err)
+	}
+	if len(out) != 1 || out[0].Status != "running" {
+		t.Fatalf("out = %#v, want only running job", out)
+	}
+}
+
+func TestRunMemoryJobsSupportsPlatformFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (1, 'u-jobs-platform', 'twitter', 'twitter-job', 'queued', '%s')`, now.Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (2, 'u-jobs-platform', 'weibo', 'weibo-job', 'queued', '%s')`, now.Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "jobs", "--user", "u-jobs-platform", "--platform", "twitter"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory jobs --platform code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []memory.OrganizationJob
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(memory jobs --platform) error = %v", err)
+	}
+	if len(out) != 1 || out[0].SourcePlatform != "twitter" {
+		t.Fatalf("out = %#v, want only twitter job", out)
+	}
+}
+
+func TestRunMemoryJobsSupportsPlatformAndIDFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (1, 'u-jobs-source', 'twitter', 'keep-me', 'queued', '%s')`, now.Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (2, 'u-jobs-source', 'twitter', 'drop-me', 'queued', '%s')`, now.Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "jobs", "--user", "u-jobs-source", "--platform", "twitter", "--id", "keep-me"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory jobs --platform --id code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []memory.OrganizationJob
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(memory jobs --platform --id) error = %v", err)
+	}
+	if len(out) != 1 || out[0].SourceExternalID != "keep-me" {
+		t.Fatalf("out = %#v, want only keep-me job", out)
+	}
+}
+
+func TestRunMemoryJobsDefaultStillReturnsFullJobList(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (1, 'u-jobs-default', 'twitter', 'queued-job', 'queued', '%s')`, now.Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, finished_at) VALUES (2, 'u-jobs-default', 'twitter', 'done-job', 'done', '%s', '%s')`, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "jobs", "--user", "u-jobs-default"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory jobs default code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []memory.OrganizationJob
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(memory jobs default) error = %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("out = %#v, want full unfiltered job list", out)
+	}
+}
+
+func TestRunMemoryJobsSupportsSummary(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (1, 'u-jobs-summary', 'twitter', 'queued-job', 'queued', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, started_at) VALUES (2, 'u-jobs-summary', 'twitter', 'running-job', 'running', '%s', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano), now.Add(-2*time.Hour).Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, finished_at) VALUES (3, 'u-jobs-summary', 'twitter', 'done-job', 'done', '%s', '%s')`, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "jobs", "--user", "u-jobs-summary", "--summary"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory jobs --summary code = %d, stderr = %s", code, stderr.String())
+	}
+	var out struct {
+		User            string         `json:"user"`
+		Counts          map[string]int `json:"counts"`
+		OldestQueuedAt  string         `json:"oldest_queued_at"`
+		OldestRunningAt string         `json:"oldest_running_at"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(memory jobs --summary) error = %v", err)
+	}
+	if out.User != "u-jobs-summary" {
+		t.Fatalf("summary user = %q, want u-jobs-summary", out.User)
+	}
+	if out.Counts["queued"] != 1 || out.Counts["running"] != 1 || out.Counts["done"] != 1 {
+		t.Fatalf("summary counts = %#v, want queued/running/done = 1/1/1", out.Counts)
+	}
+	if out.Counts["stale_candidates"] == 0 {
+		t.Fatalf("summary counts = %#v, want stale_candidates visibility", out.Counts)
+	}
+	if out.Counts["stale_queued"] != 1 || out.Counts["stale_running"] != 0 {
+		t.Fatalf("summary counts = %#v, want stale_queued=1 and stale_running=0", out.Counts)
+	}
+	if out.OldestQueuedAt == "" {
+		t.Fatalf("summary output = %#v, want oldest_queued_at string", out)
+	}
+	if out.OldestRunningAt == "" {
+		t.Fatalf("summary output = %#v, want oldest_running_at string", out)
+	}
+}
+
+func TestRunMemoryJobsSummaryComposesWithStatusFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (1, 'u-jobs-summary-filter', 'twitter', 'queued-job', 'queued', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, started_at) VALUES (2, 'u-jobs-summary-filter', 'twitter', 'running-job', 'running', '%s', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano), now.Add(-2*time.Hour).Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "jobs", "--user", "u-jobs-summary-filter", "--status", "queued", "--summary"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory jobs --status queued --summary code = %d, stderr = %s", code, stderr.String())
+	}
+	var out struct {
+		User            string         `json:"user"`
+		Counts          map[string]int `json:"counts"`
+		OldestQueuedAt  string         `json:"oldest_queued_at"`
+		OldestRunningAt string         `json:"oldest_running_at"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(memory jobs status+summary) error = %v", err)
+	}
+	if out.Counts["queued"] != 1 || len(out.Counts) == 0 {
+		t.Fatalf("summary counts = %#v, want only queued count", out.Counts)
+	}
+	if out.Counts["running"] != 0 {
+		t.Fatalf("summary counts = %#v, did not want running count under queued filter", out.Counts)
+	}
+	if out.OldestQueuedAt == "" || out.OldestRunningAt != "" {
+		t.Fatalf("summary output = %#v, want only oldest_queued_at populated", out)
+	}
+}
+
+func TestRunMemoryBackfillRequiresValidLayerInputs(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "backfill"}, "/tmp/project", &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run() code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "usage: varix memory backfill") {
+		t.Fatalf("stderr = %q, want usage", stderr.String())
+	}
+}
+
+func TestRunMemoryCleanupStaleRequiresUser(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "cleanup-stale"}, "/tmp/project", &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run() code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "usage: varix memory cleanup-stale") {
+		t.Fatalf("stderr = %q, want usage", stderr.String())
+	}
+}
+
+func TestRunMemoryCanonicalEntityUpsertRequiresFields(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "canonical-entity-upsert"}, "/tmp/project", &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run() code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "usage: varix memory canonical-entity-upsert") {
+		t.Fatalf("stderr = %q, want usage", stderr.String())
+	}
+}
+
+func TestRunMemoryCleanupStaleRejectsNonPositiveOlderThan(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "cleanup-stale", "--user", "u-clean", "--older-than", "-1h"}, "/tmp/project", &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run() code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "--older-than must be positive") {
+		t.Fatalf("stderr = %q, want positive older-than validation", stderr.String())
 	}
 }
 
@@ -2345,6 +2718,7 @@ func TestRunCompilePipelineV2UsesV2Client(t *testing.T) {
 			Source:     "web",
 			ExternalID: "v2-id",
 			Model:      "qwen3.6-plus",
+			Metrics:    c.RecordMetrics{CompileElapsedMS: 777, CompileStageElapsedMS: map[string]int64{"stage1_extract": 101, "stage2_dedup": 102, "stage3_classify": 103, "stage3_relations": 104, "stage3_reclassify": 105, "stage4_validate": 106, "stage5_render": 107}},
 			Output: c.Output{
 				Summary: "v2 summary",
 				Graph: c.ReasoningGraph{
@@ -2371,6 +2745,32 @@ func TestRunCompilePipelineV2UsesV2Client(t *testing.T) {
 	}
 	if got.Output.Summary != "v2 summary" {
 		t.Fatalf("Summary = %q, want v2 summary", got.Output.Summary)
+	}
+	if got.Metrics.CompileElapsedMS != 777 {
+		t.Fatalf("CompileElapsedMS = %d, want 777", got.Metrics.CompileElapsedMS)
+	}
+	for _, stage := range []string{"stage1_extract", "stage2_dedup", "stage3_classify", "stage3_relations", "stage3_reclassify", "stage4_validate", "stage5_render"} {
+		if got.Metrics.CompileStageElapsedMS[stage] <= 0 {
+			t.Fatalf("CompileStageElapsedMS = %#v, want positive persisted v2 stage metric for %q", got.Metrics.CompileStageElapsedMS, stage)
+		}
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"compile", "show", "--platform", "web", "--id", "v2-id"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("compile show code = %d, stderr = %s", code, stderr.String())
+	}
+	var shown c.Record
+	if err := json.Unmarshal(stdout.Bytes(), &shown); err != nil {
+		t.Fatalf("json.Unmarshal(show stdout) error = %v", err)
+	}
+	if shown.Metrics.CompileElapsedMS != 777 {
+		t.Fatalf("shown CompileElapsedMS = %d, want 777", shown.Metrics.CompileElapsedMS)
+	}
+	for _, stage := range []string{"stage1_extract", "stage2_dedup", "stage3_classify", "stage3_relations", "stage3_reclassify", "stage4_validate", "stage5_render"} {
+		if shown.Metrics.CompileStageElapsedMS[stage] <= 0 {
+			t.Fatalf("shown CompileStageElapsedMS = %#v, want positive persisted v2 stage metric for %q", shown.Metrics.CompileStageElapsedMS, stage)
+		}
 	}
 }
 
@@ -3071,6 +3471,7 @@ func TestRunHarnessPersistsNoNetworkIngestCompileAndMemoryFlow(t *testing.T) {
 					ExternalID:     rawCapture.ExternalID,
 					RootExternalID: rawCapture.ExternalID,
 					Model:          c.Qwen36PlusModel,
+					Metrics:        c.RecordMetrics{CompileElapsedMS: 123, CompileStageElapsedMS: map[string]int64{"unified_generator": 11, "unified_challenge": 22, "unified_judge": 33}},
 					Output: c.Output{
 						Summary: "Cooling CPI points to lower yields and a bullish risk setup.",
 						Graph: c.ReasoningGraph{
@@ -3133,6 +3534,14 @@ func TestRunHarnessPersistsNoNetworkIngestCompileAndMemoryFlow(t *testing.T) {
 	if compiled.Output.Summary == "" {
 		t.Fatalf("compiled stdout = %#v, want summary", compiled)
 	}
+	if compiled.Metrics.CompileElapsedMS <= 0 {
+		t.Fatalf("compiled metrics = %#v, want positive compile elapsed ms", compiled.Metrics)
+	}
+	for _, stage := range []string{"unified_generator", "unified_challenge", "unified_judge"} {
+		if compiled.Metrics.CompileStageElapsedMS[stage] <= 0 {
+			t.Fatalf("compiled stage metrics = %#v, want positive duration for %q", compiled.Metrics.CompileStageElapsedMS, stage)
+		}
+	}
 
 	store = openStore(t)
 	persistedCompiled, err := store.GetCompiledOutput(context.Background(), rawCapture.Source, rawCapture.ExternalID)
@@ -3142,6 +3551,14 @@ func TestRunHarnessPersistsNoNetworkIngestCompileAndMemoryFlow(t *testing.T) {
 	}
 	if persistedCompiled.Output.Summary != compiled.Output.Summary {
 		t.Fatalf("persisted compiled summary = %q, want %q", persistedCompiled.Output.Summary, compiled.Output.Summary)
+	}
+	if persistedCompiled.Metrics.CompileElapsedMS <= 0 {
+		t.Fatalf("persisted compiled metrics = %#v, want positive compile elapsed ms", persistedCompiled.Metrics)
+	}
+	for _, stage := range []string{"unified_generator", "unified_challenge", "unified_judge"} {
+		if persistedCompiled.Metrics.CompileStageElapsedMS[stage] <= 0 {
+			t.Fatalf("persisted stage metrics = %#v, want positive duration for %q", persistedCompiled.Metrics.CompileStageElapsedMS, stage)
+		}
 	}
 
 	stdout.Reset()
@@ -3232,6 +3649,7 @@ func TestRunCompileShowReadsCompiledRecordByPlatformAndID(t *testing.T) {
 			ExternalID:     "QAu4U9USk",
 			RootExternalID: "QAu4U9USk",
 			Model:          c.Qwen36PlusModel,
+			Metrics:        c.RecordMetrics{CompileElapsedMS: 321, CompileStageElapsedMS: map[string]int64{"unified_generator": 111, "unified_challenge": 99, "unified_judge": 88}},
 			Output: c.Output{
 				Summary: "一句话",
 				Graph: c.ReasoningGraph{
@@ -3259,6 +3677,12 @@ func TestRunCompileShowReadsCompiledRecordByPlatformAndID(t *testing.T) {
 	}
 	if got.Output.Summary != "一句话" {
 		t.Fatalf("Summary = %q", got.Output.Summary)
+	}
+	if got.Metrics.CompileElapsedMS != 321 {
+		t.Fatalf("CompileElapsedMS = %d, want 321", got.Metrics.CompileElapsedMS)
+	}
+	if got.Metrics.CompileStageElapsedMS["unified_generator"] != 111 || got.Metrics.CompileStageElapsedMS["unified_challenge"] != 99 || got.Metrics.CompileStageElapsedMS["unified_judge"] != 88 {
+		t.Fatalf("CompileStageElapsedMS = %#v, want persisted stage metrics", got.Metrics.CompileStageElapsedMS)
 	}
 }
 
@@ -3295,6 +3719,7 @@ func TestRunCompileShowReadsCompiledRecordByURL(t *testing.T) {
 			ExternalID:     "2026305745872998803",
 			RootExternalID: "2026305745872998803",
 			Model:          c.Qwen36PlusModel,
+			Metrics:        c.RecordMetrics{CompileElapsedMS: 654, CompileStageElapsedMS: map[string]int64{"unified_generator": 222, "unified_challenge": 211, "unified_judge": 201}},
 			Output: c.Output{
 				Summary: "Dalio summary",
 				Graph: c.ReasoningGraph{
@@ -3322,6 +3747,12 @@ func TestRunCompileShowReadsCompiledRecordByURL(t *testing.T) {
 	}
 	if got.Output.Summary != "Dalio summary" {
 		t.Fatalf("Summary = %q", got.Output.Summary)
+	}
+	if got.Metrics.CompileElapsedMS != 654 {
+		t.Fatalf("CompileElapsedMS = %d, want 654", got.Metrics.CompileElapsedMS)
+	}
+	if got.Metrics.CompileStageElapsedMS["unified_generator"] != 222 || got.Metrics.CompileStageElapsedMS["unified_challenge"] != 211 || got.Metrics.CompileStageElapsedMS["unified_judge"] != 201 {
+		t.Fatalf("CompileStageElapsedMS = %#v, want persisted URL stage metrics", got.Metrics.CompileStageElapsedMS)
 	}
 }
 
@@ -3381,6 +3812,9 @@ func TestRunCompileSummaryPrintsHumanReadableOutput(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
+	}
+	if !strings.Contains(out, "Compile elapsed:") || !strings.Contains(out, "Stages:") {
+		t.Fatalf("stdout = %q, want compile metrics in summary view", out)
 	}
 }
 
@@ -3449,6 +3883,9 @@ func TestRunCompileSummaryReadsByURL(t *testing.T) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
 	}
+	if !strings.Contains(out, "Compile elapsed:") || !strings.Contains(out, "Stages:") {
+		t.Fatalf("stdout = %q, want compile metrics in summary-by-url view", out)
+	}
 }
 
 func TestRunCompileComparePrintsRawPreviewAndSummary(t *testing.T) {
@@ -3515,6 +3952,9 @@ func TestRunCompileComparePrintsRawPreviewAndSummary(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
+	}
+	if !strings.Contains(out, "Compile elapsed:") || !strings.Contains(out, "Stages:") {
+		t.Fatalf("stdout = %q, want compile metrics in compare view", out)
 	}
 }
 
@@ -3591,6 +4031,9 @@ func TestRunCompileCompareReadsByURL(t *testing.T) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}
 	}
+	if !strings.Contains(out, "Compile elapsed:") || !strings.Contains(out, "Stages:") {
+		t.Fatalf("stdout = %q, want compile metrics in compare-by-url view", out)
+	}
 }
 
 func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
@@ -3650,6 +4093,264 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Logic chain", "驱动A -> 中间步骤 -> 目标B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
+		}
+	}
+}
+
+func TestRunCompileCardShowsGraphFirstExpandedViewAndVerificationSummary(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "twitter:expanded-view",
+			Source:         "twitter",
+			ExternalID:     "expanded-view",
+			RootExternalID: "expanded-view",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary:           "一句话总结",
+				Drivers:           []string{"旧驱动"},
+				Targets:           []string{"旧目标"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "旧驱动", Target: "旧目标", Steps: []string{"旧中间步骤"}}},
+				EvidenceNodes:     []string{"旧证据"},
+				ExplanationNodes:  []string{"旧解释"},
+				Topics:            []string{"topic-a", "topic-b"},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("legacy-driver", c.NodeMechanism, "旧驱动"), testGraphNode("legacy-target", c.NodeConclusion, "旧目标")},
+					Edges: []c.GraphEdge{{From: "legacy-driver", To: "legacy-target", Kind: c.EdgePositive}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		subgraph := graphmodel.ContentSubgraph{
+			ID:               "twitter:expanded-view",
+			ArticleID:        "twitter:expanded-view",
+			SourcePlatform:   "twitter",
+			SourceExternalID: "expanded-view",
+			RootExternalID:   "expanded-view",
+			CompileVersion:   graphmodel.CompileBridgeVersion,
+			CompiledAt:       time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt:        time.Now().UTC().Format(time.RFC3339),
+			Nodes: []graphmodel.GraphNode{
+				{ID: "n1", SourceArticleID: "twitter:expanded-view", SourcePlatform: "twitter", SourceExternalID: "expanded-view", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved},
+				{ID: "n2", SourceArticleID: "twitter:expanded-view", SourcePlatform: "twitter", SourceExternalID: "expanded-view", RawText: "流动性收紧", SubjectText: "流动性", ChangeText: "收紧", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleIntermediate, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n3", SourceArticleID: "twitter:expanded-view", SourcePlatform: "twitter", SourceExternalID: "expanded-view", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n4", SourceArticleID: "twitter:expanded-view", SourcePlatform: "twitter", SourceExternalID: "expanded-view", RawText: "CPI回落", SubjectText: "CPI", ChangeText: "回落", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleEvidence, IsPrimary: false, VerificationStatus: graphmodel.VerificationProved},
+				{ID: "n5", SourceArticleID: "twitter:expanded-view", SourcePlatform: "twitter", SourceExternalID: "expanded-view", RawText: "估值承压先传导到科技股", SubjectText: "科技股估值", ChangeText: "承压", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleContext, IsPrimary: false, VerificationStatus: graphmodel.VerificationUnverifiable},
+			},
+			Edges: []graphmodel.GraphEdge{
+				{ID: "n1->n2:drives", From: "n1", To: "n2", Type: graphmodel.EdgeTypeDrives, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved},
+				{ID: "n2->n3:drives", From: "n2", To: "n3", Type: graphmodel.EdgeTypeDrives, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n4->n1:supports", From: "n4", To: "n1", Type: graphmodel.EdgeTypeSupports, IsPrimary: false, VerificationStatus: graphmodel.VerificationProved},
+				{ID: "n5->n3:explains", From: "n5", To: "n3", Type: graphmodel.EdgeTypeExplains, IsPrimary: false, VerificationStatus: graphmodel.VerificationUnverifiable},
+			},
+		}
+		if err := store.UpsertContentSubgraph(context.Background(), subgraph); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "card", "--platform", "twitter", "--id", "expanded-view"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"Summary", "一句话总结",
+		"Topics", "topic-a",
+		"Drivers", "- 美联储加息0.25%",
+		"Targets", "- 未来一周美股承压",
+		"Evidence", "- CPI回落",
+		"Explanations", "- 估值承压先传导到科技股",
+		"Logic chain", "美联储加息0.25% -> 流动性收紧 -> 未来一周美股承压",
+		"Verification",
+		"Nodes: pending=2, proved=2, unverifiable=1",
+		"Edges: pending=1, proved=2, unverifiable=1",
+		"Confidence", "high",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q in %q", want, out)
+		}
+	}
+}
+
+func TestRunCompileCardFallsBackToLegacyWhenGraphFirstSubgraphMissing(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "content.db")
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = dbPath
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "twitter:legacy-fallback-standard",
+			Source:         "twitter",
+			ExternalID:     "legacy-fallback-standard",
+			RootExternalID: "legacy-fallback-standard",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary:           "一句话总结",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
+				EvidenceNodes:     []string{"证据A"},
+				ExplanationNodes:  []string{"解释B"},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("legacy-driver", c.NodeMechanism, "驱动A"), testGraphNode("legacy-target", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "legacy-driver", To: "legacy-target", Kind: c.EdgePositive}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		if _, err := rawDB.Exec(`DELETE FROM content_subgraphs WHERE platform = ? AND external_id = ?`, "twitter", "legacy-fallback-standard"); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "card", "--platform", "twitter", "--id", "legacy-fallback-standard"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Drivers", "- 驱动A", "Targets", "- 目标B", "Evidence", "- 证据A", "Explanations", "- 解释B", "Logic chain", "驱动A -> 中间步骤 -> 目标B"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q in %q", want, out)
+		}
+	}
+	if strings.Contains(out, "Verification") {
+		t.Fatalf("stdout = %q, did not want verification summary without subgraph", out)
+	}
+}
+
+func TestRunCompileCardFallsBackToLegacyWhenGraphFirstProjectionIsLessInformative(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "twitter:less-informative-standard",
+			Source:         "twitter",
+			ExternalID:     "less-informative-standard",
+			RootExternalID: "less-informative-standard",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary:           "一句话总结",
+				Drivers:           []string{"旧驱动A", "旧驱动B"},
+				Targets:           []string{"旧目标A", "旧目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "旧驱动A", Target: "旧目标A", Steps: []string{"旧中间步骤"}}},
+				EvidenceNodes:     []string{"旧证据A", "旧证据B"},
+				ExplanationNodes:  []string{"旧解释A", "旧解释B"},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("legacy-driver", c.NodeMechanism, "旧驱动A"), testGraphNode("legacy-target", c.NodeConclusion, "旧目标A")},
+					Edges: []c.GraphEdge{{From: "legacy-driver", To: "legacy-target", Kind: c.EdgePositive}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		subgraph := graphmodel.ContentSubgraph{
+			ID:               "twitter:less-informative-standard",
+			ArticleID:        "twitter:less-informative-standard",
+			SourcePlatform:   "twitter",
+			SourceExternalID: "less-informative-standard",
+			RootExternalID:   "less-informative-standard",
+			CompileVersion:   graphmodel.CompileBridgeVersion,
+			CompiledAt:       time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt:        time.Now().UTC().Format(time.RFC3339),
+			Nodes: []graphmodel.GraphNode{
+				{ID: "n1", SourceArticleID: "twitter:less-informative-standard", SourcePlatform: "twitter", SourceExternalID: "less-informative-standard", RawText: "新驱动", SubjectText: "新驱动", ChangeText: "新驱动", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n2", SourceArticleID: "twitter:less-informative-standard", SourcePlatform: "twitter", SourceExternalID: "less-informative-standard", RawText: "新目标", SubjectText: "新目标", ChangeText: "新目标", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n3", SourceArticleID: "twitter:less-informative-standard", SourcePlatform: "twitter", SourceExternalID: "less-informative-standard", RawText: "新证据", SubjectText: "新证据", ChangeText: "新证据", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleEvidence, IsPrimary: false, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n4", SourceArticleID: "twitter:less-informative-standard", SourcePlatform: "twitter", SourceExternalID: "less-informative-standard", RawText: "新解释", SubjectText: "新解释", ChangeText: "新解释", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleContext, IsPrimary: false, VerificationStatus: graphmodel.VerificationPending},
+			},
+			Edges: []graphmodel.GraphEdge{
+				{ID: "n1->n2:drives", From: "n1", To: "n2", Type: graphmodel.EdgeTypeDrives, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+			},
+		}
+		if err := store.UpsertContentSubgraph(context.Background(), subgraph); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "card", "--platform", "twitter", "--id", "less-informative-standard"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"- 旧驱动A", "- 旧驱动B", "- 旧目标A", "- 旧目标B", "- 旧证据A", "- 旧证据B", "- 旧解释A", "- 旧解释B"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing legacy section item %q in %q", want, out)
+		}
+	}
+	for _, avoid := range []string{"- 新驱动", "- 新目标", "- 新证据", "- 新解释"} {
+		if strings.Contains(out, avoid) {
+			t.Fatalf("stdout = %q, did not want less-informative graph-first item %q", out, avoid)
 		}
 	}
 }
@@ -3778,6 +4479,614 @@ func TestRunCompileCardCompactReadsByURL(t *testing.T) {
 	for _, want := range []string{"Summary", "一句话总结", "Drivers", "- 驱动A", "Targets", "- 目标B", "Evidence", "- 证据A", "Explanations", "- 解释B", "Main logic", "驱动A -> 中间步骤 -> 目标B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
+		}
+	}
+}
+
+func TestRunCompileCardPrefersGraphFirstLogicChain(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "twitter:graph-first-logic",
+			Source:         "twitter",
+			ExternalID:     "graph-first-logic",
+			RootExternalID: "graph-first-logic",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary:           "一句话总结",
+				Drivers:           []string{"旧驱动"},
+				Targets:           []string{"旧目标"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "旧驱动", Target: "旧目标", Steps: []string{"旧中间步骤"}}},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("legacy-driver", c.NodeMechanism, "旧驱动"), testGraphNode("legacy-target", c.NodeConclusion, "旧目标")},
+					Edges: []c.GraphEdge{{From: "legacy-driver", To: "legacy-target", Kind: c.EdgePositive}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		subgraph := graphmodel.ContentSubgraph{
+			ID:               "twitter:graph-first-logic",
+			ArticleID:        "twitter:graph-first-logic",
+			SourcePlatform:   "twitter",
+			SourceExternalID: "graph-first-logic",
+			RootExternalID:   "graph-first-logic",
+			CompileVersion:   graphmodel.CompileBridgeVersion,
+			CompiledAt:       time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt:        time.Now().UTC().Format(time.RFC3339),
+			Nodes: []graphmodel.GraphNode{
+				{ID: "n1", SourceArticleID: "twitter:graph-first-logic", SourcePlatform: "twitter", SourceExternalID: "graph-first-logic", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n2", SourceArticleID: "twitter:graph-first-logic", SourcePlatform: "twitter", SourceExternalID: "graph-first-logic", RawText: "流动性收紧", SubjectText: "流动性", ChangeText: "收紧", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleIntermediate, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n3", SourceArticleID: "twitter:graph-first-logic", SourcePlatform: "twitter", SourceExternalID: "graph-first-logic", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+			},
+			Edges: []graphmodel.GraphEdge{
+				{ID: "n1->n2:drives", From: "n1", To: "n2", Type: graphmodel.EdgeTypeDrives, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n2->n3:drives", From: "n2", To: "n3", Type: graphmodel.EdgeTypeDrives, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+			},
+		}
+		if err := store.UpsertContentSubgraph(context.Background(), subgraph); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "card", "--platform", "twitter", "--id", "graph-first-logic"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "美联储加息0.25% -> 流动性收紧 -> 未来一周美股承压") {
+		t.Fatalf("stdout = %q, want graph-first logic chain", out)
+	}
+	if strings.Contains(out, "旧驱动 -> 旧中间步骤 -> 旧目标") {
+		t.Fatalf("stdout = %q, did not want stale legacy logic chain", out)
+	}
+}
+
+func TestRunCompileCardCompactPrefersGraphFirstProjection(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "twitter:graph-first-compact",
+			Source:         "twitter",
+			ExternalID:     "graph-first-compact",
+			RootExternalID: "graph-first-compact",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary:           "一句话总结",
+				Drivers:           []string{"旧驱动"},
+				Targets:           []string{"旧目标"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "旧驱动", Target: "旧目标", Steps: []string{"旧中间步骤"}}},
+				EvidenceNodes:     []string{"旧证据"},
+				ExplanationNodes:  []string{"旧解释"},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("legacy-driver", c.NodeMechanism, "旧驱动"), testGraphNode("legacy-target", c.NodeConclusion, "旧目标")},
+					Edges: []c.GraphEdge{{From: "legacy-driver", To: "legacy-target", Kind: c.EdgePositive}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		subgraph := graphmodel.ContentSubgraph{
+			ID:               "twitter:graph-first-compact",
+			ArticleID:        "twitter:graph-first-compact",
+			SourcePlatform:   "twitter",
+			SourceExternalID: "graph-first-compact",
+			RootExternalID:   "graph-first-compact",
+			CompileVersion:   graphmodel.CompileBridgeVersion,
+			CompiledAt:       time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt:        time.Now().UTC().Format(time.RFC3339),
+			Nodes: []graphmodel.GraphNode{
+				{ID: "n1", SourceArticleID: "twitter:graph-first-compact", SourcePlatform: "twitter", SourceExternalID: "graph-first-compact", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n2", SourceArticleID: "twitter:graph-first-compact", SourcePlatform: "twitter", SourceExternalID: "graph-first-compact", RawText: "流动性收紧", SubjectText: "流动性", ChangeText: "收紧", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleIntermediate, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n3", SourceArticleID: "twitter:graph-first-compact", SourcePlatform: "twitter", SourceExternalID: "graph-first-compact", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n4", SourceArticleID: "twitter:graph-first-compact", SourcePlatform: "twitter", SourceExternalID: "graph-first-compact", RawText: "CPI回落", SubjectText: "CPI", ChangeText: "回落", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleEvidence, IsPrimary: false, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n5", SourceArticleID: "twitter:graph-first-compact", SourcePlatform: "twitter", SourceExternalID: "graph-first-compact", RawText: "估值承压先传导到科技股", SubjectText: "科技股估值", ChangeText: "承压", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleContext, IsPrimary: false, VerificationStatus: graphmodel.VerificationPending},
+			},
+			Edges: []graphmodel.GraphEdge{
+				{ID: "n1->n2:drives", From: "n1", To: "n2", Type: graphmodel.EdgeTypeDrives, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n2->n3:drives", From: "n2", To: "n3", Type: graphmodel.EdgeTypeDrives, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n4->n1:supports", From: "n4", To: "n1", Type: graphmodel.EdgeTypeSupports, IsPrimary: false, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n5->n3:explains", From: "n5", To: "n3", Type: graphmodel.EdgeTypeExplains, IsPrimary: false, VerificationStatus: graphmodel.VerificationPending},
+			},
+		}
+		if err := store.UpsertContentSubgraph(context.Background(), subgraph); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "card", "--compact", "--platform", "twitter", "--id", "graph-first-compact"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"- 美联储加息0.25%", "- 未来一周美股承压", "- CPI回落", "- 估值承压先传导到科技股", "美联储加息0.25% -> 流动性收紧 -> 未来一周美股承压"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q in %q", want, out)
+		}
+	}
+	for _, stale := range []string{"- 旧驱动", "- 旧目标", "- 旧证据", "- 旧解释", "旧驱动 -> 旧中间步骤 -> 旧目标"} {
+		if strings.Contains(out, stale) {
+			t.Fatalf("stdout = %q, did not want stale legacy projection %q", out, stale)
+		}
+	}
+}
+
+func TestRunCompileCardCompactFallsBackToLegacyWhenGraphFirstSubgraphMissing(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "content.db")
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = dbPath
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "twitter:legacy-fallback-card",
+			Source:         "twitter",
+			ExternalID:     "legacy-fallback-card",
+			RootExternalID: "legacy-fallback-card",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary:           "一句话总结",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
+				EvidenceNodes:     []string{"证据A"},
+				ExplanationNodes:  []string{"解释B"},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("legacy-driver", c.NodeMechanism, "驱动A"), testGraphNode("legacy-target", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "legacy-driver", To: "legacy-target", Kind: c.EdgePositive}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		if _, err := rawDB.Exec(`DELETE FROM content_subgraphs WHERE platform = ? AND external_id = ?`, "twitter", "legacy-fallback-card"); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "card", "--compact", "--platform", "twitter", "--id", "legacy-fallback-card"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"- 驱动A", "- 目标B", "- 证据A", "- 解释B", "驱动A -> 中间步骤 -> 目标B"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing %q in %q", want, out)
+		}
+	}
+}
+
+func TestRunCompileCardFailsWhenGraphFirstLookupReturnsUnexpectedStoreError(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "content.db")
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = dbPath
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "twitter:graph-first-store-error",
+			Source:         "twitter",
+			ExternalID:     "graph-first-store-error",
+			RootExternalID: "graph-first-store-error",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary:           "一句话总结",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
+				EvidenceNodes:     []string{"证据A"},
+				ExplanationNodes:  []string{"解释B"},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("legacy-driver", c.NodeMechanism, "驱动A"), testGraphNode("legacy-target", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "legacy-driver", To: "legacy-target", Kind: c.EdgePositive}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		if _, err := rawDB.Exec(`DROP TABLE content_subgraphs`); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "card", "--compact", "--platform", "twitter", "--id", "graph-first-store-error"}, "/tmp/project", &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() code = %d, want 1, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "content_subgraphs") {
+		t.Fatalf("stderr = %q, want surfaced content_subgraphs lookup error", stderr.String())
+	}
+}
+
+func TestRunCompileCardFailsWhenExpandedGraphFirstLookupReturnsUnexpectedStoreError(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "content.db")
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = dbPath
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "twitter:graph-first-store-error-expanded",
+			Source:         "twitter",
+			ExternalID:     "graph-first-store-error-expanded",
+			RootExternalID: "graph-first-store-error-expanded",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary:           "一句话总结",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
+				EvidenceNodes:     []string{"证据A"},
+				ExplanationNodes:  []string{"解释B"},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("legacy-driver", c.NodeMechanism, "驱动A"), testGraphNode("legacy-target", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "legacy-driver", To: "legacy-target", Kind: c.EdgePositive}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		if _, err := rawDB.Exec(`DROP TABLE content_subgraphs`); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "card", "--platform", "twitter", "--id", "graph-first-store-error-expanded"}, "/tmp/project", &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() code = %d, want 1, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "content_subgraphs") {
+		t.Fatalf("stderr = %q, want surfaced content_subgraphs lookup error", stderr.String())
+	}
+}
+
+func TestRunCompileCardFailsWhenURLGraphFirstLookupReturnsUnexpectedStoreError(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "content.db")
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = dbPath
+		app.Dispatcher = dispatcher.New(
+			func(raw string) (types.ParsedURL, error) {
+				return types.ParsedURL{Platform: types.PlatformWeibo, PlatformID: "Q-store-url", CanonicalURL: raw}, nil
+			},
+			[]dispatcher.ItemSource{fakeItemSource{}},
+			nil,
+			nil,
+		)
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:Q-store-url",
+			Source:         "weibo",
+			ExternalID:     "Q-store-url",
+			RootExternalID: "Q-store-url",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary:           "一句话总结",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
+				EvidenceNodes:     []string{"证据A"},
+				ExplanationNodes:  []string{"解释B"},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("legacy-driver", c.NodeMechanism, "驱动A"), testGraphNode("legacy-target", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "legacy-driver", To: "legacy-target", Kind: c.EdgePositive}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		if _, err := rawDB.Exec(`DROP TABLE content_subgraphs`); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "card", "--url", "https://weibo.com/1182426800/Q-store-url"}, "/tmp/project", &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() code = %d, want 1, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "content_subgraphs") {
+		t.Fatalf("stderr = %q, want surfaced content_subgraphs lookup error", stderr.String())
+	}
+}
+
+func TestRunCompileCardCompactFailsWhenURLGraphFirstLookupReturnsUnexpectedStoreError(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "content.db")
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = dbPath
+		app.Dispatcher = dispatcher.New(
+			func(raw string) (types.ParsedURL, error) {
+				return types.ParsedURL{Platform: types.PlatformWeibo, PlatformID: "Q-store-url-compact", CanonicalURL: raw}, nil
+			},
+			[]dispatcher.ItemSource{fakeItemSource{}},
+			nil,
+			nil,
+		)
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "weibo:Q-store-url-compact",
+			Source:         "weibo",
+			ExternalID:     "Q-store-url-compact",
+			RootExternalID: "Q-store-url-compact",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary:           "一句话总结",
+				Drivers:           []string{"驱动A"},
+				Targets:           []string{"目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
+				EvidenceNodes:     []string{"证据A"},
+				ExplanationNodes:  []string{"解释B"},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("legacy-driver", c.NodeMechanism, "驱动A"), testGraphNode("legacy-target", c.NodeConclusion, "目标B")},
+					Edges: []c.GraphEdge{{From: "legacy-driver", To: "legacy-target", Kind: c.EdgePositive}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		if _, err := rawDB.Exec(`DROP TABLE content_subgraphs`); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "card", "--compact", "--url", "https://weibo.com/1182426800/Q-store-url-compact"}, "/tmp/project", &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() code = %d, want 1, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "content_subgraphs") {
+		t.Fatalf("stderr = %q, want surfaced content_subgraphs lookup error", stderr.String())
+	}
+}
+
+func TestRunCompileCardCompactFallsBackToLegacyWhenGraphFirstProjectionIsLessInformative(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "twitter:less-informative-card",
+			Source:         "twitter",
+			ExternalID:     "less-informative-card",
+			RootExternalID: "less-informative-card",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary:           "一句话总结",
+				Drivers:           []string{"旧驱动A", "旧驱动B"},
+				Targets:           []string{"旧目标A", "旧目标B"},
+				TransmissionPaths: []c.TransmissionPath{{Driver: "旧驱动A", Target: "旧目标A", Steps: []string{"旧中间步骤"}}},
+				EvidenceNodes:     []string{"旧证据A", "旧证据B"},
+				ExplanationNodes:  []string{"旧解释A", "旧解释B"},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("legacy-driver", c.NodeMechanism, "旧驱动A"), testGraphNode("legacy-target", c.NodeConclusion, "旧目标A")},
+					Edges: []c.GraphEdge{{From: "legacy-driver", To: "legacy-target", Kind: c.EdgePositive}},
+				},
+				Details:    c.HiddenDetails{Caveats: []string{"说明"}},
+				Confidence: "high",
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		subgraph := graphmodel.ContentSubgraph{
+			ID:               "twitter:less-informative-card",
+			ArticleID:        "twitter:less-informative-card",
+			SourcePlatform:   "twitter",
+			SourceExternalID: "less-informative-card",
+			RootExternalID:   "less-informative-card",
+			CompileVersion:   graphmodel.CompileBridgeVersion,
+			CompiledAt:       time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt:        time.Now().UTC().Format(time.RFC3339),
+			Nodes: []graphmodel.GraphNode{
+				{ID: "n1", SourceArticleID: "twitter:less-informative-card", SourcePlatform: "twitter", SourceExternalID: "less-informative-card", RawText: "新驱动", SubjectText: "新驱动", ChangeText: "新驱动", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n2", SourceArticleID: "twitter:less-informative-card", SourcePlatform: "twitter", SourceExternalID: "less-informative-card", RawText: "新目标", SubjectText: "新目标", ChangeText: "新目标", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n3", SourceArticleID: "twitter:less-informative-card", SourcePlatform: "twitter", SourceExternalID: "less-informative-card", RawText: "新证据", SubjectText: "新证据", ChangeText: "新证据", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleEvidence, IsPrimary: false, VerificationStatus: graphmodel.VerificationPending},
+				{ID: "n4", SourceArticleID: "twitter:less-informative-card", SourcePlatform: "twitter", SourceExternalID: "less-informative-card", RawText: "新解释", SubjectText: "新解释", ChangeText: "新解释", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleContext, IsPrimary: false, VerificationStatus: graphmodel.VerificationPending},
+			},
+			Edges: []graphmodel.GraphEdge{
+				{ID: "n1->n2:drives", From: "n1", To: "n2", Type: graphmodel.EdgeTypeDrives, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending},
+			},
+		}
+		if err := store.UpsertContentSubgraph(context.Background(), subgraph); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "card", "--compact", "--platform", "twitter", "--id", "less-informative-card"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"- 旧驱动A", "- 旧驱动B", "- 旧目标A", "- 旧目标B", "- 旧证据A", "- 旧证据B", "- 旧解释A", "- 旧解释B"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout missing legacy section item %q in %q", want, out)
+		}
+	}
+	for _, avoid := range []string{"- 新驱动", "- 新目标", "- 新证据", "- 新解释"} {
+		if strings.Contains(out, avoid) {
+			t.Fatalf("stdout = %q, did not want less-informative graph-first item %q", out, avoid)
 		}
 	}
 }
@@ -4659,6 +5968,946 @@ func TestRunMemoryProjectAllRebuildsEventAndParadigmLayers(t *testing.T) {
 	if ok, _ := out["ok"].(bool); !ok {
 		t.Fatalf("project-all output = %#v, want ok=true", out)
 	}
+	metrics, ok := out["metrics"].(map[string]any)
+	if !ok {
+		t.Fatalf("project-all output = %#v, want metrics object", out)
+	}
+	for _, key := range []string{"event_graph_rebuild_ms", "paradigm_recompute_ms", "global_v2_rebuild_ms"} {
+		value, ok := metrics[key]
+		if !ok {
+			t.Fatalf("project-all metrics = %#v, want key %q", metrics, key)
+		}
+		number, ok := value.(float64)
+		if !ok || number < 0 {
+			t.Fatalf("project-all metrics[%q] = %#v, want non-negative number", key, value)
+		}
+	}
+}
+
+func TestRunMemoryBackfillContentRebuildsOneContentGraphFromCompiledOutput(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		record := c.Record{
+			UnitID:         "twitter:bf-content-1",
+			Source:         "twitter",
+			ExternalID:     "bf-content-1",
+			RootExternalID: "bf-content-1",
+			Model:          c.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "一句话",
+				Drivers: []string{"美联储加息0.25%"},
+				Targets: []string{"未来一周美股承压"},
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{
+						{ID: "n1", Kind: c.NodeFact, Text: "美联储加息0.25%", OccurredAt: time.Now().UTC()},
+						{ID: "n2", Kind: c.NodePrediction, Text: "未来一周美股承压", PredictionStartAt: time.Now().UTC(), PredictionDueAt: time.Now().UTC().Add(24 * time.Hour)},
+					},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"说明"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "backfill", "--layer", "content", "--user", "u-backfill-content", "--platform", "twitter", "--id", "bf-content-1"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory backfill content code = %d, stderr = %s", code, stderr.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(backfill content) error = %v", err)
+	}
+	if out["layer"] != "content" || out["content_graphs"] == nil {
+		t.Fatalf("backfill content output = %#v, want layer=content and content_graphs key", out)
+	}
+	if got, ok := out["content_graphs"].(float64); !ok || got != 1 {
+		t.Fatalf("content_graphs = %#v, want 1", out["content_graphs"])
+	}
+}
+
+func TestRunMemoryCanonicalEntityUpsertAndList(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		return contentstore.NewSQLiteStore(path)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "canonical-entity-upsert", "--id", "driver-fed", "--type", "driver", "--name", "美联储", "--aliases", "联储, Federal Reserve"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("canonical-entity-upsert code = %d, stderr = %s", code, stderr.String())
+	}
+	var upsertOut map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &upsertOut); err != nil {
+		t.Fatalf("json.Unmarshal(canonical-entity-upsert) error = %v", err)
+	}
+	if ok, _ := upsertOut["ok"].(bool); !ok {
+		t.Fatalf("upsert output = %#v, want ok=true", upsertOut)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "canonical-entities"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("canonical-entities code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []memory.CanonicalEntity
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(canonical-entities) error = %v", err)
+	}
+	if len(out) != 1 || out[0].CanonicalName != "美联储" {
+		t.Fatalf("out = %#v, want one canonical entity named 美联储", out)
+	}
+	if len(out[0].Aliases) < 2 {
+		t.Fatalf("aliases = %#v, want normalized aliases persisted", out[0].Aliases)
+	}
+}
+
+func TestRunMemoryCanonicalEntityUpsertSupportsExplicitStatus(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		return contentstore.NewSQLiteStore(path)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "canonical-entity-upsert", "--id", "driver-fed", "--type", "driver", "--name", "美联储", "--status", "retired"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("canonical-entity-upsert --status code = %d, stderr = %s", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"memory", "canonical-entities"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("canonical-entities code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []memory.CanonicalEntity
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(canonical-entities) error = %v", err)
+	}
+	if len(out) != 1 || out[0].Status != memory.CanonicalEntityRetired {
+		t.Fatalf("out = %#v, want retired canonical entity", out)
+	}
+}
+
+func TestRunMemoryCanonicalEntitiesSupportsAliasFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "driver-fed",
+			EntityType:    memory.CanonicalEntityDriver,
+			CanonicalName: "美联储",
+			Aliases:       []string{"联储"},
+			Status:        memory.CanonicalEntityActive,
+		}); err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "target-us-equity",
+			EntityType:    memory.CanonicalEntityTarget,
+			CanonicalName: "美股",
+			Aliases:       []string{"美国股市"},
+			Status:        memory.CanonicalEntityActive,
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "canonical-entities", "--alias", "联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("canonical-entities --alias code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []memory.CanonicalEntity
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(canonical-entities --alias) error = %v", err)
+	}
+	if len(out) != 1 || out[0].CanonicalName != "美联储" {
+		t.Fatalf("out = %#v, want only 美联储 under alias filter", out)
+	}
+}
+
+func TestRunMemoryCanonicalEntitiesSupportsTypeAndStatusFilters(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "driver-fed",
+			EntityType:    memory.CanonicalEntityDriver,
+			CanonicalName: "美联储",
+			Status:        memory.CanonicalEntityActive,
+		}); err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "target-us-equity",
+			EntityType:    memory.CanonicalEntityTarget,
+			CanonicalName: "美股",
+			Status:        memory.CanonicalEntityRetired,
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "canonical-entities", "--type", "target", "--status", "retired"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("canonical-entities filter code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []memory.CanonicalEntity
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(canonical-entities filter) error = %v", err)
+	}
+	if len(out) != 1 || out[0].CanonicalName != "美股" {
+		t.Fatalf("out = %#v, want only retired target canonical entity", out)
+	}
+}
+
+func TestRunMemoryCanonicalEntitiesSupportsSummary(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "driver-fed",
+			EntityType:    memory.CanonicalEntityDriver,
+			CanonicalName: "美联储",
+			Aliases:       []string{"联储", "Federal Reserve"},
+			Status:        memory.CanonicalEntityActive,
+		}); err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "target-us-equity",
+			EntityType:    memory.CanonicalEntityTarget,
+			CanonicalName: "美股",
+			Aliases:       []string{"美国股市"},
+			Status:        memory.CanonicalEntityRetired,
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "canonical-entities", "--summary"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("canonical-entities --summary code = %d, stderr = %s", code, stderr.String())
+	}
+	var out struct {
+		TotalEntities int            `json:"total_entities"`
+		TotalAliases  int            `json:"total_aliases"`
+		ByType        map[string]int `json:"by_type"`
+		ByStatus      map[string]int `json:"by_status"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(canonical-entities --summary) error = %v", err)
+	}
+	if out.TotalEntities != 2 || out.TotalAliases < 3 {
+		t.Fatalf("summary = %#v, want 2 entities and at least 3 aliases", out)
+	}
+	if out.ByType["driver"] != 1 || out.ByType["target"] != 1 {
+		t.Fatalf("summary by_type = %#v, want driver=1 target=1", out.ByType)
+	}
+	if out.ByStatus["active"] != 1 || out.ByStatus["retired"] != 1 {
+		t.Fatalf("summary by_status = %#v, want active=1 retired=1", out.ByStatus)
+	}
+}
+
+func TestRunMemoryCanonicalEntitiesSupportsIDFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "driver-fed",
+			EntityType:    memory.CanonicalEntityDriver,
+			CanonicalName: "美联储",
+			Status:        memory.CanonicalEntityActive,
+		}); err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "target-us-equity",
+			EntityType:    memory.CanonicalEntityTarget,
+			CanonicalName: "美股",
+			Status:        memory.CanonicalEntityActive,
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "canonical-entities", "--id", "driver-fed"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("canonical-entities --id code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []memory.CanonicalEntity
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(canonical-entities --id) error = %v", err)
+	}
+	if len(out) != 1 || out[0].EntityID != "driver-fed" {
+		t.Fatalf("out = %#v, want only driver-fed under id filter", out)
+	}
+}
+
+func TestRunMemoryCanonicalEntitiesCardRendersReadableOutput(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "driver-fed",
+			EntityType:    memory.CanonicalEntityDriver,
+			CanonicalName: "美联储",
+			Aliases:       []string{"联储", "Federal Reserve"},
+			Status:        memory.CanonicalEntityActive,
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "canonical-entities", "--card"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("canonical-entities --card code = %d, stderr = %s", code, stderr.String())
+	}
+	for _, want := range []string{"Canonical Entity", "driver-fed", "美联储", "driver", "active", "联储"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestRunMemoryBackfillAllRebuildsAggregateLayers(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "bf-all", ArticleID: "bf-all", SourcePlatform: "twitter", SourceExternalID: "bf-all", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "bf-all", SourcePlatform: "twitter", SourceExternalID: "bf-all", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "bf-all", SourcePlatform: "twitter", SourceExternalID: "bf-all", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-backfill-all", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "backfill", "--layer", "all", "--user", "u-backfill-all"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory backfill all code = %d, stderr = %s", code, stderr.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(backfill all) error = %v", err)
+	}
+	if out["layer"] != "all" || out["event_graphs"] == nil || out["paradigms"] == nil || out["global_v2"] == nil {
+		t.Fatalf("backfill all output = %#v, want aggregate keys", out)
+	}
+}
+
+func TestRunMemoryBackfillEventRebuildsEventLayer(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "bf-event", ArticleID: "bf-event", SourcePlatform: "twitter", SourceExternalID: "bf-event", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "bf-event", SourcePlatform: "twitter", SourceExternalID: "bf-event", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "bf-event", SourcePlatform: "twitter", SourceExternalID: "bf-event", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-backfill-event", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "backfill", "--layer", "event", "--user", "u-backfill-event"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory backfill event code = %d, stderr = %s", code, stderr.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(backfill event) error = %v", err)
+	}
+	if out["layer"] != "event" || out["event_graphs"] == nil {
+		t.Fatalf("backfill event output = %#v, want layer=event and event_graphs key", out)
+	}
+}
+
+func TestRunMemoryBackfillParadigmRebuildsParadigmLayer(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "bf-paradigm", ArticleID: "bf-paradigm", SourcePlatform: "twitter", SourceExternalID: "bf-paradigm", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "bf-paradigm", SourcePlatform: "twitter", SourceExternalID: "bf-paradigm", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "bf-paradigm", SourcePlatform: "twitter", SourceExternalID: "bf-paradigm", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-backfill-paradigm", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "backfill", "--layer", "paradigm", "--user", "u-backfill-paradigm"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory backfill paradigm code = %d, stderr = %s", code, stderr.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(backfill paradigm) error = %v", err)
+	}
+	if out["layer"] != "paradigm" || out["paradigms"] == nil {
+		t.Fatalf("backfill paradigm output = %#v, want layer=paradigm and paradigms key", out)
+	}
+}
+
+func TestRunMemoryBackfillGlobalV2RebuildsGlobalLayer(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "bf-global-v2", ArticleID: "bf-global-v2", SourcePlatform: "twitter", SourceExternalID: "bf-global-v2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "bf-global-v2", SourcePlatform: "twitter", SourceExternalID: "bf-global-v2", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "bf-global-v2", SourcePlatform: "twitter", SourceExternalID: "bf-global-v2", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-backfill-global-v2", sg, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "backfill", "--layer", "global-v2", "--user", "u-backfill-global-v2"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory backfill global-v2 code = %d, stderr = %s", code, stderr.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(backfill global-v2) error = %v", err)
+	}
+	if out["layer"] != "global-v2" || out["global_v2"] == nil {
+		t.Fatalf("backfill global-v2 output = %#v, want layer=global-v2 and global_v2 key", out)
+	}
+}
+
+func TestRunMemoryCleanupStaleDeletesOnlyOldQueuedOrRunningJobs(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (1, 'u-clean', 'twitter', 'old-queued', 'queued', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, started_at) VALUES (2, 'u-clean', 'twitter', 'old-running', 'running', '%s', '%s')`, now.Add(-36*time.Hour).Format(time.RFC3339Nano), now.Add(-35*time.Hour).Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (3, 'u-clean', 'twitter', 'fresh-queued', 'queued', '%s')`, now.Add(-2*time.Hour).Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, finished_at) VALUES (4, 'u-clean', 'twitter', 'done-old', 'done', '%s', '%s')`, now.Add(-72*time.Hour).Format(time.RFC3339Nano), now.Add(-71*time.Hour).Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "cleanup-stale", "--user", "u-clean", "--older-than", "24h"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory cleanup-stale code = %d, stderr = %s", code, stderr.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(cleanup-stale) error = %v", err)
+	}
+	if out["deleted_jobs"] != float64(2) {
+		t.Fatalf("cleanup-stale output = %#v, want deleted_jobs=2", out)
+	}
+	// Reopen and verify only fresh queued + done remain.
+	store, err := contentstore.NewSQLiteStore(tmp + "/content.db")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(reopen) error = %v", err)
+	}
+	defer store.Close()
+	jobs, err := store.ListMemoryJobs(context.Background(), "u-clean")
+	if err != nil {
+		t.Fatalf("ListMemoryJobs() error = %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("len(ListMemoryJobs()) = %d, want 2 after cleanup", len(jobs))
+	}
+	for _, job := range jobs {
+		if job.SourceExternalID == "old-queued" || job.SourceExternalID == "old-running" {
+			t.Fatalf("jobs = %#v, did not want stale queued/running jobs to remain", jobs)
+		}
+	}
+}
+
+func TestRunMemoryCleanupStaleSupportsSourceFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (1, 'u-clean-filter', 'twitter', 'delete-me', 'queued', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (2, 'u-clean-filter', 'twitter', 'keep-me', 'queued', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "cleanup-stale", "--user", "u-clean-filter", "--older-than", "24h", "--platform", "twitter", "--id", "delete-me"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory cleanup-stale filter code = %d, stderr = %s", code, stderr.String())
+	}
+	store, err := contentstore.NewSQLiteStore(tmp + "/content.db")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(reopen) error = %v", err)
+	}
+	defer store.Close()
+	jobs, err := store.ListMemoryJobs(context.Background(), "u-clean-filter")
+	if err != nil {
+		t.Fatalf("ListMemoryJobs() error = %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].SourceExternalID != "keep-me" {
+		t.Fatalf("jobs = %#v, want only keep-me after filtered cleanup", jobs)
+	}
+}
+
+func TestRunMemoryCleanupStaleSupportsPlatformOnlyFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (1, 'u-clean-platform', 'twitter', 'delete-twitter', 'queued', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (2, 'u-clean-platform', 'weibo', 'keep-weibo', 'queued', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "cleanup-stale", "--user", "u-clean-platform", "--older-than", "24h", "--platform", "twitter"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory cleanup-stale platform-only code = %d, stderr = %s", code, stderr.String())
+	}
+	store, err := contentstore.NewSQLiteStore(tmp + "/content.db")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(reopen) error = %v", err)
+	}
+	defer store.Close()
+	jobs, err := store.ListMemoryJobs(context.Background(), "u-clean-platform")
+	if err != nil {
+		t.Fatalf("ListMemoryJobs() error = %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].SourcePlatform != "weibo" {
+		t.Fatalf("jobs = %#v, want only weibo job after platform-only cleanup", jobs)
+	}
+}
+
+func TestRunMemoryCleanupStaleKeepsRecentlyStartedRunningJobs(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, started_at) VALUES (1, 'u-clean-running', 'twitter', 'recent-running', 'running', '%s', '%s')`, now.Add(-72*time.Hour).Format(time.RFC3339Nano), now.Add(-30*time.Minute).Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at, started_at) VALUES (2, 'u-clean-running', 'twitter', 'stale-running', 'running', '%s', '%s')`, now.Add(-72*time.Hour).Format(time.RFC3339Nano), now.Add(-48*time.Hour).Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "cleanup-stale", "--user", "u-clean-running", "--older-than", "24h"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory cleanup-stale running code = %d, stderr = %s", code, stderr.String())
+	}
+	store, err := contentstore.NewSQLiteStore(tmp + "/content.db")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(reopen) error = %v", err)
+	}
+	defer store.Close()
+	jobs, err := store.ListMemoryJobs(context.Background(), "u-clean-running")
+	if err != nil {
+		t.Fatalf("ListMemoryJobs() error = %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].SourceExternalID != "recent-running" {
+		t.Fatalf("jobs = %#v, want only recently started running job to remain", jobs)
+	}
+}
+
+func TestRunMemoryCleanupStaleDryRunReportsButDoesNotDelete(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (1, 'u-clean-dry', 'twitter', 'old-queued', 'queued', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (2, 'u-clean-dry', 'twitter', 'fresh-queued', 'queued', '%s')`, now.Add(-2*time.Hour).Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "cleanup-stale", "--user", "u-clean-dry", "--older-than", "24h", "--dry-run"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory cleanup-stale --dry-run code = %d, stderr = %s", code, stderr.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(cleanup-stale dry-run) error = %v", err)
+	}
+	if out["deleted_jobs"] != float64(1) {
+		t.Fatalf("dry-run output = %#v, want deleted_jobs=1", out)
+	}
+	if dryRun, ok := out["dry_run"].(bool); !ok || !dryRun {
+		t.Fatalf("dry-run output = %#v, want dry_run=true", out)
+	}
+	store, err := contentstore.NewSQLiteStore(tmp + "/content.db")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(reopen) error = %v", err)
+	}
+	defer store.Close()
+	jobs, err := store.ListMemoryJobs(context.Background(), "u-clean-dry")
+	if err != nil {
+		t.Fatalf("ListMemoryJobs() error = %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("len(ListMemoryJobs()) = %d, want 2 because dry-run should not delete", len(jobs))
+	}
+}
+
+func TestRunMemoryCleanupStaleDryRunHonorsSourceFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		rawDB, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, err
+		}
+		defer rawDB.Close()
+		now := time.Now().UTC()
+		for _, stmt := range []string{
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (1, 'u-clean-dry-filter', 'twitter', 'delete-me', 'queued', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano)),
+			fmt.Sprintf(`INSERT INTO memory_organization_jobs(trigger_event_id, user_id, source_platform, source_external_id, status, created_at) VALUES (2, 'u-clean-dry-filter', 'weibo', 'keep-me', 'queued', '%s')`, now.Add(-48*time.Hour).Format(time.RFC3339Nano)),
+		} {
+			if _, err := rawDB.Exec(stmt); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "cleanup-stale", "--user", "u-clean-dry-filter", "--older-than", "24h", "--platform", "twitter", "--dry-run"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory cleanup-stale --dry-run filter code = %d, stderr = %s", code, stderr.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(cleanup-stale dry-run filter) error = %v", err)
+	}
+	if out["deleted_jobs"] != float64(1) {
+		t.Fatalf("dry-run filter output = %#v, want deleted_jobs=1", out)
+	}
+	store, err := contentstore.NewSQLiteStore(tmp + "/content.db")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(reopen) error = %v", err)
+	}
+	defer store.Close()
+	jobs, err := store.ListMemoryJobs(context.Background(), "u-clean-dry-filter")
+	if err != nil {
+		t.Fatalf("ListMemoryJobs() error = %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("len(ListMemoryJobs()) = %d, want 2 because dry-run filter should not delete", len(jobs))
+	}
 }
 
 func TestRunMemoryEventGraphsCombinesScopeAndSubjectFilters(t *testing.T) {
@@ -4779,6 +7028,57 @@ func TestRunMemoryEventGraphsCardSupportsSubjectFilter(t *testing.T) {
 	}
 }
 
+func TestRunMemoryEventGraphsSupportsAliasSubjectFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "driver-fed",
+			EntityType:    memory.CanonicalEntityDriver,
+			CanonicalName: "美联储",
+			Aliases:       []string{"联储"},
+			Status:        memory.CanonicalEntityActive,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}); err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "alias-eg", ArticleID: "alias-eg", SourcePlatform: "twitter", SourceExternalID: "alias-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "alias-eg", SourcePlatform: "twitter", SourceExternalID: "alias-eg", RawText: "联储加息0.25%", SubjectText: "联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-alias-filter", sg, now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "event-graphs", "--user", "u-event-alias-filter", "--subject", "联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("event-graphs alias subject code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.EventGraphRecord
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(event-graphs alias) error = %v", err)
+	}
+	if len(out) != 1 || out[0].AnchorSubject != "美联储" {
+		t.Fatalf("out = %#v, want alias lookup to return canonical 美联储 event graph", out)
+	}
+}
+
 func TestRunMemoryContentGraphsCardSupportsSubjectFilter(t *testing.T) {
 	prevBuildApp := buildApp
 	prevOpenSQLiteStore := openSQLiteStore
@@ -4819,6 +7119,166 @@ func TestRunMemoryContentGraphsCardSupportsSubjectFilter(t *testing.T) {
 	}
 }
 
+func TestRunMemoryContentGraphsSupportsAliasSubjectFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "driver-fed",
+			EntityType:    memory.CanonicalEntityDriver,
+			CanonicalName: "美联储",
+			Aliases:       []string{"联储"},
+			Status:        memory.CanonicalEntityActive,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}); err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "alias-cg", ArticleID: "alias-cg", SourcePlatform: "twitter", SourceExternalID: "alias-cg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "alias-cg", SourcePlatform: "twitter", SourceExternalID: "alias-cg", RawText: "联储加息0.25%", SubjectText: "联储", ChangeText: "加息0.25%", SubjectCanonical: "美联储", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-content-alias-filter", sg, now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "content-graphs", "--user", "u-content-alias-filter", "--subject", "联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("content-graphs alias subject code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []graphmodel.ContentSubgraph
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(content-graphs alias) error = %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("out = %#v, want one content graph for alias lookup", out)
+	}
+}
+
+func TestRunMemoryContentGraphsResolvesAliasToCanonicalSubjectFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "driver-fed",
+			EntityType:    memory.CanonicalEntityDriver,
+			CanonicalName: "美联储",
+			Aliases:       []string{"联储"},
+			Status:        memory.CanonicalEntityActive,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}); err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "canonical-cg", ArticleID: "canonical-cg", SourcePlatform: "twitter", SourceExternalID: "canonical-cg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "canonical-cg", SourcePlatform: "twitter", SourceExternalID: "canonical-cg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-content-canonical-filter", sg, now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "content-graphs", "--user", "u-content-canonical-filter", "--subject", "联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("content-graphs canonical alias filter code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []graphmodel.ContentSubgraph
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(content-graphs canonical alias) error = %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("out = %#v, want one content graph for canonical alias lookup", out)
+	}
+	if out[0].Nodes[0].SubjectText != "美联储" {
+		t.Fatalf("out = %#v, want canonical subject presentation in returned payload", out)
+	}
+}
+
+func TestRunMemoryContentGraphsSupportsSourceAndAliasSubjectFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "driver-fed",
+			EntityType:    memory.CanonicalEntityDriver,
+			CanonicalName: "美联储",
+			Aliases:       []string{"联储"},
+			Status:        memory.CanonicalEntityActive,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}); err != nil {
+			return nil, err
+		}
+		for _, sg := range []graphmodel.ContentSubgraph{
+			{ID: "source-alias-cg-1", ArticleID: "source-alias-cg-1", SourcePlatform: "twitter", SourceExternalID: "source-alias-cg-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "source-alias-cg-1", SourcePlatform: "twitter", SourceExternalID: "source-alias-cg-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+			{ID: "source-alias-cg-2", ArticleID: "source-alias-cg-2", SourcePlatform: "twitter", SourceExternalID: "source-alias-cg-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "source-alias-cg-2", SourcePlatform: "twitter", SourceExternalID: "source-alias-cg-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending}}},
+		} {
+			if err := store.PersistMemoryContentGraph(context.Background(), "u-content-source-alias-filter", sg, now); err != nil {
+				return nil, err
+			}
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "content-graphs", "--user", "u-content-source-alias-filter", "--platform", "twitter", "--id", "source-alias-cg-1", "--subject", "联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("content-graphs source+alias subject code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []graphmodel.ContentSubgraph
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(content-graphs source+alias) error = %v", err)
+	}
+	if len(out) != 1 || out[0].SourceExternalID != "source-alias-cg-1" {
+		t.Fatalf("out = %#v, want one source-filtered alias match", out)
+	}
+}
+
 func TestRunMemoryParadigmsCardSupportsSubjectFilter(t *testing.T) {
 	prevBuildApp := buildApp
 	prevOpenSQLiteStore := openSQLiteStore
@@ -4856,6 +7316,57 @@ func TestRunMemoryParadigmsCardSupportsSubjectFilter(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "美联储") || strings.Contains(stdout.String(), "欧洲央行") {
 		t.Fatalf("stdout = %q, want filtered paradigm card output", stdout.String())
+	}
+}
+
+func TestRunMemoryParadigmsSupportsAliasSubjectFilter(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+			EntityID:      "driver-fed",
+			EntityType:    memory.CanonicalEntityDriver,
+			CanonicalName: "美联储",
+			Aliases:       []string{"联储"},
+			Status:        memory.CanonicalEntityActive,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}); err != nil {
+			return nil, err
+		}
+		sg := graphmodel.ContentSubgraph{ID: "alias-pg", ArticleID: "alias-pg", SourcePlatform: "twitter", SourceExternalID: "alias-pg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "alias-pg", SourcePlatform: "twitter", SourceExternalID: "alias-pg", RawText: "联储加息0.25%", SubjectText: "联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "alias-pg", SourcePlatform: "twitter", SourceExternalID: "alias-pg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-alias-filter", sg, now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "paradigms", "--user", "u-paradigm-alias-filter", "--subject", "联储"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("paradigms alias subject code = %d, stderr = %s", code, stderr.String())
+	}
+	var out []contentstore.ParadigmRecord
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(paradigms alias) error = %v", err)
+	}
+	if len(out) != 1 || out[0].DriverSubject != "美联储" {
+		t.Fatalf("out = %#v, want alias lookup to return canonical 美联储 paradigm", out)
 	}
 }
 
@@ -4932,6 +7443,39 @@ func TestRunVerifyQueueSummaryPrintsCounts(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "queued") || !strings.Contains(stdout.String(), "running") || !strings.Contains(stdout.String(), "due_count") || !strings.Contains(stdout.String(), "object_types") {
 		t.Fatalf("stdout = %q, want queued/running summary with due_count and object_types", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "total_count") {
+		t.Fatalf("stdout = %q, want total_count in summary", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "pending_age_buckets") {
+		t.Fatalf("stdout = %q, want pending_age_buckets in summary", stdout.String())
+	}
+}
+
+func TestRunVerifyQueueSummaryIncludesEmptyPendingAgeBucketsWhenQueueIsEmpty(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		return contentstore.NewSQLiteStore(path)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"verify", "queue", "--summary"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify queue --summary code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "pending_age_buckets") {
+		t.Fatalf("stdout = %q, want empty pending_age_buckets object", stdout.String())
 	}
 }
 

@@ -924,6 +924,12 @@ compile card / event card / paradigm card 的投影层。
 - event graph rebuild duration
 - paradigm recompute duration
 
+当前工程面已落地的可见指标包括：
+- `compile run/show` JSON 中的 `metrics.compile_elapsed_ms`
+- `compile summary/compare` 人读输出中的 compile elapsed / stage summary
+- `verify queue --summary` 中的 `pending_age_buckets`
+- `memory project-all` / `memory backfill` 中的 event / paradigm / global-v2 rebuild duration
+
 ## 12.4 降级策略
 - compile 失败：允许仅保留 raw capture
 - verify 失败：保持 pending + retry
@@ -1024,4 +1030,3 @@ compile card / event card / paradigm card 的投影层。
 3. **第 9 章：存储设计**
 
 这三章一旦定稿，剩余工程我可以直接推进。
-

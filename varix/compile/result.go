@@ -394,13 +394,13 @@ const (
 )
 
 type NodeVerification struct {
-	NodeID    string                 `json:"node_id"`
-	Status    NodeVerificationStatus `json:"status"`
-	Evidence  []string               `json:"evidence,omitempty"`
-	Reason    string                 `json:"reason,omitempty"`
-	AsOf      time.Time              `json:"as_of,omitempty"`
-	NodeText  string                 `json:"node_text,omitempty"`
-	NodeKind  string                 `json:"node_kind,omitempty"`
+	NodeID   string                 `json:"node_id"`
+	Status   NodeVerificationStatus `json:"status"`
+	Evidence []string               `json:"evidence,omitempty"`
+	Reason   string                 `json:"reason,omitempty"`
+	AsOf     time.Time              `json:"as_of,omitempty"`
+	NodeText string                 `json:"node_text,omitempty"`
+	NodeKind string                 `json:"node_kind,omitempty"`
 }
 
 type PathVerificationStatus string
@@ -508,61 +508,67 @@ func (v Verification) IsZero() bool {
 }
 
 type Output struct {
-	Summary           string             `json:"summary,omitempty"`
-	Drivers           []string           `json:"drivers,omitempty"`
-	Targets           []string           `json:"targets,omitempty"`
-	TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
-	EvidenceNodes     []string           `json:"evidence_nodes,omitempty"`
-	ExplanationNodes  []string           `json:"explanation_nodes,omitempty"`
-	SupplementaryNodes []string          `json:"supplementary_nodes,omitempty"`
-	Graph             ReasoningGraph     `json:"graph,omitempty"`
-	Details           HiddenDetails      `json:"details,omitempty"`
-	Topics            []string           `json:"topics,omitempty"`
-	Confidence        string             `json:"confidence,omitempty"`
-	Verification      Verification       `json:"verification,omitempty"`
+	Summary            string             `json:"summary,omitempty"`
+	Drivers            []string           `json:"drivers,omitempty"`
+	Targets            []string           `json:"targets,omitempty"`
+	TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
+	EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
+	ExplanationNodes   []string           `json:"explanation_nodes,omitempty"`
+	SupplementaryNodes []string           `json:"supplementary_nodes,omitempty"`
+	Graph              ReasoningGraph     `json:"graph,omitempty"`
+	Details            HiddenDetails      `json:"details,omitempty"`
+	Topics             []string           `json:"topics,omitempty"`
+	Confidence         string             `json:"confidence,omitempty"`
+	Verification       Verification       `json:"verification,omitempty"`
 }
 
 func (o Output) MarshalJSON() ([]byte, error) {
 	type publicOutput struct {
-		Summary           string             `json:"summary,omitempty"`
-		Drivers           []string           `json:"drivers,omitempty"`
-		Targets           []string           `json:"targets,omitempty"`
-		TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
-		EvidenceNodes     []string           `json:"evidence_nodes,omitempty"`
-		ExplanationNodes  []string           `json:"explanation_nodes,omitempty"`
-		SupplementaryNodes []string          `json:"supplementary_nodes,omitempty"`
-		Details           HiddenDetails      `json:"details,omitempty"`
-		Topics            []string           `json:"topics,omitempty"`
-		Confidence        string             `json:"confidence,omitempty"`
-		Verification      *Verification      `json:"verification,omitempty"`
+		Summary            string             `json:"summary,omitempty"`
+		Drivers            []string           `json:"drivers,omitempty"`
+		Targets            []string           `json:"targets,omitempty"`
+		TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
+		EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
+		ExplanationNodes   []string           `json:"explanation_nodes,omitempty"`
+		SupplementaryNodes []string           `json:"supplementary_nodes,omitempty"`
+		Details            HiddenDetails      `json:"details,omitempty"`
+		Topics             []string           `json:"topics,omitempty"`
+		Confidence         string             `json:"confidence,omitempty"`
+		Verification       *Verification      `json:"verification,omitempty"`
 	}
 	var verification *Verification
 	if !o.Verification.IsZero() {
 		verification = &o.Verification
 	}
 	return json.Marshal(publicOutput{
-		Summary:           o.Summary,
-		Drivers:           o.Drivers,
-		Targets:           o.Targets,
-		TransmissionPaths: o.TransmissionPaths,
-		EvidenceNodes:     o.EvidenceNodes,
-		ExplanationNodes:  o.ExplanationNodes,
+		Summary:            o.Summary,
+		Drivers:            o.Drivers,
+		Targets:            o.Targets,
+		TransmissionPaths:  o.TransmissionPaths,
+		EvidenceNodes:      o.EvidenceNodes,
+		ExplanationNodes:   o.ExplanationNodes,
 		SupplementaryNodes: o.SupplementaryNodes,
-		Details:           o.Details,
-		Topics:            o.Topics,
-		Confidence:        o.Confidence,
-		Verification:      verification,
+		Details:            o.Details,
+		Topics:             o.Topics,
+		Confidence:         o.Confidence,
+		Verification:       verification,
 	})
 }
 
 type Record struct {
-	UnitID         string    `json:"unit_id"`
-	Source         string    `json:"source"`
-	ExternalID     string    `json:"external_id"`
-	RootExternalID string    `json:"root_external_id,omitempty"`
-	Model          string    `json:"model"`
-	Output         Output    `json:"output"`
-	CompiledAt     time.Time `json:"compiled_at"`
+	UnitID         string        `json:"unit_id"`
+	Source         string        `json:"source"`
+	ExternalID     string        `json:"external_id"`
+	RootExternalID string        `json:"root_external_id,omitempty"`
+	Model          string        `json:"model"`
+	Metrics        RecordMetrics `json:"metrics,omitempty"`
+	Output         Output        `json:"output"`
+	CompiledAt     time.Time     `json:"compiled_at"`
+}
+
+type RecordMetrics struct {
+	CompileElapsedMS      int64            `json:"compile_elapsed_ms,omitempty"`
+	CompileStageElapsedMS map[string]int64 `json:"compile_stage_elapsed_ms,omitempty"`
 }
 
 type NodeExtractionOutput struct {
@@ -595,25 +601,25 @@ type TransmissionPathOutput struct {
 }
 
 type EvidenceExplanationOutput struct {
-	EvidenceNodes    []string      `json:"evidence_nodes,omitempty"`
-	ExplanationNodes []string      `json:"explanation_nodes,omitempty"`
-	SupplementaryNodes []string    `json:"supplementary_nodes,omitempty"`
-	Details          HiddenDetails `json:"details,omitempty"`
-	Topics           []string      `json:"topics,omitempty"`
-	Confidence       string        `json:"confidence,omitempty"`
+	EvidenceNodes      []string      `json:"evidence_nodes,omitempty"`
+	ExplanationNodes   []string      `json:"explanation_nodes,omitempty"`
+	SupplementaryNodes []string      `json:"supplementary_nodes,omitempty"`
+	Details            HiddenDetails `json:"details,omitempty"`
+	Topics             []string      `json:"topics,omitempty"`
+	Confidence         string        `json:"confidence,omitempty"`
 }
 
 type UnifiedCompileOutput struct {
-	Summary           string             `json:"summary,omitempty"`
-	Drivers           []string           `json:"drivers,omitempty"`
-	Targets           []string           `json:"targets,omitempty"`
-	TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
-	EvidenceNodes     []string           `json:"evidence_nodes,omitempty"`
-	ExplanationNodes  []string           `json:"explanation_nodes,omitempty"`
-	SupplementaryNodes []string          `json:"supplementary_nodes,omitempty"`
-	Details           HiddenDetails      `json:"details,omitempty"`
-	Topics            []string           `json:"topics,omitempty"`
-	Confidence        string             `json:"confidence,omitempty"`
+	Summary            string             `json:"summary,omitempty"`
+	Drivers            []string           `json:"drivers,omitempty"`
+	Targets            []string           `json:"targets,omitempty"`
+	TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
+	EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
+	ExplanationNodes   []string           `json:"explanation_nodes,omitempty"`
+	SupplementaryNodes []string           `json:"supplementary_nodes,omitempty"`
+	Details            HiddenDetails      `json:"details,omitempty"`
+	Topics             []string           `json:"topics,omitempty"`
+	Confidence         string             `json:"confidence,omitempty"`
 }
 
 type ThesisOutput struct {

@@ -82,60 +82,76 @@ func (c *Client) Compile(ctx context.Context, bundle compile.Bundle) (compile.Re
 	}
 	debugRunDir := c.startDebugRun(bundle)
 	debugV2Stage(bundle, "pipeline", "start")
+	totalStart := time.Now()
+	stageMetrics := map[string]int64{}
+	stageStart := time.Now()
 	graph, err := stage1Extract(ctx, c.runtime, c.model, bundle)
 	if err != nil {
 		debugV2Stage(bundle, "stage1_extract", "error: "+err.Error())
 		c.writeDebugArtifact(debugRunDir, "stage1_extract.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
+	recordStageMetric(stageMetrics, "stage1_extract", time.Since(stageStart))
 	debugV2Stage(bundle, "stage1_extract", fmt.Sprintf("done nodes=%d edges=%d off_graph=%d", len(graph.Nodes), len(graph.Edges), len(graph.OffGraph)))
 	c.writeDebugJSON(debugRunDir, "stage1_extract.json", graph)
+	stageStart = time.Now()
 	graph, err = stage2Dedup(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {
 		debugV2Stage(bundle, "stage2_dedup", "error: "+err.Error())
 		c.writeDebugArtifact(debugRunDir, "stage2_dedup.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
+	recordStageMetric(stageMetrics, "stage2_dedup", time.Since(stageStart))
 	debugV2Stage(bundle, "stage2_dedup", fmt.Sprintf("done nodes=%d edges=%d off_graph=%d", len(graph.Nodes), len(graph.Edges), len(graph.OffGraph)))
 	c.writeDebugJSON(debugRunDir, "stage2_dedup.json", graph)
+	stageStart = time.Now()
 	graph, err = stage3Classify(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {
 		debugV2Stage(bundle, "stage3_classify", "error: "+err.Error())
 		c.writeDebugArtifact(debugRunDir, "stage3_classify.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
+	recordStageMetric(stageMetrics, "stage3_classify", time.Since(stageStart))
 	debugV2Stage(bundle, "stage3_classify", fmt.Sprintf("done drivers=%d targets=%d", countRole(graph, roleDriver), countRole(graph, roleTarget)))
 	c.writeDebugJSON(debugRunDir, "stage3_classify.json", graph)
+	stageStart = time.Now()
 	graph, err = stage3Relations(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {
 		debugV2Stage(bundle, "stage3_relations", "error: "+err.Error())
 		c.writeDebugArtifact(debugRunDir, "stage3_relations.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
+	recordStageMetric(stageMetrics, "stage3_relations", time.Since(stageStart))
 	debugV2Stage(bundle, "stage3_relations", fmt.Sprintf("done nodes=%d edges=%d off_graph=%d", len(graph.Nodes), len(graph.Edges), len(graph.OffGraph)))
 	c.writeDebugJSON(debugRunDir, "stage3_relations.json", graph)
+	stageStart = time.Now()
 	graph, err = stage3Classify(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {
 		debugV2Stage(bundle, "stage3_reclassify", "error: "+err.Error())
 		c.writeDebugArtifact(debugRunDir, "stage3_reclassify.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
+	recordStageMetric(stageMetrics, "stage3_reclassify", time.Since(stageStart))
 	debugV2Stage(bundle, "stage3_reclassify", fmt.Sprintf("done drivers=%d targets=%d", countRole(graph, roleDriver), countRole(graph, roleTarget)))
 	c.writeDebugJSON(debugRunDir, "stage3_reclassify.json", graph)
+	stageStart = time.Now()
 	graph, err = stage4Validate(ctx, c.runtime, c.model, bundle, graph, 1)
 	if err != nil {
 		debugV2Stage(bundle, "stage4_validate", "error: "+err.Error())
 		c.writeDebugArtifact(debugRunDir, "stage4_validate.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
+	recordStageMetric(stageMetrics, "stage4_validate", time.Since(stageStart))
 	debugV2Stage(bundle, "stage4_validate", fmt.Sprintf("done rounds=%d nodes=%d edges=%d", graph.Rounds, len(graph.Nodes), len(graph.Edges)))
 	c.writeDebugJSON(debugRunDir, "stage4_validate.json", graph)
+	stageStart = time.Now()
 	out, err := stage5Render(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {
 		debugV2Stage(bundle, "stage5_render", "error: "+err.Error())
 		c.writeDebugArtifact(debugRunDir, "stage5_render.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
+	recordStageMetric(stageMetrics, "stage5_render", time.Since(stageStart))
 	debugV2Stage(bundle, "stage5_render", fmt.Sprintf("done drivers=%d targets=%d paths=%d evidence=%d explanation=%d supplementary=%d", len(out.Drivers), len(out.Targets), len(out.TransmissionPaths), len(out.EvidenceNodes), len(out.ExplanationNodes), len(out.SupplementaryNodes)))
 	c.writeDebugJSON(debugRunDir, "stage5_render.json", out)
 	return compile.Record{
@@ -144,9 +160,28 @@ func (c *Client) Compile(ctx context.Context, bundle compile.Bundle) (compile.Re
 		ExternalID:     bundle.ExternalID,
 		RootExternalID: bundle.RootExternalID,
 		Model:          c.model,
-		Output:         out,
-		CompiledAt:     time.Now().UTC(),
+		Metrics: compile.RecordMetrics{
+			CompileElapsedMS:      durationToMilliseconds(time.Since(totalStart)),
+			CompileStageElapsedMS: stageMetrics,
+		},
+		Output:     out,
+		CompiledAt: time.Now().UTC(),
 	}, nil
+}
+
+func recordStageMetric(metrics map[string]int64, stage string, duration time.Duration) {
+	if metrics == nil {
+		return
+	}
+	metrics[stage] = durationToMilliseconds(duration)
+}
+
+func durationToMilliseconds(duration time.Duration) int64 {
+	ms := duration.Milliseconds()
+	if ms <= 0 {
+		return 1
+	}
+	return ms
 }
 
 func (c *Client) Verify(ctx context.Context, bundle compile.Bundle, output compile.Output) (compile.Verification, error) {

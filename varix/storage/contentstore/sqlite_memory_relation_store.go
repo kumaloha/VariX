@@ -150,6 +150,27 @@ func (s *SQLiteStore) FindCanonicalEntityByAlias(ctx context.Context, alias stri
 	return s.GetCanonicalEntity(ctx, entityID)
 }
 
+func (s *SQLiteStore) ListCanonicalEntities(ctx context.Context) ([]memory.CanonicalEntity, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT entity_id FROM memory_canonical_entities ORDER BY canonical_name ASC, entity_id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]memory.CanonicalEntity, 0)
+	for rows.Next() {
+		var entityID string
+		if err := rows.Scan(&entityID); err != nil {
+			return nil, err
+		}
+		entity, err := s.GetCanonicalEntity(ctx, entityID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entity)
+	}
+	return out, rows.Err()
+}
+
 func (s *SQLiteStore) UpsertRelation(ctx context.Context, relation memory.Relation) error {
 	relation.RelationID = strings.TrimSpace(relation.RelationID)
 	relation.DriverEntityID = strings.TrimSpace(relation.DriverEntityID)

@@ -100,6 +100,165 @@ func TestSQLiteStore_RunEventGraphProjectionPersistsGroupedGraphs(t *testing.T) 
 	}
 }
 
+func TestSQLiteStore_RunEventGraphProjectionHonorsCanonicalAliasMapping(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+		EntityID:      "driver-fed",
+		EntityType:    memory.CanonicalEntityDriver,
+		CanonicalName: "美联储",
+		Aliases:       []string{"联储"},
+		Status:        memory.CanonicalEntityActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("UpsertCanonicalEntity(driver) error = %v", err)
+	}
+	if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+		EntityID:      "target-us-equity",
+		EntityType:    memory.CanonicalEntityTarget,
+		CanonicalName: "美股",
+		Aliases:       []string{"美国股市"},
+		Status:        memory.CanonicalEntityActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("UpsertCanonicalEntity(target) error = %v", err)
+	}
+	sg := graphmodel.ContentSubgraph{
+		ID:               "sg-canonical",
+		ArticleID:        "unit-canonical",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "canonical",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{
+			{ID: "d1", SourceArticleID: "unit-canonical", SourcePlatform: "twitter", SourceExternalID: "canonical", RawText: "联储继续收紧", SubjectText: "联储", ChangeText: "继续收紧", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "t1", SourceArticleID: "unit-canonical", SourcePlatform: "twitter", SourceExternalID: "canonical", RawText: "未来一周美国股市承压", SubjectText: "美国股市", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+		},
+	}
+	if err := store.UpsertContentSubgraph(context.Background(), sg); err != nil {
+		t.Fatalf("UpsertContentSubgraph() error = %v", err)
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-event-canonical", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	graphs, err := store.RunEventGraphProjection(context.Background(), "u-event-canonical", now)
+	if err != nil {
+		t.Fatalf("RunEventGraphProjection() error = %v", err)
+	}
+	byScope := map[string]EventGraphRecord{}
+	for _, graph := range graphs {
+		byScope[graph.Scope] = graph
+	}
+	if byScope["driver"].AnchorSubject != "美联储" {
+		t.Fatalf("driver AnchorSubject = %q, want canonical 美联储", byScope["driver"].AnchorSubject)
+	}
+	if byScope["target"].AnchorSubject != "美股" {
+		t.Fatalf("target AnchorSubject = %q, want canonical 美股", byScope["target"].AnchorSubject)
+	}
+}
+
+func TestSQLiteStore_RunEventGraphProjectionMergesAliasAndCanonicalSubjects(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+		EntityID:      "driver-fed",
+		EntityType:    memory.CanonicalEntityDriver,
+		CanonicalName: "美联储",
+		Aliases:       []string{"联储"},
+		Status:        memory.CanonicalEntityActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("UpsertCanonicalEntity(driver) error = %v", err)
+	}
+	for _, sg := range []graphmodel.ContentSubgraph{
+		{ID: "sg-alias", ArticleID: "unit-alias", SourcePlatform: "twitter", SourceExternalID: "alias", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "d1", SourceArticleID: "unit-alias", SourcePlatform: "twitter", SourceExternalID: "alias", RawText: "联储继续收紧", SubjectText: "联储", ChangeText: "继续收紧", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}}},
+		{ID: "sg-canonical", ArticleID: "unit-canonical", SourcePlatform: "twitter", SourceExternalID: "canonical", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "d2", SourceArticleID: "unit-canonical", SourcePlatform: "twitter", SourceExternalID: "canonical", RawText: "美联储维持紧缩", SubjectText: "美联储", ChangeText: "维持紧缩", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}}},
+	} {
+		if err := store.UpsertContentSubgraph(context.Background(), sg); err != nil {
+			t.Fatalf("UpsertContentSubgraph(%s) error = %v", sg.ID, err)
+		}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-mixed-canonical", sg, now); err != nil {
+			t.Fatalf("PersistMemoryContentGraph(%s) error = %v", sg.ID, err)
+		}
+	}
+	graphs, err := store.RunEventGraphProjection(context.Background(), "u-event-mixed-canonical", now)
+	if err != nil {
+		t.Fatalf("RunEventGraphProjection() error = %v", err)
+	}
+	if len(graphs) != 1 {
+		t.Fatalf("len(RunEventGraphProjection()) = %d, want 1 merged canonical graph", len(graphs))
+	}
+	if graphs[0].AnchorSubject != "美联储" || graphs[0].SourceSubgraphCount != 2 {
+		t.Fatalf("graph = %#v, want canonical 美联储 with both source subgraphs merged", graphs[0])
+	}
+}
+
+func TestSQLiteStore_ListEventGraphsBySubjectSupportsAliasLookup(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+		EntityID:      "driver-fed",
+		EntityType:    memory.CanonicalEntityDriver,
+		CanonicalName: "美联储",
+		Aliases:       []string{"联储"},
+		Status:        memory.CanonicalEntityActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("UpsertCanonicalEntity(driver) error = %v", err)
+	}
+	sg := graphmodel.ContentSubgraph{
+		ID:               "sg-event-lookup",
+		ArticleID:        "unit-event-lookup",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "event-lookup",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{
+			{ID: "d1", SourceArticleID: "unit-event-lookup", SourcePlatform: "twitter", SourceExternalID: "event-lookup", RawText: "联储继续收紧", SubjectText: "联储", ChangeText: "继续收紧", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+		},
+	}
+	if err := store.UpsertContentSubgraph(context.Background(), sg); err != nil {
+		t.Fatalf("UpsertContentSubgraph() error = %v", err)
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-event-lookup", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	if _, err := store.RunEventGraphProjection(context.Background(), "u-event-lookup", now); err != nil {
+		t.Fatalf("RunEventGraphProjection() error = %v", err)
+	}
+	items, err := store.ListEventGraphsBySubject(context.Background(), "u-event-lookup", "联储")
+	if err != nil {
+		t.Fatalf("ListEventGraphsBySubject() error = %v", err)
+	}
+	if len(items) != 1 || items[0].AnchorSubject != "美联储" {
+		t.Fatalf("items = %#v, want alias lookup to return canonical 美联储 event graph", items)
+	}
+}
+
 func TestSQLiteStore_AcceptMemoryNodesAlsoProjectsEventGraphs(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))

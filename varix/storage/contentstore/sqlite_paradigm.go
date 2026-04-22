@@ -60,6 +60,7 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 		failure      int
 	}
 	byKey := map[string]*state{}
+	canonicalCache := map[string]string{}
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -84,20 +85,28 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 		}
 		for _, driver := range drivers {
 			for _, target := range targets {
+				driverSubject, err := s.resolveCanonicalSubject(ctx, strings.TrimSpace(firstNonEmpty(driver.SubjectCanonical, driver.SubjectText)), canonicalCache)
+				if err != nil {
+					return nil, err
+				}
+				targetSubject, err := s.resolveCanonicalSubject(ctx, strings.TrimSpace(firstNonEmpty(target.SubjectCanonical, target.SubjectText)), canonicalCache)
+				if err != nil {
+					return nil, err
+				}
 				bucket := strings.TrimSpace(firstNonEmpty(driver.TimeBucket, target.TimeBucket, deriveEventBucket(driver), deriveEventBucket(target), "timeless"))
-				key := normalizeCanonicalAlias(driver.SubjectText) + "|" + normalizeCanonicalAlias(target.SubjectText) + "|" + bucket
+				key := normalizeCanonicalAlias(driverSubject) + "|" + normalizeCanonicalAlias(targetSubject) + "|" + bucket
 				st := byKey[key]
 				if st == nil {
 					st = &state{
-						driver:       strings.TrimSpace(driver.SubjectText),
-						target:       strings.TrimSpace(target.SubjectText),
+						driver:       strings.TrimSpace(driverSubject),
+						target:       strings.TrimSpace(targetSubject),
 						bucket:       bucket,
 						traceability: map[string][]string{},
 					}
 					byKey[key] = st
 				}
 				st.subgraphs = append(st.subgraphs, subgraph.ID)
-				st.eventGraphs = append(st.eventGraphs, buildEventGraphID(strings.TrimSpace(userID), "driver", strings.TrimSpace(driver.SubjectText), bucket))
+				st.eventGraphs = append(st.eventGraphs, buildEventGraphID(strings.TrimSpace(userID), "driver", strings.TrimSpace(driverSubject), bucket))
 				st.changes = append(st.changes, strings.TrimSpace(driver.ChangeText), strings.TrimSpace(target.ChangeText))
 				st.traceability[subgraph.ID] = uniqueStrings(append(st.traceability[subgraph.ID], driver.ID, target.ID))
 				switch target.VerificationStatus {
@@ -157,6 +166,10 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 }
 
 func (s *SQLiteStore) ListParadigmsBySubject(ctx context.Context, userID, subject string) ([]ParadigmRecord, error) {
+	subject, err := s.resolveCanonicalListSubject(ctx, subject)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT payload_json FROM paradigms WHERE user_id = ? AND (driver_subject = ? OR target_subject = ?) ORDER BY driver_subject ASC, target_subject ASC, time_bucket ASC`, strings.TrimSpace(userID), strings.TrimSpace(subject), strings.TrimSpace(subject))
 	if err != nil {
 		return nil, err

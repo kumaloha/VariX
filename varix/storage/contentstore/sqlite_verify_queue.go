@@ -182,14 +182,14 @@ func (s *SQLiteStore) RunVerifyQueueSweep(ctx context.Context, now time.Time, li
 		verdict, err := evaluator(item)
 		if err != nil {
 			result.Failed++
-			if retryErr := s.RetryVerifyQueueItem(ctx, item.ID, now.Add(time.Minute), err.Error(), now); retryErr != nil {
+			if retryErr := s.RetryVerifyQueueItem(ctx, item.ID, verifyQueueRetryAt(now, item.Attempts), err.Error(), now); retryErr != nil {
 				return result, retryErr
 			}
 			continue
 		}
 		if verdict.Verdict == graphmodel.VerificationPending {
 			result.Retried++
-			nextAt := now.Add(time.Minute)
+			nextAt := verifyQueueRetryAt(now, item.Attempts)
 			if strings.TrimSpace(verdict.NextVerifyAt) != "" {
 				parsed, parseErr := time.Parse(time.RFC3339, verdict.NextVerifyAt)
 				if parseErr != nil {
@@ -218,6 +218,26 @@ func (s *SQLiteStore) RunVerifyQueueSweep(ctx context.Context, now time.Time, li
 		}
 	}
 	return result, nil
+}
+
+func verifyQueueRetryAt(now time.Time, attempts int) time.Time {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return now.Add(verifyQueueRetryDelay(attempts))
+}
+
+func verifyQueueRetryDelay(attempts int) time.Duration {
+	switch {
+	case attempts <= 1:
+		return time.Minute
+	case attempts == 2:
+		return 5 * time.Minute
+	case attempts == 3:
+		return 15 * time.Minute
+	default:
+		return time.Hour
+	}
 }
 
 func (s *SQLiteStore) MarkVerifyQueueItemRunning(ctx context.Context, queueID string, now time.Time) error {
@@ -277,8 +297,10 @@ type VerifyQueueSweepResult struct {
 type VerifyQueueSummaryDetailed struct {
 	Counts            map[graphmodel.VerifyQueueStatus]int     `json:"counts"`
 	ObjectTypes       map[graphmodel.VerifyQueueObjectType]int `json:"object_types"`
+	TotalCount        int                                      `json:"total_count"`
 	DueCount          int                                      `json:"due_count"`
 	OldestScheduledAt string                                   `json:"oldest_scheduled_at,omitempty"`
+	PendingAgeBuckets map[string]int                           `json:"pending_age_buckets"`
 }
 
 func (s *SQLiteStore) RetryVerifyQueueItem(ctx context.Context, queueID string, nextAt time.Time, lastError string, now time.Time) error {
@@ -391,7 +413,40 @@ func (s *SQLiteStore) GetVerifyQueueSummaryDetailed(ctx context.Context, now tim
 	if err := typeRows.Err(); err != nil {
 		return VerifyQueueSummaryDetailed{}, err
 	}
-	out := VerifyQueueSummaryDetailed{Counts: counts, ObjectTypes: objectTypes, DueCount: dueCount}
+	ageRows, err := s.db.QueryContext(ctx, `SELECT scheduled_at FROM verify_queue WHERE status IN ('queued','retry')`)
+	if err != nil {
+		return VerifyQueueSummaryDetailed{}, err
+	}
+	defer ageRows.Close()
+	pendingAgeBuckets := map[string]int{}
+	for ageRows.Next() {
+		var scheduledAt string
+		if err := ageRows.Scan(&scheduledAt); err != nil {
+			return VerifyQueueSummaryDetailed{}, err
+		}
+		parsed := parseSQLiteTime(scheduledAt)
+		switch age := now.Sub(parsed); {
+		case age < 0:
+			pendingAgeBuckets["future"]++
+		case age < time.Hour:
+			pendingAgeBuckets["overdue_lt_1h"]++
+		case age <= 24*time.Hour:
+			pendingAgeBuckets["overdue_1h_to_24h"]++
+		default:
+			pendingAgeBuckets["overdue_gt_24h"]++
+		}
+	}
+	if err := ageRows.Err(); err != nil {
+		return VerifyQueueSummaryDetailed{}, err
+	}
+	if pendingAgeBuckets == nil {
+		pendingAgeBuckets = map[string]int{}
+	}
+	totalCount := 0
+	for _, count := range counts {
+		totalCount += count
+	}
+	out := VerifyQueueSummaryDetailed{Counts: counts, ObjectTypes: objectTypes, TotalCount: totalCount, DueCount: dueCount, PendingAgeBuckets: pendingAgeBuckets}
 	if oldest.Valid {
 		out.OldestScheduledAt = parseSQLiteTime(oldest.String).UTC().Format(time.RFC3339)
 	}

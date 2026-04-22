@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
 	c "github.com/kumaloha/VariX/varix/compile"
 	cv2 "github.com/kumaloha/VariX/varix/compilev2"
+	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
@@ -192,10 +196,17 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	}
 
 	bundle := c.BuildBundle(raw)
+	compileStart := time.Now()
 	record, err := client.Compile(ctx, bundle)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if record.Metrics.CompileElapsedMS <= 0 {
+		record.Metrics.CompileElapsedMS = time.Since(compileStart).Milliseconds()
+		if record.Metrics.CompileElapsedMS <= 0 {
+			record.Metrics.CompileElapsedMS = 1
+		}
 	}
 	if err := store.UpsertCompiledOutput(ctx, record); err != nil {
 		fmt.Fprintln(stderr, err)
@@ -315,6 +326,7 @@ func runCompileSummary(args []string, projectRoot string, stdout, stderr io.Writ
 		fmt.Fprintf(stdout, "Topics: %s\n", strings.Join(record.Output.Topics, ", "))
 	}
 	fmt.Fprintf(stdout, "Confidence: %s\n", record.Output.Confidence)
+	writeHumanReadableCompileMetrics(stdout, record)
 	return 0
 }
 
@@ -377,7 +389,26 @@ func runCompileCompare(args []string, projectRoot string, stdout, stderr io.Writ
 	fmt.Fprintf(stdout, "Targets: %d\n", len(record.Output.Targets))
 	fmt.Fprintf(stdout, "Paths: %d\n", len(record.Output.TransmissionPaths))
 	fmt.Fprintf(stdout, "Confidence: %s\n", record.Output.Confidence)
+	writeHumanReadableCompileMetrics(stdout, record)
 	return 0
+}
+
+func writeHumanReadableCompileMetrics(w io.Writer, record c.Record) {
+	if record.Metrics.CompileElapsedMS > 0 {
+		fmt.Fprintf(w, "Compile elapsed: %dms\n", record.Metrics.CompileElapsedMS)
+	} else {
+		fmt.Fprintln(w, "Compile elapsed: unavailable")
+	}
+	if len(record.Metrics.CompileStageElapsedMS) == 0 {
+		fmt.Fprintln(w, "Stages: unavailable")
+		return
+	}
+	stages := make([]string, 0, len(record.Metrics.CompileStageElapsedMS))
+	for stage, ms := range record.Metrics.CompileStageElapsedMS {
+		stages = append(stages, fmt.Sprintf("%s=%dms", stage, ms))
+	}
+	sort.Strings(stages)
+	fmt.Fprintf(w, "Stages: %s\n", strings.Join(stages, ", "))
 }
 
 func runCompileCard(args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -424,43 +455,113 @@ func runCompileCard(args []string, projectRoot string, stdout, stderr io.Writer)
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	var subgraph *graphmodel.ContentSubgraph
+	if graph, graphErr := store.GetContentSubgraph(context.Background(), *platform, *externalID); graphErr == nil {
+		subgraph = &graph
+	} else if !errors.Is(graphErr, sql.ErrNoRows) {
+		fmt.Fprintln(stderr, graphErr)
+		return 1
+	}
+	projection := buildCompileCardProjection(record, subgraph)
 
 	if *compact {
-		fmt.Fprint(stdout, formatCompactCompileCard(record))
+		fmt.Fprint(stdout, formatCompactCompileCard(projection))
 		return 0
 	}
-	fmt.Fprint(stdout, formatCompileCard(record))
+	fmt.Fprint(stdout, formatCompileCard(projection))
 	return 0
 }
 
-func formatCompileCard(record c.Record) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Summary\n%s\n\n", record.Output.Summary)
-	if len(record.Output.Topics) > 0 {
-		fmt.Fprintf(&b, "Topics\n- %s\n\n", strings.Join(record.Output.Topics, "\n- "))
+type compileCardProjection struct {
+	Summary             string
+	Topics              []string
+	Confidence          string
+	Drivers             []string
+	Targets             []string
+	Evidence            []string
+	Explanations        []string
+	LogicChains         []string
+	VerificationSummary []string
+}
+
+func buildCompileCardProjection(record c.Record, subgraph *graphmodel.ContentSubgraph) compileCardProjection {
+	projection := compileCardProjection{
+		Summary:      record.Output.Summary,
+		Topics:       append([]string(nil), record.Output.Topics...),
+		Confidence:   record.Output.Confidence,
+		Drivers:      append([]string(nil), record.Output.Drivers...),
+		Targets:      append([]string(nil), record.Output.Targets...),
+		Evidence:     append([]string(nil), record.Output.EvidenceNodes...),
+		Explanations: append([]string(nil), record.Output.ExplanationNodes...),
+		LogicChains:  legacyLogicChains(record),
 	}
-	if chains := logicChains(record); len(chains) > 0 {
+	if subgraph == nil {
+		return projection
+	}
+	if drivers := graphFirstNodeSection(*subgraph, func(node graphmodel.GraphNode) bool {
+		return node.IsPrimary && node.GraphRole == graphmodel.GraphRoleDriver
+	}); len(drivers) > 0 {
+		projection.Drivers = preferGraphFirstSection(projection.Drivers, drivers)
+	}
+	if targets := graphFirstNodeSection(*subgraph, func(node graphmodel.GraphNode) bool {
+		return node.IsPrimary && node.GraphRole == graphmodel.GraphRoleTarget
+	}); len(targets) > 0 {
+		projection.Targets = preferGraphFirstSection(projection.Targets, targets)
+	}
+	if evidence := graphFirstEvidenceSection(*subgraph); len(evidence) > 0 {
+		projection.Evidence = preferGraphFirstSection(projection.Evidence, evidence)
+	}
+	if explanations := graphFirstExplanationSection(*subgraph); len(explanations) > 0 {
+		projection.Explanations = preferGraphFirstSection(projection.Explanations, explanations)
+	}
+	if chains := graphFirstLogicChains(*subgraph); len(chains) > 0 {
+		projection.LogicChains = preferGraphFirstLogicChains(projection.LogicChains, chains)
+	}
+	if verification := graphFirstVerificationSummary(*subgraph); len(verification) > 0 {
+		projection.VerificationSummary = verification
+	}
+	return projection
+}
+
+func formatCompileCard(projection compileCardProjection) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Summary\n%s\n\n", projection.Summary)
+	if len(projection.Topics) > 0 {
+		fmt.Fprintf(&b, "Topics\n- %s\n\n", strings.Join(projection.Topics, "\n- "))
+	}
+	writeCompactNodeSection(&b, "Drivers", truncateList(projection.Drivers, 5))
+	writeCompactNodeSection(&b, "Targets", truncateList(projection.Targets, 5))
+	writeCompactNodeSection(&b, "Evidence", truncateList(projection.Evidence, 5))
+	writeCompactNodeSection(&b, "Explanations", truncateList(projection.Explanations, 5))
+	if len(projection.LogicChains) > 0 {
 		fmt.Fprintf(&b, "Logic chain\n")
-		for _, chain := range chains {
+		for _, chain := range projection.LogicChains {
 			fmt.Fprintf(&b, "- %s\n", chain)
 		}
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, "Confidence\n%s\n", record.Output.Confidence)
+	if len(projection.VerificationSummary) > 0 {
+		fmt.Fprintf(&b, "Verification\n")
+		for _, line := range projection.VerificationSummary {
+			fmt.Fprintf(&b, "- %s\n", line)
+		}
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "Confidence\n%s\n", projection.Confidence)
 	return b.String()
 }
 
-func formatCompactCompileCard(record c.Record) string {
+func formatCompactCompileCard(projection compileCardProjection) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Summary\n%s\n\n", record.Output.Summary)
-	writeCompactNodeSection(&b, "Drivers", truncateList(record.Output.Drivers, 3))
-	writeCompactNodeSection(&b, "Targets", truncateList(record.Output.Targets, 3))
-	writeCompactNodeSection(&b, "Evidence", truncateList(record.Output.EvidenceNodes, 3))
-	writeCompactNodeSection(&b, "Explanations", truncateList(record.Output.ExplanationNodes, 2))
-	if chains := logicChains(record); len(chains) > 0 {
-		fmt.Fprintf(&b, "Main logic\n- %s\n\n", chains[0])
+	fmt.Fprintf(&b, "Summary\n%s\n\n", projection.Summary)
+	writeCompactNodeSection(&b, "Drivers", truncateList(projection.Drivers, 3))
+	writeCompactNodeSection(&b, "Targets", truncateList(projection.Targets, 3))
+	writeCompactNodeSection(&b, "Evidence", truncateList(projection.Evidence, 3))
+	writeCompactNodeSection(&b, "Explanations", truncateList(projection.Explanations, 2))
+	if len(projection.LogicChains) > 0 {
+		fmt.Fprintf(&b, "Main logic\n- %s\n\n", projection.LogicChains[0])
 	}
-	fmt.Fprintf(&b, "Confidence\n%s\n", record.Output.Confidence)
+	fmt.Fprintf(&b, "Confidence\n%s\n", projection.Confidence)
 	return b.String()
 }
 
@@ -475,7 +576,7 @@ func writeCompactNodeSection(b *strings.Builder, title string, items []string) {
 	b.WriteString("\n")
 }
 
-func logicChains(record c.Record) []string {
+func legacyLogicChains(record c.Record) []string {
 	if len(record.Output.TransmissionPaths) == 0 {
 		return nil
 	}
@@ -496,6 +597,252 @@ func logicChains(record c.Record) []string {
 		}
 	}
 	return chains
+}
+
+func graphFirstNodeSection(subgraph graphmodel.ContentSubgraph, keep func(graphmodel.GraphNode) bool) []string {
+	out := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, node := range subgraph.Nodes {
+		if !keep(node) {
+			continue
+		}
+		label := strings.TrimSpace(graphFirstNodeLabel(node))
+		if label == "" {
+			continue
+		}
+		if _, ok := seen[label]; ok {
+			continue
+		}
+		seen[label] = struct{}{}
+		out = append(out, label)
+	}
+	return out
+}
+
+func graphFirstEvidenceSection(subgraph graphmodel.ContentSubgraph) []string {
+	out := graphFirstNodeSection(subgraph, func(node graphmodel.GraphNode) bool {
+		return node.GraphRole == graphmodel.GraphRoleEvidence
+	})
+	if len(out) > 0 {
+		return out
+	}
+	byID := graphNodeIndex(subgraph)
+	for _, edge := range subgraph.Edges {
+		if edge.Type != graphmodel.EdgeTypeSupports {
+			continue
+		}
+		if node, ok := byID[edge.From]; ok {
+			out = appendUniqueString(out, graphFirstNodeLabel(node))
+		}
+	}
+	return out
+}
+
+func graphFirstExplanationSection(subgraph graphmodel.ContentSubgraph) []string {
+	out := graphFirstNodeSection(subgraph, func(node graphmodel.GraphNode) bool {
+		return node.GraphRole == graphmodel.GraphRoleContext
+	})
+	byID := graphNodeIndex(subgraph)
+	for _, edge := range subgraph.Edges {
+		if edge.Type != graphmodel.EdgeTypeExplains {
+			continue
+		}
+		if node, ok := byID[edge.From]; ok {
+			out = appendUniqueString(out, graphFirstNodeLabel(node))
+		}
+	}
+	return out
+}
+
+func graphFirstLogicChains(subgraph graphmodel.ContentSubgraph) []string {
+	nodeByID := graphNodeIndex(subgraph)
+	primaryDriveAdj := map[string][]string{}
+	primaryDriveNodes := map[string]struct{}{}
+	for _, edge := range subgraph.Edges {
+		if edge.Type != graphmodel.EdgeTypeDrives {
+			continue
+		}
+		if !edge.IsPrimary {
+			continue
+		}
+		primaryDriveAdj[edge.From] = append(primaryDriveAdj[edge.From], edge.To)
+		primaryDriveNodes[edge.From] = struct{}{}
+		primaryDriveNodes[edge.To] = struct{}{}
+	}
+	if len(primaryDriveAdj) == 0 {
+		return nil
+	}
+	for from := range primaryDriveAdj {
+		sort.Strings(primaryDriveAdj[from])
+	}
+	starts := make([]string, 0)
+	targets := map[string]struct{}{}
+	for _, node := range subgraph.Nodes {
+		if !node.IsPrimary {
+			continue
+		}
+		if node.GraphRole == graphmodel.GraphRoleDriver {
+			starts = append(starts, node.ID)
+		}
+		if node.GraphRole == graphmodel.GraphRoleTarget {
+			targets[node.ID] = struct{}{}
+		}
+	}
+	sort.Strings(starts)
+	chains := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, start := range starts {
+		graphFirstCollectPaths(start, primaryDriveAdj, targets, nodeByID, nil, map[string]bool{}, &chains, seen)
+	}
+	return chains
+}
+
+func graphFirstCollectPaths(current string, adj map[string][]string, targets map[string]struct{}, nodeByID map[string]graphmodel.GraphNode, path []string, visiting map[string]bool, out *[]string, seen map[string]struct{}) {
+	if visiting[current] {
+		return
+	}
+	node, ok := nodeByID[current]
+	if !ok {
+		return
+	}
+	label := graphFirstNodeLabel(node)
+	if strings.TrimSpace(label) == "" {
+		return
+	}
+	path = append(path, truncate(label, 50))
+	if _, isTarget := targets[current]; isTarget {
+		chain := strings.Join(path, " -> ")
+		if _, ok := seen[chain]; !ok {
+			seen[chain] = struct{}{}
+			*out = append(*out, chain)
+		}
+	}
+	nexts := adj[current]
+	if len(nexts) == 0 {
+		return
+	}
+	visiting[current] = true
+	for _, next := range nexts {
+		graphFirstCollectPaths(next, adj, targets, nodeByID, path, visiting, out, seen)
+	}
+	delete(visiting, current)
+}
+
+func graphNodeIndex(subgraph graphmodel.ContentSubgraph) map[string]graphmodel.GraphNode {
+	out := make(map[string]graphmodel.GraphNode, len(subgraph.Nodes))
+	for _, node := range subgraph.Nodes {
+		out[node.ID] = node
+	}
+	return out
+}
+
+func graphFirstNodeLabel(node graphmodel.GraphNode) string {
+	switch {
+	case strings.TrimSpace(node.RawText) != "":
+		return strings.TrimSpace(node.RawText)
+	case strings.TrimSpace(node.SourceQuote) != "":
+		return strings.TrimSpace(node.SourceQuote)
+	case strings.TrimSpace(node.SubjectText) != "" && strings.TrimSpace(node.ChangeText) != "" && strings.TrimSpace(node.SubjectText) != strings.TrimSpace(node.ChangeText):
+		return strings.TrimSpace(node.SubjectText) + " " + strings.TrimSpace(node.ChangeText)
+	default:
+		return strings.TrimSpace(firstNonEmpty(node.SubjectText, node.ChangeText, node.ID))
+	}
+}
+
+func appendUniqueString(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func graphFirstChainRichness(chains []string) int {
+	best := 0
+	for _, chain := range chains {
+		parts := strings.Split(chain, "->")
+		if len(parts) > best {
+			best = len(parts)
+		}
+	}
+	return best
+}
+
+func graphFirstSectionRichness(values []string) int {
+	count := 0
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func preferGraphFirstSection(legacy, graph []string) []string {
+	if graphFirstSectionRichness(graph) >= graphFirstSectionRichness(legacy) {
+		return graph
+	}
+	return legacy
+}
+
+func preferGraphFirstLogicChains(legacy, graph []string) []string {
+	if graphFirstChainRichness(graph) >= graphFirstChainRichness(legacy) {
+		return graph
+	}
+	return legacy
+}
+
+func graphFirstVerificationSummary(subgraph graphmodel.ContentSubgraph) []string {
+	nodeCounts := map[graphmodel.VerificationStatus]int{}
+	edgeCounts := map[graphmodel.VerificationStatus]int{}
+	for _, node := range subgraph.Nodes {
+		nodeCounts[node.VerificationStatus]++
+	}
+	for _, edge := range subgraph.Edges {
+		status := edge.VerificationStatus
+		if status == "" {
+			status = graphmodel.VerificationPending
+		}
+		edgeCounts[status]++
+	}
+	out := make([]string, 0, 2)
+	if len(nodeCounts) > 0 {
+		out = append(out, "Nodes: "+formatVerificationCounts(nodeCounts))
+	}
+	if len(edgeCounts) > 0 {
+		out = append(out, "Edges: "+formatVerificationCounts(edgeCounts))
+	}
+	return out
+}
+
+func formatVerificationCounts(counts map[graphmodel.VerificationStatus]int) string {
+	parts := make([]string, 0, 4)
+	for _, status := range []graphmodel.VerificationStatus{
+		graphmodel.VerificationPending,
+		graphmodel.VerificationProved,
+		graphmodel.VerificationDisproved,
+		graphmodel.VerificationUnverifiable,
+	} {
+		if counts[status] == 0 {
+			continue
+		}
+		parts = append(parts, string(status)+"="+fmt.Sprintf("%d", counts[status]))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func truncate(value string, max int) string {

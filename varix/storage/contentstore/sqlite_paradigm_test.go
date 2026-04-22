@@ -94,6 +94,213 @@ func TestSQLiteStore_RunParadigmProjectionBuildsGroupedParadigms(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_RunParadigmProjectionHonorsCanonicalAliasMapping(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+		EntityID:      "driver-fed",
+		EntityType:    memory.CanonicalEntityDriver,
+		CanonicalName: "美联储",
+		Aliases:       []string{"联储"},
+		Status:        memory.CanonicalEntityActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("UpsertCanonicalEntity(driver) error = %v", err)
+	}
+	if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+		EntityID:      "target-us-equity",
+		EntityType:    memory.CanonicalEntityTarget,
+		CanonicalName: "美股",
+		Aliases:       []string{"美国股市"},
+		Status:        memory.CanonicalEntityActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("UpsertCanonicalEntity(target) error = %v", err)
+	}
+	sg := graphmodel.ContentSubgraph{
+		ID:               "psg-canonical",
+		ArticleID:        "unit-p-canonical",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "p-canonical",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{
+			{ID: "d1", SourceArticleID: "unit-p-canonical", SourcePlatform: "twitter", SourceExternalID: "p-canonical", RawText: "联储继续收紧", SubjectText: "联储", ChangeText: "继续收紧", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "t1", SourceArticleID: "unit-p-canonical", SourcePlatform: "twitter", SourceExternalID: "p-canonical", RawText: "未来一周美国股市承压", SubjectText: "美国股市", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"},
+		},
+	}
+	if err := store.UpsertContentSubgraph(context.Background(), sg); err != nil {
+		t.Fatalf("UpsertContentSubgraph() error = %v", err)
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-canonical", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	paradigms, err := store.RunParadigmProjection(context.Background(), "u-paradigm-canonical", now)
+	if err != nil {
+		t.Fatalf("RunParadigmProjection() error = %v", err)
+	}
+	if len(paradigms) != 1 {
+		t.Fatalf("len(RunParadigmProjection()) = %d, want 1", len(paradigms))
+	}
+	if paradigms[0].DriverSubject != "美联储" || paradigms[0].TargetSubject != "美股" {
+		t.Fatalf("paradigm = %#v, want canonical 美联储 -> 美股", paradigms[0])
+	}
+}
+
+func TestSQLiteStore_ListParadigmsBySubjectSupportsAliasLookup(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+		EntityID:      "driver-fed",
+		EntityType:    memory.CanonicalEntityDriver,
+		CanonicalName: "美联储",
+		Aliases:       []string{"联储"},
+		Status:        memory.CanonicalEntityActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("UpsertCanonicalEntity(driver) error = %v", err)
+	}
+	sg := graphmodel.ContentSubgraph{
+		ID:               "psg-alias-lookup",
+		ArticleID:        "unit-p-lookup",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "p-lookup",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{
+			{ID: "d1", SourceArticleID: "unit-p-lookup", SourcePlatform: "twitter", SourceExternalID: "p-lookup", RawText: "联储继续收紧", SubjectText: "联储", ChangeText: "继续收紧", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "t1", SourceArticleID: "unit-p-lookup", SourcePlatform: "twitter", SourceExternalID: "p-lookup", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"},
+		},
+	}
+	if err := store.UpsertContentSubgraph(context.Background(), sg); err != nil {
+		t.Fatalf("UpsertContentSubgraph() error = %v", err)
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-lookup", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	if _, err := store.RunParadigmProjection(context.Background(), "u-paradigm-lookup", now); err != nil {
+		t.Fatalf("RunParadigmProjection() error = %v", err)
+	}
+	items, err := store.ListParadigmsBySubject(context.Background(), "u-paradigm-lookup", "联储")
+	if err != nil {
+		t.Fatalf("ListParadigmsBySubject() error = %v", err)
+	}
+	if len(items) != 1 || items[0].DriverSubject != "美联储" {
+		t.Fatalf("items = %#v, want alias lookup to return canonical 美联储 paradigm", items)
+	}
+}
+
+func TestSQLiteStore_RunParadigmProjectionMergesAliasAndCanonicalSubjects(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+		EntityID:      "driver-fed",
+		EntityType:    memory.CanonicalEntityDriver,
+		CanonicalName: "美联储",
+		Aliases:       []string{"联储"},
+		Status:        memory.CanonicalEntityActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("UpsertCanonicalEntity(driver) error = %v", err)
+	}
+	for _, sg := range []graphmodel.ContentSubgraph{
+		{ID: "psg-alias", ArticleID: "unit-p-alias", SourcePlatform: "twitter", SourceExternalID: "p-alias", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "d1", SourceArticleID: "unit-p-alias", SourcePlatform: "twitter", SourceExternalID: "p-alias", RawText: "联储继续收紧", SubjectText: "联储", ChangeText: "继续收紧", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "t1", SourceArticleID: "unit-p-alias", SourcePlatform: "twitter", SourceExternalID: "p-alias", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
+		{ID: "psg-canonical", ArticleID: "unit-p-canonical", SourcePlatform: "twitter", SourceExternalID: "p-canonical", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "d2", SourceArticleID: "unit-p-canonical", SourcePlatform: "twitter", SourceExternalID: "p-canonical", RawText: "美联储维持紧缩", SubjectText: "美联储", ChangeText: "维持紧缩", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "t2", SourceArticleID: "unit-p-canonical", SourcePlatform: "twitter", SourceExternalID: "p-canonical", RawText: "未来一周美股波动", SubjectText: "美股", ChangeText: "波动", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationDisproved, TimeBucket: "1w"}}},
+	} {
+		if err := store.UpsertContentSubgraph(context.Background(), sg); err != nil {
+			t.Fatalf("UpsertContentSubgraph(%s) error = %v", sg.ID, err)
+		}
+		if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-mixed", sg, now); err != nil {
+			t.Fatalf("PersistMemoryContentGraph(%s) error = %v", sg.ID, err)
+		}
+	}
+	items, err := store.RunParadigmProjection(context.Background(), "u-paradigm-mixed", now)
+	if err != nil {
+		t.Fatalf("RunParadigmProjection() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(RunParadigmProjection()) = %d, want 1 merged canonical paradigm", len(items))
+	}
+	if items[0].DriverSubject != "美联储" || items[0].SupportingSubgraphCount != 2 {
+		t.Fatalf("items = %#v, want canonical 美联储 paradigm with both subgraphs merged", items)
+	}
+}
+
+func TestSQLiteStore_ListParadigmsBySubjectSupportsTargetAliasLookup(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertCanonicalEntity(context.Background(), memory.CanonicalEntity{
+		EntityID:      "target-us-equity",
+		EntityType:    memory.CanonicalEntityTarget,
+		CanonicalName: "美股",
+		Aliases:       []string{"美国股市"},
+		Status:        memory.CanonicalEntityActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}); err != nil {
+		t.Fatalf("UpsertCanonicalEntity(target) error = %v", err)
+	}
+	sg := graphmodel.ContentSubgraph{
+		ID:               "psg-target-lookup",
+		ArticleID:        "unit-p-target-lookup",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "p-target-lookup",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{
+			{ID: "d1", SourceArticleID: "unit-p-target-lookup", SourcePlatform: "twitter", SourceExternalID: "p-target-lookup", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "t1", SourceArticleID: "unit-p-target-lookup", SourcePlatform: "twitter", SourceExternalID: "p-target-lookup", RawText: "未来一周美国股市承压", SubjectText: "美国股市", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"},
+		},
+	}
+	if err := store.UpsertContentSubgraph(context.Background(), sg); err != nil {
+		t.Fatalf("UpsertContentSubgraph() error = %v", err)
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-target-lookup", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	if _, err := store.RunParadigmProjection(context.Background(), "u-paradigm-target-lookup", now); err != nil {
+		t.Fatalf("RunParadigmProjection() error = %v", err)
+	}
+	items, err := store.ListParadigmsBySubject(context.Background(), "u-paradigm-target-lookup", "美国股市")
+	if err != nil {
+		t.Fatalf("ListParadigmsBySubject() error = %v", err)
+	}
+	if len(items) != 1 || items[0].TargetSubject != "美股" {
+		t.Fatalf("items = %#v, want target alias lookup to return canonical 美股 paradigm", items)
+	}
+}
+
 func TestSQLiteStore_AcceptMemoryNodesAlsoProjectsParadigms(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))

@@ -170,7 +170,7 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	if c.prompts == nil {
 		c.prompts = newPromptRegistry("")
 	}
-	output, err := c.compileDirect(ctx, bundle)
+	output, metrics, err := c.compileDirect(ctx, bundle)
 	if err != nil {
 		return Record{}, err
 	}
@@ -180,6 +180,7 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 		ExternalID:     bundle.ExternalID,
 		RootExternalID: bundle.RootExternalID,
 		Model:          c.model,
+		Metrics:        metrics,
 		Output:         output,
 		CompiledAt:     time.Now().UTC(),
 	}, nil
@@ -208,27 +209,53 @@ func (c *Client) VerifyDetailed(ctx context.Context, bundle Bundle, output Outpu
 	return runDetailedVerifier(ctx, c.runtime, c.model, c.prompts, bundle, output)
 }
 
-func (c *Client) compileDirect(ctx context.Context, bundle Bundle) (Output, error) {
+func (c *Client) compileDirect(ctx context.Context, bundle Bundle) (Output, RecordMetrics, error) {
 	debugCompileStage(bundle, "compile_direct", "start")
+	totalStart := time.Now()
+	stageMetrics := map[string]int64{}
+	stageStart := time.Now()
 	generated, err := c.compileUnifiedGenerate(ctx, bundle)
 	if err != nil {
 		debugCompileStage(bundle, "compile_direct", "unified_generator_error: "+err.Error())
-		return Output{}, err
+		return Output{}, RecordMetrics{}, err
 	}
+	recordCompileStageMetric(stageMetrics, "unified_generator", time.Since(stageStart))
 	debugCompileStage(bundle, "compile_direct", "unified_generator_done")
+	stageStart = time.Now()
 	challenged, err := c.compileUnifiedChallenge(ctx, bundle, generated)
 	if err != nil {
 		debugCompileStage(bundle, "compile_direct", "unified_challenge_error: "+err.Error())
-		return Output{}, err
+		return Output{}, RecordMetrics{}, err
 	}
+	recordCompileStageMetric(stageMetrics, "unified_challenge", time.Since(stageStart))
 	debugCompileStage(bundle, "compile_direct", "unified_challenge_done")
+	stageStart = time.Now()
 	final, err := c.compileUnifiedJudge(ctx, bundle, generated, challenged)
 	if err != nil {
 		debugCompileStage(bundle, "compile_direct", "unified_judge_error: "+err.Error())
-		return Output{}, err
+		return Output{}, RecordMetrics{}, err
 	}
+	recordCompileStageMetric(stageMetrics, "unified_judge", time.Since(stageStart))
 	debugCompileStage(bundle, "compile_direct", "unified_judge_done")
-	return mergeUnifiedCompileOutput(bundle, final), nil
+	return mergeUnifiedCompileOutput(bundle, final), RecordMetrics{
+		CompileElapsedMS:      durationToMilliseconds(time.Since(totalStart)),
+		CompileStageElapsedMS: stageMetrics,
+	}, nil
+}
+
+func recordCompileStageMetric(metrics map[string]int64, stage string, duration time.Duration) {
+	if metrics == nil {
+		return
+	}
+	metrics[stage] = durationToMilliseconds(duration)
+}
+
+func durationToMilliseconds(duration time.Duration) int64 {
+	ms := duration.Milliseconds()
+	if ms <= 0 {
+		return 1
+	}
+	return ms
 }
 
 func (c *Client) compileUnifiedGenerate(ctx context.Context, bundle Bundle) (UnifiedCompileOutput, error) {
