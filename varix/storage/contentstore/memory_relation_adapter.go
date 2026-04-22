@@ -265,7 +265,9 @@ func relationBoundaryLabels(thesis memory.CausalThesis, compiledNodes map[string
 	}
 	driverLabel = relationNodeLabel(thesis.CorePathNodeIDs[0], compiledNodes)
 	targetLabel = relationNodeLabel(thesis.CorePathNodeIDs[len(thesis.CorePathNodeIDs)-1], compiledNodes)
-	return strings.TrimSpace(driverLabel), strings.TrimSpace(targetLabel), strings.TrimSpace(driverLabel) != "" && strings.TrimSpace(targetLabel) != ""
+	driverLabel = strings.TrimSpace(driverLabel)
+	targetLabel = strings.TrimSpace(targetLabel)
+	return driverLabel, targetLabel, driverLabel != "" && targetLabel != ""
 }
 
 func relationNodeLabel(globalNodeID string, compiledNodes map[string]compile.GraphNode) string {

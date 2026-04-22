@@ -538,8 +538,10 @@ func emptyUnifiedChallengeOutput() UnifiedCompileOutput {
 func summarizeDirectCompileOutput(driverTarget DriverTargetOutput, paths TransmissionPathOutput) string {
 	if len(paths.TransmissionPaths) > 0 {
 		path := paths.TransmissionPaths[0]
-		if strings.TrimSpace(path.Driver) != "" && strings.TrimSpace(path.Target) != "" {
-			return strings.TrimSpace(path.Driver) + "，并最终推动" + strings.TrimSpace(path.Target)
+		driver := strings.TrimSpace(path.Driver)
+		target := strings.TrimSpace(path.Target)
+		if driver != "" && target != "" {
+			return driver + "，并最终推动" + target
 		}
 	}
 	if len(driverTarget.Drivers) > 0 && len(driverTarget.Targets) > 0 {
