@@ -354,7 +354,7 @@ func runMemoryPosteriorRun(args []string, projectRoot string, stdout, stderr io.
 		UserID:           strings.TrimSpace(*userID),
 		SourcePlatform:   strings.TrimSpace(*platform),
 		SourceExternalID: strings.TrimSpace(*externalID),
-	}, time.Now().UTC())
+	}, currentUTC())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -385,7 +385,7 @@ func runMemoryOrganizeRun(args []string, projectRoot string, stdout, stderr io.W
 		return 1
 	}
 	defer store.Close()
-	out, err := store.RunNextMemoryOrganizationJob(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+	out, err := store.RunNextMemoryOrganizationJob(context.Background(), strings.TrimSpace(*userID), currentUTC())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -457,7 +457,7 @@ func runMemoryGlobalOrganizeRun(args []string, projectRoot string, stdout, stder
 		return 1
 	}
 	defer store.Close()
-	out, err := store.RunGlobalMemoryOrganization(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+	out, err := store.RunGlobalMemoryOrganization(context.Background(), strings.TrimSpace(*userID), currentUTC())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -519,7 +519,7 @@ func runMemoryGlobalV2OrganizeRun(args []string, projectRoot string, stdout, std
 		return 1
 	}
 	defer store.Close()
-	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), currentUTC())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -1089,7 +1089,7 @@ func runMemoryContentGraphs(args []string, projectRoot string, stdout, stderr io
 			fmt.Fprintln(stderr, "usage: varix memory content-graphs --run --user <user_id> --platform <platform> --id <external_id>")
 			return 2
 		}
-		if err := store.PersistMemoryContentGraphFromCompiledOutput(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*platform), strings.TrimSpace(*externalID), time.Now().UTC()); err != nil {
+		if err := store.PersistMemoryContentGraphFromCompiledOutput(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*platform), strings.TrimSpace(*externalID), currentUTC()); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
