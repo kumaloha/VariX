@@ -85,17 +85,15 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 		}
 		for _, driver := range drivers {
 			for _, target := range targets {
-				driverSubject, err := s.resolveCanonicalSubject(ctx, strings.TrimSpace(firstNonEmpty(driver.SubjectCanonical, driver.SubjectText)), canonicalCache)
+				driverSubject, err := s.resolveCanonicalGraphNodeSubject(ctx, driver, canonicalCache)
 				if err != nil {
 					return nil, err
 				}
-				targetSubject, err := s.resolveCanonicalSubject(ctx, strings.TrimSpace(firstNonEmpty(target.SubjectCanonical, target.SubjectText)), canonicalCache)
+				targetSubject, err := s.resolveCanonicalGraphNodeSubject(ctx, target, canonicalCache)
 				if err != nil {
 					return nil, err
 				}
-				driverSubject = strings.TrimSpace(driverSubject)
-				targetSubject = strings.TrimSpace(targetSubject)
-				bucket := strings.TrimSpace(firstNonEmpty(driver.TimeBucket, target.TimeBucket, deriveEventBucket(driver), deriveEventBucket(target), "timeless"))
+				bucket := normalizedEventBucket(driver.TimeBucket, target.TimeBucket, deriveEventBucket(driver), deriveEventBucket(target), "timeless")
 				key := normalizeCanonicalAlias(driverSubject) + "|" + normalizeCanonicalAlias(targetSubject) + "|" + bucket
 				st := byKey[key]
 				if st == nil {

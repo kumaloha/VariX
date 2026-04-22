@@ -96,18 +96,14 @@ func (s *SQLiteStore) BuildEventInputCandidates(ctx context.Context, userID stri
 			if scope == "" {
 				continue
 			}
-			anchor, err := s.resolveCanonicalSubject(ctx, strings.TrimSpace(firstNonEmpty(node.SubjectCanonical, node.SubjectText)), canonicalCache)
+			anchor, err := s.resolveCanonicalGraphNodeSubject(ctx, node, canonicalCache)
 			if err != nil {
 				return nil, err
 			}
-			anchor = strings.TrimSpace(anchor)
 			if anchor == "" {
 				continue
 			}
-			bucket := strings.TrimSpace(firstNonEmpty(node.TimeBucket, deriveEventBucket(node)))
-			if bucket == "" {
-				bucket = "timeless"
-			}
+			bucket := normalizedEventBucket(node.TimeBucket, deriveEventBucket(node))
 			key := scope + "|" + anchor + "|" + bucket
 			candidate := byKey[key]
 			if candidate == nil {
