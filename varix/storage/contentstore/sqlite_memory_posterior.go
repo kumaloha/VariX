@@ -341,7 +341,7 @@ func applyPosteriorStateRow(node *memory.AcceptedNode, posterior posteriorStateR
 	node.PosteriorState = posterior.State
 	node.PosteriorDiagnosis = posterior.Diagnosis
 	node.PosteriorReason = posterior.Reason
-	node.BlockedByNodeIDs = append([]string(nil), posterior.BlockedByNodeIDs...)
+	node.BlockedByNodeIDs = cloneStringSlice(posterior.BlockedByNodeIDs)
 	node.PosteriorUpdatedAt = posterior.UpdatedAt
 }
 
@@ -698,7 +698,7 @@ func fresherContradictingNode(node memory.AcceptedNode, allUserNodes []memory.Ac
 
 func collectAncestorNodeIDs(nodeID string, predecessors map[string][]string) []string {
 	seen := map[string]struct{}{}
-	queue := append([]string(nil), predecessors[nodeID]...)
+	queue := cloneStringSlice(predecessors[nodeID])
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]

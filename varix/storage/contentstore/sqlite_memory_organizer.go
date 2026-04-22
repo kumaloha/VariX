@@ -215,7 +215,7 @@ func applyPosteriorToAcceptedNode(node memory.AcceptedNode, posteriorByMemoryID 
 	node.PosteriorState = posterior.State
 	node.PosteriorDiagnosis = posterior.Diagnosis
 	node.PosteriorReason = posterior.Reason
-	node.BlockedByNodeIDs = append([]string(nil), posterior.BlockedByNodeIDs...)
+	node.BlockedByNodeIDs = cloneStringSlice(posterior.BlockedByNodeIDs)
 	node.PosteriorUpdatedAt = posterior.UpdatedAt
 	return node
 }
@@ -422,7 +422,7 @@ func buildDedupeGroups(nodes []memory.AcceptedNode, _ map[string]compile.FactSta
 		if len(group.ids) <= 1 {
 			continue
 		}
-		ids := append([]string(nil), group.ids...)
+		ids := cloneStringSlice(group.ids)
 		out = append(out, memory.DedupeGroup{
 			NodeIDs:              ids,
 			RepresentativeNodeID: ids[0],
@@ -443,7 +443,7 @@ func buildContradictionGroups(nodes []memory.AcceptedNode) []memory.Contradictio
 			if !ok {
 				continue
 			}
-			ids := append(append([]string(nil), groups[i].ids...), groups[j].ids...)
+			ids := append(cloneStringSlice(groups[i].ids), groups[j].ids...)
 			sort.Strings(ids)
 			out = append(out, memory.ContradictionGroup{
 				NodeIDs: ids,
@@ -470,7 +470,7 @@ func groupNodesByCanonicalText(nodes []memory.AcceptedNode) []canonicalNodeGroup
 	sort.Strings(keys)
 	out := make([]canonicalNodeGroup, 0, len(keys))
 	for _, key := range keys {
-		ids := append([]string(nil), byText[key]...)
+		ids := cloneStringSlice(byText[key])
 		sort.Strings(ids)
 		out = append(out, canonicalNodeGroup{
 			canonical: key,
@@ -841,7 +841,7 @@ func buildNodeHints(nodes, active []memory.AcceptedNode, dedupeGroups []memory.D
 		hint.PosteriorState = node.PosteriorState
 		hint.PosteriorDiagnosis = node.PosteriorDiagnosis
 		hint.PosteriorReason = node.PosteriorReason
-		hint.BlockedByNodeIDs = append([]string(nil), node.BlockedByNodeIDs...)
+		hint.BlockedByNodeIDs = cloneStringSlice(node.BlockedByNodeIDs)
 		hint.DedupePeerNodeIDs = sortedNodeSet(dedupePeers[node.NodeID])
 		hint.ContradictionNodeIDs = sortedNodeSet(contradictionPeers[node.NodeID])
 		hint.ParentNodeIDs = sortedNodeSet(parentIDs[node.NodeID])
@@ -928,7 +928,7 @@ func buildDominantDriverSummary(active []memory.AcceptedNode, hints []memory.Nod
 			continue
 		}
 		hintsByID[hint.NodeID] = hint
-		childrenByID[hint.NodeID] = append([]string(nil), hint.ChildNodeIDs...)
+		childrenByID[hint.NodeID] = cloneStringSlice(hint.ChildNodeIDs)
 	}
 
 	candidates := make([]memory.AcceptedNode, 0)
