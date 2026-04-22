@@ -277,8 +277,10 @@ func (s *SQLiteStore) ListMemoryJobs(ctx context.Context, userID string) ([]memo
 }
 
 func (s *SQLiteStore) CleanupStaleMemoryJobs(ctx context.Context, userID, sourcePlatform, sourceExternalID string, cutoff time.Time) (int64, error) {
-	if strings.TrimSpace(userID) == "" {
-		return 0, fmt.Errorf("user id is required")
+	var err error
+	userID, err = normalizeRequiredUserID(userID)
+	if err != nil {
+		return 0, err
 	}
 	if cutoff.IsZero() {
 		return 0, fmt.Errorf("cutoff is required")
@@ -311,8 +313,10 @@ func (s *SQLiteStore) CleanupStaleMemoryJobs(ctx context.Context, userID, source
 }
 
 func (s *SQLiteStore) CountStaleMemoryJobs(ctx context.Context, userID, sourcePlatform, sourceExternalID string, cutoff time.Time) (int64, error) {
-	if strings.TrimSpace(userID) == "" {
-		return 0, fmt.Errorf("user id is required")
+	var err error
+	userID, err = normalizeRequiredUserID(userID)
+	if err != nil {
+		return 0, err
 	}
 	if cutoff.IsZero() {
 		return 0, fmt.Errorf("cutoff is required")
@@ -327,18 +331,21 @@ func (s *SQLiteStore) CountStaleMemoryJobs(ctx context.Context, userID, sourcePl
 func listStaleMemoryJobIDs(ctx context.Context, q interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }, userID, sourcePlatform, sourceExternalID string, cutoff time.Time) ([]int64, error) {
+	userID = strings.TrimSpace(userID)
+	sourcePlatform = strings.TrimSpace(sourcePlatform)
+	sourceExternalID = strings.TrimSpace(sourceExternalID)
 	query := `SELECT job_id, status, created_at, started_at
 		FROM memory_organization_jobs
 		WHERE user_id = ?
 		  AND status IN ('queued', 'running')`
-	args := []any{strings.TrimSpace(userID)}
-	if strings.TrimSpace(sourcePlatform) != "" {
+	args := []any{userID}
+	if sourcePlatform != "" {
 		query += ` AND source_platform = ?`
-		args = append(args, strings.TrimSpace(sourcePlatform))
+		args = append(args, sourcePlatform)
 	}
-	if strings.TrimSpace(sourceExternalID) != "" {
+	if sourceExternalID != "" {
 		query += ` AND source_external_id = ?`
-		args = append(args, strings.TrimSpace(sourceExternalID))
+		args = append(args, sourceExternalID)
 	}
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
