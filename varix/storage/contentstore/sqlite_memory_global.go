@@ -309,8 +309,7 @@ func buildGlobalCluster(component []string, byID map[string]memory.AcceptedNode,
 	coreConditional := selectCoreNodes(conditional, byID, 2)
 	coreConclusions := selectCoreNodes(filterNodesByKind(component, byID, string(compile.NodeConclusion)), byID, 1)
 	corePredictive := selectCoreNodes(predictive, byID, 2)
-	expanded := make([]string, 0, len(component))
-	expanded = append(expanded, component...)
+	expanded := cloneStringSlice(component)
 	sort.Strings(expanded)
 	return memory.GlobalCluster{
 		ClusterID:              "cluster:" + strings.Join(component, "|"),
@@ -486,11 +485,11 @@ func buildClusterSummary(canonical string, supporting, conflicting, conditional,
 
 func selectCoreNodes(ids []string, byID map[string]memory.AcceptedNode, max int) []string {
 	if len(ids) <= max {
-		out := append([]string(nil), ids...)
+		out := cloneStringSlice(ids)
 		sort.Strings(out)
 		return out
 	}
-	sorted := append([]string(nil), ids...)
+	sorted := cloneStringSlice(ids)
 	sort.Slice(sorted, func(i, j int) bool {
 		left := strings.TrimSpace(byID[sorted[i]].NodeText)
 		right := strings.TrimSpace(byID[sorted[j]].NodeText)
@@ -499,7 +498,7 @@ func selectCoreNodes(ids []string, byID map[string]memory.AcceptedNode, max int)
 		}
 		return sorted[i] < sorted[j]
 	})
-	out := append([]string(nil), sorted[:max]...)
+	out := cloneStringSlice(sorted[:max])
 	sort.Strings(out)
 	return out
 }

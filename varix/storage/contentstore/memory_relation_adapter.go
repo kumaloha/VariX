@@ -83,7 +83,7 @@ func (s *SQLiteStore) buildRelationFirstProjection(
 			AsOf:               now,
 			Confidence:         boundedConfidence(thesis.CompletenessScore),
 			Status:             memory.MechanismActive,
-			SourceRefs:         append([]string(nil), thesis.SourceRefs...),
+			SourceRefs:         cloneStringSlice(thesis.SourceRefs),
 			TraceabilityStatus: traceabilityStatus,
 			CreatedAt:          now,
 			UpdatedAt:          now,
