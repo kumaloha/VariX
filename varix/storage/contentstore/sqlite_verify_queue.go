@@ -62,9 +62,7 @@ func (s *SQLiteStore) EnqueueVerifyQueueItem(ctx context.Context, item graphmode
 }
 
 func (s *SQLiteStore) ListDueVerifyQueueItems(ctx context.Context, now time.Time, limit int) ([]graphmodel.VerifyQueueItem, error) {
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 	if limit <= 0 {
 		limit = 100
 	}
@@ -121,9 +119,7 @@ func (s *SQLiteStore) ListVerifyQueueItems(ctx context.Context, limit int) ([]gr
 }
 
 func (s *SQLiteStore) ClaimDueVerifyQueueItems(ctx context.Context, now time.Time, limit int) ([]graphmodel.VerifyQueueItem, error) {
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 	if limit <= 0 {
 		limit = 100
 	}
@@ -221,9 +217,7 @@ func (s *SQLiteStore) RunVerifyQueueSweep(ctx context.Context, now time.Time, li
 }
 
 func verifyQueueRetryAt(now time.Time, attempts int) time.Time {
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 	return now.Add(verifyQueueRetryDelay(attempts))
 }
 
@@ -241,9 +235,7 @@ func verifyQueueRetryDelay(attempts int) time.Duration {
 }
 
 func (s *SQLiteStore) MarkVerifyQueueItemRunning(ctx context.Context, queueID string, now time.Time) error {
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 	_, err := s.db.ExecContext(ctx, `UPDATE verify_queue
 		SET status = ?, attempts = attempts + 1, updated_at = ?
 		WHERE queue_id = ?`, string(graphmodel.VerifyQueueStatusRunning), now.UTC().Format(time.RFC3339Nano), strings.TrimSpace(queueID))
@@ -260,9 +252,7 @@ func (s *SQLiteStore) FinishVerifyQueueItem(ctx context.Context, queueID string,
 	if verdict.Verdict != graphmodel.VerificationPending && verdict.Verdict != graphmodel.VerificationProved && verdict.Verdict != graphmodel.VerificationDisproved && verdict.Verdict != graphmodel.VerificationUnverifiable {
 		return fmt.Errorf("verify verdict status is unsupported")
 	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 	asOf, err := time.Parse(time.RFC3339, verdict.AsOf)
 	if err != nil {
 		return fmt.Errorf("verify verdict as_of must be RFC3339: %w", err)
@@ -307,9 +297,7 @@ func (s *SQLiteStore) RetryVerifyQueueItem(ctx context.Context, queueID string, 
 	if nextAt.IsZero() {
 		return fmt.Errorf("verify queue retry nextAt is required")
 	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 	_, err := s.db.ExecContext(ctx, `UPDATE verify_queue
 		SET status = ?, scheduled_at = ?, last_error = ?, updated_at = ?
 		WHERE queue_id = ?`, string(graphmodel.VerifyQueueStatusRetry), nextAt.UTC().Format(time.RFC3339Nano), strings.TrimSpace(lastError), now.UTC().Format(time.RFC3339Nano), strings.TrimSpace(queueID))
@@ -381,9 +369,7 @@ func (s *SQLiteStore) GetVerifyQueueSummary(ctx context.Context) (map[graphmodel
 }
 
 func (s *SQLiteStore) GetVerifyQueueSummaryDetailed(ctx context.Context, now time.Time) (VerifyQueueSummaryDetailed, error) {
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 	counts, err := s.GetVerifyQueueSummary(ctx)
 	if err != nil {
 		return VerifyQueueSummaryDetailed{}, err
