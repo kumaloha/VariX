@@ -663,7 +663,7 @@ func graphFirstNodeLabel(node graphmodel.GraphNode) string {
 	case strings.TrimSpace(node.SubjectText) != "" && strings.TrimSpace(node.ChangeText) != "" && strings.TrimSpace(node.SubjectText) != strings.TrimSpace(node.ChangeText):
 		return strings.TrimSpace(node.SubjectText) + " " + strings.TrimSpace(node.ChangeText)
 	default:
-		return strings.TrimSpace(firstNonEmpty(node.SubjectText, node.ChangeText, node.ID))
+		return strings.TrimSpace(c.FirstNonEmpty(node.SubjectText, node.ChangeText, node.ID))
 	}
 }
 
@@ -752,15 +752,6 @@ func formatVerificationCounts(counts map[graphmodel.VerificationStatus]int) stri
 		parts = append(parts, string(status)+"="+fmt.Sprintf("%d", counts[status]))
 	}
 	return strings.Join(parts, ", ")
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func truncate(value string, max int) string {
