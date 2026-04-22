@@ -38,9 +38,7 @@ func runIngestCommand(args []string, projectRoot string, stdout, stderr io.Write
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
-		if strings.TrimSpace(*rawURL) == "" && fs.NArg() > 0 {
-			*rawURL = fs.Arg(0)
-		}
+		setRawURLFromArg(fs, rawURL)
 		if strings.TrimSpace(*rawURL) == "" {
 			fmt.Fprintln(stderr, "usage: varix ingest fetch <url>")
 			return 2
