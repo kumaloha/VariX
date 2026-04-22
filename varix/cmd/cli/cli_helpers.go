@@ -73,3 +73,7 @@ func cloneStringSlice(values []string) []string {
 func currentUTC() time.Time {
 	return time.Now().UTC()
 }
+
+func hasContentTarget(platform, externalID string) bool {
+	return strings.TrimSpace(platform) != "" && strings.TrimSpace(externalID) != ""
+}

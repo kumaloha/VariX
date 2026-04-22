@@ -47,7 +47,7 @@ func runVerifyRun(args []string, projectRoot string, stdout, stderr io.Writer) i
 		return 2
 	}
 	setRawURLFromArg(fs, rawURL)
-	if strings.TrimSpace(*rawURL) == "" && (strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "") {
+	if strings.TrimSpace(*rawURL) == "" && !hasContentTarget(*platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix verify run --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
@@ -138,7 +138,7 @@ func runVerifyShow(args []string, projectRoot string, stdout, stderr io.Writer) 
 		writeErr(stderr, err)
 		return 1
 	}
-	if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+	if !hasContentTarget(*platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix verify show --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}

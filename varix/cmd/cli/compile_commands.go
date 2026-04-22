@@ -105,7 +105,7 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 		return 2
 	}
 	setRawURLFromArg(fs, rawURL)
-	if strings.TrimSpace(*rawURL) == "" && (strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "") {
+	if strings.TrimSpace(*rawURL) == "" && !hasContentTarget(*platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix compile run --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
@@ -140,7 +140,7 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 					return writeJSON(stdout, stderr, record)
 				}
 			}
-		case strings.TrimSpace(*platform) != "" && strings.TrimSpace(*externalID) != "":
+		case hasContentTarget(*platform, *externalID):
 			if record, err := store.GetCompiledOutput(ctx, *platform, *externalID); err == nil {
 				return writeJSON(stdout, stderr, record)
 			}
@@ -218,7 +218,7 @@ func runCompileShow(args []string, projectRoot string, stdout, stderr io.Writer)
 		writeErr(stderr, err)
 		return 1
 	}
-	if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+	if !hasContentTarget(*platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix compile show --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
@@ -252,7 +252,7 @@ func runCompileSummary(args []string, projectRoot string, stdout, stderr io.Writ
 		writeErr(stderr, err)
 		return 1
 	}
-	if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+	if !hasContentTarget(*platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix compile summary --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
@@ -296,7 +296,7 @@ func runCompileCompare(args []string, projectRoot string, stdout, stderr io.Writ
 		writeErr(stderr, err)
 		return 1
 	}
-	if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+	if !hasContentTarget(*platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix compile compare --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
@@ -366,7 +366,7 @@ func runCompileCard(args []string, projectRoot string, stdout, stderr io.Writer)
 		writeErr(stderr, err)
 		return 1
 	}
-	if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
+	if !hasContentTarget(*platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix compile card --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
