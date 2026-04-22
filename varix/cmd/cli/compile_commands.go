@@ -657,15 +657,19 @@ func graphNodeIndex(subgraph graphmodel.ContentSubgraph) map[string]graphmodel.G
 }
 
 func graphFirstNodeLabel(node graphmodel.GraphNode) string {
+	rawText := strings.TrimSpace(node.RawText)
+	sourceQuote := strings.TrimSpace(node.SourceQuote)
+	subjectText := strings.TrimSpace(node.SubjectText)
+	changeText := strings.TrimSpace(node.ChangeText)
 	switch {
-	case strings.TrimSpace(node.RawText) != "":
-		return strings.TrimSpace(node.RawText)
-	case strings.TrimSpace(node.SourceQuote) != "":
-		return strings.TrimSpace(node.SourceQuote)
-	case c.HasDistinctNonEmptyPair(node.SubjectText, node.ChangeText):
-		return strings.TrimSpace(node.SubjectText) + " " + strings.TrimSpace(node.ChangeText)
+	case rawText != "":
+		return rawText
+	case sourceQuote != "":
+		return sourceQuote
+	case c.HasDistinctNonEmptyPair(subjectText, changeText):
+		return subjectText + " " + changeText
 	default:
-		return strings.TrimSpace(c.FirstNonEmpty(node.SubjectText, node.ChangeText, node.ID))
+		return strings.TrimSpace(c.FirstNonEmpty(subjectText, changeText, node.ID))
 	}
 }
 
