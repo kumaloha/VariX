@@ -13,7 +13,10 @@ import (
 )
 
 func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRequest) (memory.AcceptResult, error) {
-	if strings.TrimSpace(req.UserID) == "" || strings.TrimSpace(req.SourcePlatform) == "" || strings.TrimSpace(req.SourceExternalID) == "" || len(req.NodeIDs) == 0 {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.SourcePlatform = strings.TrimSpace(req.SourcePlatform)
+	req.SourceExternalID = strings.TrimSpace(req.SourceExternalID)
+	if req.UserID == "" || req.SourcePlatform == "" || req.SourceExternalID == "" || len(req.NodeIDs) == 0 {
 		return memory.AcceptResult{}, fmt.Errorf("invalid memory accept request")
 	}
 
@@ -205,38 +208,24 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 }
 
 func (s *SQLiteStore) ListUserMemory(ctx context.Context, userID string) ([]memory.AcceptedNode, error) {
-	rows, err := s.db.QueryContext(
-		ctx,
-		`SELECT memory_id, user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, valid_from, valid_to, accepted_at
+	return s.listUserMemoryNodes(ctx, `SELECT memory_id, user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, valid_from, valid_to, accepted_at
 		 FROM user_memory_nodes
 		 WHERE user_id = ?
-		 ORDER BY accepted_at ASC, memory_id ASC`,
-		userID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	nodes, err := scanMemoryNodes(rows)
-	if err != nil {
-		return nil, err
-	}
-	if err := projectPosteriorStatesOntoNodes(ctx, s.db, nodes); err != nil {
-		return nil, err
-	}
-	return nodes, nil
+		 ORDER BY accepted_at ASC, memory_id ASC`, userID)
 }
 
 func (s *SQLiteStore) ListUserMemoryBySource(ctx context.Context, userID, sourcePlatform, sourceExternalID string) ([]memory.AcceptedNode, error) {
-	rows, err := s.db.QueryContext(
-		ctx,
-		`SELECT memory_id, user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, valid_from, valid_to, accepted_at
+	return s.listUserMemoryNodes(ctx, `SELECT memory_id, user_id, source_platform, source_external_id, root_external_id, node_id, node_kind, node_text, source_model, source_compiled_at, valid_from, valid_to, accepted_at
 		 FROM user_memory_nodes
 		 WHERE user_id = ? AND source_platform = ? AND source_external_id = ?
-		 ORDER BY accepted_at ASC, memory_id ASC`,
-		userID,
-		sourcePlatform,
-		sourceExternalID,
+		 ORDER BY accepted_at ASC, memory_id ASC`, userID, sourcePlatform, sourceExternalID)
+}
+
+func (s *SQLiteStore) listUserMemoryNodes(ctx context.Context, query string, args ...any) ([]memory.AcceptedNode, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		query,
+		args...,
 	)
 	if err != nil {
 		return nil, err
