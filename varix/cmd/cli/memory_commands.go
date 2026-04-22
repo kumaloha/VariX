@@ -608,7 +608,9 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 		fmt.Fprintln(stderr, "usage: varix memory global-v2-card --user <user_id>")
 		return 2
 	}
-	if trimmed := strings.TrimSpace(*itemType); trimmed != "" && trimmed != "card" && trimmed != "conclusion" && trimmed != "conflict" {
+	trimmedUserID := strings.TrimSpace(*userID)
+	trimmedItemType := strings.TrimSpace(*itemType)
+	if trimmedItemType != "" && trimmedItemType != "card" && trimmedItemType != "conclusion" && trimmedItemType != "conflict" {
 		fmt.Fprintln(stderr, "item-type must be one of: card, conclusion, conflict")
 		return 2
 	}
@@ -620,25 +622,25 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 	defer store.Close()
 	var out memory.GlobalMemoryV2Output
 	if *runNow {
-		out, err = store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+		out, err = store.RunGlobalMemoryOrganizationV2(context.Background(), trimmedUserID, currentUTC())
 	} else {
-		out, err = store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
+		out, err = store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), trimmedUserID)
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
-			fmt.Fprintf(stderr, "no v2 card output yet; run: varix memory global-v2-card --run --user %s\n", strings.TrimSpace(*userID))
+			fmt.Fprintf(stderr, "no v2 card output yet; run: varix memory global-v2-card --run --user %s\n", trimmedUserID)
 			return 1
 		}
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	filtered := filterGlobalV2Items(out, strings.TrimSpace(*itemType))
+	filtered := filterGlobalV2Items(out, trimmedItemType)
 	filtered = limitGlobalV2Items(filtered, *limit)
-	if strings.TrimSpace(*itemType) != "" && len(filtered.TopMemoryItems) == 0 {
-		fmt.Fprintf(stdout, "Items (0, filter=%s)\n\nNo %s items for user %s\n", strings.TrimSpace(*itemType), strings.TrimSpace(*itemType), strings.TrimSpace(*userID))
+	if trimmedItemType != "" && len(filtered.TopMemoryItems) == 0 {
+		fmt.Fprintf(stdout, "Items (0, filter=%s)\n\nNo %s items for user %s\n", trimmedItemType, trimmedItemType, trimmedUserID)
 		return 0
 	}
-	fmt.Fprint(stdout, formatGlobalV2Cards(filtered, strings.TrimSpace(*itemType)))
+	fmt.Fprint(stdout, formatGlobalV2Cards(filtered, trimmedItemType))
 	return 0
 }
 
@@ -656,7 +658,10 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 		fmt.Fprintln(stderr, "usage: varix memory global-compare --user <user_id>")
 		return 2
 	}
-	if trimmed := strings.TrimSpace(*itemType); trimmed != "" && trimmed != "card" && trimmed != "conclusion" && trimmed != "conflict" {
+	trimmedUserID := strings.TrimSpace(*userID)
+	trimmedItemType := strings.TrimSpace(*itemType)
+	now := currentUTC()
+	if trimmedItemType != "" && trimmedItemType != "card" && trimmedItemType != "conclusion" && trimmedItemType != "conflict" {
 		fmt.Fprintln(stderr, "item-type must be one of: card, conclusion, conflict")
 		return 2
 	}
@@ -670,37 +675,37 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 	var v1 memory.GlobalOrganizationOutput
 	var v2 memory.GlobalMemoryV2Output
 	if *runNow {
-		v1, err = store.RunGlobalMemoryOrganization(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+		v1, err = store.RunGlobalMemoryOrganization(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		v2, err = store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), time.Now().UTC())
+		v2, err = store.RunGlobalMemoryOrganizationV2(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 	} else {
-		v1, err = store.GetLatestGlobalMemoryOrganizationOutput(context.Background(), strings.TrimSpace(*userID))
+		v1, err = store.GetLatestGlobalMemoryOrganizationOutput(context.Background(), trimmedUserID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				fmt.Fprintf(stderr, "no global memory outputs yet; run: varix memory global-compare --run --user %s\n", strings.TrimSpace(*userID))
+				fmt.Fprintf(stderr, "no global memory outputs yet; run: varix memory global-compare --run --user %s\n", trimmedUserID)
 				return 1
 			}
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		v2, err = store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
+		v2, err = store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), trimmedUserID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				fmt.Fprintf(stderr, "no global memory outputs yet; run: varix memory global-compare --run --user %s\n", strings.TrimSpace(*userID))
+				fmt.Fprintf(stderr, "no global memory outputs yet; run: varix memory global-compare --run --user %s\n", trimmedUserID)
 				return 1
 			}
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 	}
-	fmt.Fprint(stdout, formatGlobalCompare(limitGlobalOrganizationOutput(v1, *limit), limitGlobalV2Items(filterGlobalV2Items(v2, strings.TrimSpace(*itemType)), *limit), strings.TrimSpace(*itemType)))
+	fmt.Fprint(stdout, formatGlobalCompare(limitGlobalOrganizationOutput(v1, *limit), limitGlobalV2Items(filterGlobalV2Items(v2, trimmedItemType), *limit), trimmedItemType))
 	return 0
 }
 
@@ -953,6 +958,9 @@ func runMemoryEventGraphs(args []string, projectRoot string, stdout, stderr io.W
 		fmt.Fprintln(stderr, "usage: varix memory event-graphs --user <user_id>")
 		return 2
 	}
+	trimmedUserID := strings.TrimSpace(*userID)
+	trimmedScope := strings.TrimSpace(*scope)
+	trimmedSubject := strings.TrimSpace(*subject)
 	store, err := openStore(projectRoot)
 	if err != nil {
 		writeErr(stderr, err)
@@ -960,21 +968,21 @@ func runMemoryEventGraphs(args []string, projectRoot string, stdout, stderr io.W
 	}
 	defer store.Close()
 	if *runNow {
-		if _, err := store.RunEventGraphProjection(context.Background(), strings.TrimSpace(*userID), time.Now().UTC()); err != nil {
+		if _, err := store.RunEventGraphProjection(context.Background(), trimmedUserID, currentUTC()); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 	}
 	var items []contentstore.EventGraphRecord
-	if strings.TrimSpace(*subject) != "" {
-		items, err = store.ListEventGraphsBySubject(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*subject))
+	if trimmedSubject != "" {
+		items, err = store.ListEventGraphsBySubject(context.Background(), trimmedUserID, trimmedSubject)
 	} else {
-		items, err = store.ListEventGraphs(context.Background(), strings.TrimSpace(*userID))
+		items, err = store.ListEventGraphs(context.Background(), trimmedUserID)
 	}
-	if err == nil && strings.TrimSpace(*scope) != "" {
+	if err == nil && trimmedScope != "" {
 		filtered := make([]contentstore.EventGraphRecord, 0, len(items))
 		for _, item := range items {
-			if item.Scope == strings.TrimSpace(*scope) {
+			if item.Scope == trimmedScope {
 				filtered = append(filtered, item)
 			}
 		}
@@ -1015,6 +1023,8 @@ func runMemoryParadigms(args []string, projectRoot string, stdout, stderr io.Wri
 		fmt.Fprintln(stderr, "usage: varix memory paradigms --user <user_id>")
 		return 2
 	}
+	trimmedUserID := strings.TrimSpace(*userID)
+	trimmedSubject := strings.TrimSpace(*subject)
 	store, err := openStore(projectRoot)
 	if err != nil {
 		writeErr(stderr, err)
@@ -1022,14 +1032,14 @@ func runMemoryParadigms(args []string, projectRoot string, stdout, stderr io.Wri
 	}
 	defer store.Close()
 	if *runNow {
-		if _, err := store.RunParadigmProjection(context.Background(), strings.TrimSpace(*userID), time.Now().UTC()); err != nil {
+		if _, err := store.RunParadigmProjection(context.Background(), trimmedUserID, currentUTC()); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 	}
-	items, err := store.ListParadigms(context.Background(), strings.TrimSpace(*userID))
-	if err == nil && strings.TrimSpace(*subject) != "" {
-		items, err = store.ListParadigmsBySubject(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*subject))
+	items, err := store.ListParadigms(context.Background(), trimmedUserID)
+	if err == nil && trimmedSubject != "" {
+		items, err = store.ListParadigmsBySubject(context.Background(), trimmedUserID, trimmedSubject)
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
