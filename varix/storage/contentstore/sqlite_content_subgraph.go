@@ -216,25 +216,27 @@ func (s *SQLiteStore) refreshMemoryContentGraphsFromSubgraph(ctx context.Context
 }
 
 func (s *SQLiteStore) refreshEventGraphsForSubgraph(ctx context.Context, subgraph graphmodel.ContentSubgraph) error {
-	userIDs, err := s.userIDsForMemoryContentGraphSource(ctx, subgraph.SourcePlatform, subgraph.SourceExternalID)
-	if err != nil {
+	return s.refreshProjectionForSubgraphUsers(ctx, subgraph, func(userID string, now time.Time) error {
+		_, err := s.RunEventGraphProjection(ctx, userID, now)
 		return err
-	}
-	for _, userID := range userIDs {
-		if _, err := s.RunEventGraphProjection(ctx, userID, time.Now().UTC()); err != nil {
-			return err
-		}
-	}
-	return nil
+	})
 }
 
 func (s *SQLiteStore) refreshParadigmsForSubgraph(ctx context.Context, subgraph graphmodel.ContentSubgraph) error {
+	return s.refreshProjectionForSubgraphUsers(ctx, subgraph, func(userID string, now time.Time) error {
+		_, err := s.RunParadigmProjection(ctx, userID, now)
+		return err
+	})
+}
+
+func (s *SQLiteStore) refreshProjectionForSubgraphUsers(ctx context.Context, subgraph graphmodel.ContentSubgraph, run func(string, time.Time) error) error {
 	userIDs, err := s.userIDsForMemoryContentGraphSource(ctx, subgraph.SourcePlatform, subgraph.SourceExternalID)
 	if err != nil {
 		return err
 	}
+	now := time.Now().UTC()
 	for _, userID := range userIDs {
-		if _, err := s.RunParadigmProjection(ctx, userID, time.Now().UTC()); err != nil {
+		if err := run(userID, now); err != nil {
 			return err
 		}
 	}
