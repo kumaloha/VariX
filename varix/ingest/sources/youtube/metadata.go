@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kumaloha/VariX/varix/ingest/internal/textutil"
 	"github.com/kumaloha/VariX/varix/ingest/normalize"
 	"github.com/kumaloha/VariX/varix/ingest/sources/httputil"
 )
@@ -70,7 +71,7 @@ func (f *HTTPMetadataFetcher) Fetch(ctx context.Context, videoID string) (Metada
 	if channelName == "" {
 		channelName = firstMatch(youtubeMetaAuthorRE, html)
 	}
-	channelID := firstNonEmpty(firstMatch(youtubeChannelIDRE, html), videoID)
+	channelID := textutil.FirstNonEmpty(firstMatch(youtubeChannelIDRE, html), videoID)
 
 	publishedAt := parsePublishedAt(
 		firstMatch(youtubePublishDateRE, html),
@@ -95,15 +96,6 @@ func firstMatch(pattern *regexp.Regexp, input string) string {
 		return ""
 	}
 	return strings.TrimSpace(match[1])
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 func unescapeJSONText(input string) string {

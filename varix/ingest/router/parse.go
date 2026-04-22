@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kumaloha/VariX/varix/ingest/internal/textutil"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
 
@@ -75,11 +76,11 @@ func Parse(raw string) (types.ParsedURL, error) {
 
 	if hostMatches(host, "weibo.com", "m.weibo.cn") {
 		if m := weiboPost.FindStringSubmatch(normalizedURL); len(m) > 2 {
-			id := firstNonEmpty(m[1], m[2])
+			id := textutil.FirstNonEmpty(m[1], m[2])
 			return types.ParsedURL{Platform: types.PlatformWeibo, ContentType: types.ContentTypePost, PlatformID: id, CanonicalURL: raw}, nil
 		}
 		if m := weiboProfile.FindStringSubmatch(normalizedURL); len(m) > 1 {
-			id := firstNonEmpty(m[1])
+			id := textutil.FirstNonEmpty(m[1])
 			return types.ParsedURL{Platform: types.PlatformWeibo, ContentType: types.ContentTypeProfile, PlatformID: id, CanonicalURL: "https://weibo.com/" + id}, nil
 		}
 	}
@@ -115,15 +116,6 @@ rssOrWeb:
 		PlatformID:   hex.EncodeToString(sum[:])[:16],
 		CanonicalURL: canonicalURL,
 	}, nil
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func hostMatches(host string, domains ...string) bool {

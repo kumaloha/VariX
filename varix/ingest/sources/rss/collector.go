@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kumaloha/VariX/varix/ingest/internal/textutil"
 	"github.com/kumaloha/VariX/varix/ingest/sources/httputil"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
@@ -76,7 +77,7 @@ func (c *Collector) Discover(ctx context.Context, target types.FollowTarget) ([]
 		}
 		items = append(items, types.DiscoveryItem{
 			Platform:   types.PlatformRSS,
-			ExternalID: firstNonEmpty(item.GUID, link),
+			ExternalID: textutil.FirstNonEmpty(item.GUID, link),
 			URL:        link,
 			AuthorName: target.AuthorName,
 			PostedAt:   parseTime(item.PubDate),
@@ -95,10 +96,10 @@ func (c *Collector) Discover(ctx context.Context, target types.FollowTarget) ([]
 		}
 		items = append(items, types.DiscoveryItem{
 			Platform:   types.PlatformRSS,
-			ExternalID: firstNonEmpty(entry.ID, link),
+			ExternalID: textutil.FirstNonEmpty(entry.ID, link),
 			URL:        link,
 			AuthorName: target.AuthorName,
-			PostedAt:   parseTime(firstNonEmpty(entry.Published, entry.Updated)),
+			PostedAt:   parseTime(textutil.FirstNonEmpty(entry.Published, entry.Updated)),
 			Metadata: types.DiscoveryMetadata{
 				RSS: &types.RSSDiscoveryMetadata{
 					Title: strings.TrimSpace(entry.Title),
@@ -171,13 +172,4 @@ func parseTime(raw string) time.Time {
 		}
 	}
 	return time.Time{}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
