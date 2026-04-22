@@ -253,27 +253,16 @@ func verifyRealized(ctx context.Context, rt verifierCall, model string, prompts 
 }
 
 func verifyPredictions(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
-	instruction, err := prompts.verifierInstruction(promptPredictionVerifier)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
 	prompt, err := buildPredictionVerificationPrompt(bundle, nodes)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
-	req, err := BuildQwen36ProviderRequest(model, bundle, instruction, prompt)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
-	resp, completedAt, err := callVerifierStage(ctx, rt, req)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
 	var payload struct {
 		PredictionChecks []PredictionCheck `json:"prediction_checks"`
 	}
-	if err := unmarshalVerifierPayload(resp.Text, &payload); err != nil {
-		return verifierPassResult{}, fmt.Errorf("parse prediction verifier output: %w", err)
+	resp, completedAt, err := runVerifierPromptStage(ctx, rt, model, prompts, bundle, promptPredictionVerifier, prompt, "prediction verifier", &payload)
+	if err != nil {
+		return verifierPassResult{}, err
 	}
 	finalNodeIDs := predictionCheckNodeIDs(payload.PredictionChecks)
 	stage := verifierStageSummary(resp.Model, model, completedAt, finalNodeIDs)
@@ -288,27 +277,16 @@ func verifyPredictions(ctx context.Context, rt verifierCall, model string, promp
 }
 
 func verifyExplicitConditions(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
-	instruction, err := prompts.verifierInstruction(promptExplicitConditionVerifier)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
 	prompt, err := buildExplicitConditionVerificationPrompt(bundle, nodes)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
-	req, err := BuildQwen36ProviderRequest(model, bundle, instruction, prompt)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
-	resp, completedAt, err := callVerifierStage(ctx, rt, req)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
 	var payload struct {
 		ExplicitConditionChecks []ExplicitConditionCheck `json:"explicit_condition_checks"`
 	}
-	if err := unmarshalVerifierPayload(resp.Text, &payload); err != nil {
-		return verifierPassResult{}, fmt.Errorf("parse explicit condition verifier output: %w", err)
+	resp, completedAt, err := runVerifierPromptStage(ctx, rt, model, prompts, bundle, promptExplicitConditionVerifier, prompt, "explicit condition verifier", &payload)
+	if err != nil {
+		return verifierPassResult{}, err
 	}
 	finalNodeIDs := explicitConditionCheckNodeIDs(payload.ExplicitConditionChecks)
 	stage := verifierStageSummary(resp.Model, model, completedAt, finalNodeIDs)
@@ -324,27 +302,16 @@ func verifyExplicitConditions(ctx context.Context, rt verifierCall, model string
 }
 
 func verifyImplicitConditions(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, nodes []GraphNode) (verifierPassResult, error) {
-	instruction, err := prompts.verifierInstruction(promptImplicitConditionVerifier)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
 	prompt, err := buildImplicitConditionVerificationPrompt(bundle, nodes)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
-	req, err := BuildQwen36ProviderRequest(model, bundle, instruction, prompt)
-	if err != nil {
-		return verifierPassResult{}, err
-	}
-	resp, completedAt, err := callVerifierStage(ctx, rt, req)
 	if err != nil {
 		return verifierPassResult{}, err
 	}
 	var payload struct {
 		ImplicitConditionChecks []ImplicitConditionCheck `json:"implicit_condition_checks"`
 	}
-	if err := unmarshalVerifierPayload(resp.Text, &payload); err != nil {
-		return verifierPassResult{}, fmt.Errorf("parse implicit condition verifier output: %w", err)
+	resp, completedAt, err := runVerifierPromptStage(ctx, rt, model, prompts, bundle, promptImplicitConditionVerifier, prompt, "implicit condition verifier", &payload)
+	if err != nil {
+		return verifierPassResult{}, err
 	}
 	finalNodeIDs := implicitConditionCheckNodeIDs(payload.ImplicitConditionChecks)
 	stage := verifierStageSummary(resp.Model, model, completedAt, finalNodeIDs)
@@ -362,6 +329,25 @@ func verifyImplicitConditions(ctx context.Context, rt verifierCall, model string
 func callVerifierStage(ctx context.Context, rt verifierCall, req llm.ProviderRequest) (llm.Response, time.Time, error) {
 	resp, err := rt.Call(ctx, req)
 	return resp, verifierNow(), err
+}
+
+func runVerifierPromptStage(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, instructionKey string, prompt string, parseLabel string, target any) (llm.Response, time.Time, error) {
+	instruction, err := prompts.verifierInstruction(instructionKey)
+	if err != nil {
+		return llm.Response{}, time.Time{}, err
+	}
+	req, err := BuildQwen36ProviderRequest(model, bundle, instruction, prompt)
+	if err != nil {
+		return llm.Response{}, time.Time{}, err
+	}
+	resp, completedAt, err := callVerifierStage(ctx, rt, req)
+	if err != nil {
+		return llm.Response{}, time.Time{}, err
+	}
+	if err := unmarshalVerifierPayload(resp.Text, target); err != nil {
+		return llm.Response{}, time.Time{}, fmt.Errorf("parse %s output: %w", parseLabel, err)
+	}
+	return resp, completedAt, nil
 }
 
 func unmarshalVerifierPayload(raw string, target any) error {
