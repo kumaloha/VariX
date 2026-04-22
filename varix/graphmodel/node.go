@@ -2,7 +2,6 @@ package graphmodel
 
 import (
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -76,26 +75,26 @@ type GraphNode struct {
 }
 
 func (n GraphNode) Validate() error {
-	if strings.TrimSpace(n.ID) == "" {
-		return fmt.Errorf("graph node id is required")
+	if err := requireTrimmed("graph node id", n.ID); err != nil {
+		return err
 	}
-	if strings.TrimSpace(n.SourceArticleID) == "" {
-		return fmt.Errorf("graph node source_article_id is required")
+	if err := requireTrimmed("graph node source_article_id", n.SourceArticleID); err != nil {
+		return err
 	}
-	if strings.TrimSpace(n.SourcePlatform) == "" {
-		return fmt.Errorf("graph node source_platform is required")
+	if err := requireTrimmed("graph node source_platform", n.SourcePlatform); err != nil {
+		return err
 	}
-	if strings.TrimSpace(n.SourceExternalID) == "" {
-		return fmt.Errorf("graph node source_external_id is required")
+	if err := requireTrimmed("graph node source_external_id", n.SourceExternalID); err != nil {
+		return err
 	}
-	if strings.TrimSpace(n.SubjectText) == "" {
-		return fmt.Errorf("graph node subject_text is required")
+	if err := requireTrimmed("graph node subject_text", n.SubjectText); err != nil {
+		return err
 	}
-	if strings.TrimSpace(n.ChangeText) == "" {
-		return fmt.Errorf("graph node change_text is required")
+	if err := requireTrimmed("graph node change_text", n.ChangeText); err != nil {
+		return err
 	}
-	if strings.TrimSpace(n.RawText) == "" {
-		return fmt.Errorf("graph node raw_text is required")
+	if err := requireTrimmed("graph node raw_text", n.RawText); err != nil {
+		return err
 	}
 	switch n.Kind {
 	case NodeKindObservation, NodeKindPrediction:

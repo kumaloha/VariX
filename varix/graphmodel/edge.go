@@ -2,7 +2,6 @@ package graphmodel
 
 import (
 	"fmt"
-	"strings"
 )
 
 type EdgeType string
@@ -29,10 +28,13 @@ type GraphEdge struct {
 }
 
 func (e GraphEdge) Validate(nodeIDs map[string]struct{}) error {
-	if strings.TrimSpace(e.ID) == "" {
-		return fmt.Errorf("graph edge id is required")
+	if err := requireTrimmed("graph edge id", e.ID); err != nil {
+		return err
 	}
-	if strings.TrimSpace(e.From) == "" || strings.TrimSpace(e.To) == "" {
+	if err := requireTrimmed("graph edge source", e.From); err != nil {
+		return fmt.Errorf("graph edge endpoints are required")
+	}
+	if err := requireTrimmed("graph edge target", e.To); err != nil {
 		return fmt.Errorf("graph edge endpoints are required")
 	}
 	if e.From == e.To {

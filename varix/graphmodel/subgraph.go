@@ -20,20 +20,20 @@ type ContentSubgraph struct {
 }
 
 func (g ContentSubgraph) Validate() error {
-	if strings.TrimSpace(g.ID) == "" {
-		return fmt.Errorf("content subgraph id is required")
+	if err := requireTrimmed("content subgraph id", g.ID); err != nil {
+		return err
 	}
-	if strings.TrimSpace(g.ArticleID) == "" {
-		return fmt.Errorf("content subgraph article_id is required")
+	if err := requireTrimmed("content subgraph article_id", g.ArticleID); err != nil {
+		return err
 	}
-	if strings.TrimSpace(g.SourcePlatform) == "" {
-		return fmt.Errorf("content subgraph source_platform is required")
+	if err := requireTrimmed("content subgraph source_platform", g.SourcePlatform); err != nil {
+		return err
 	}
-	if strings.TrimSpace(g.SourceExternalID) == "" {
-		return fmt.Errorf("content subgraph source_external_id is required")
+	if err := requireTrimmed("content subgraph source_external_id", g.SourceExternalID); err != nil {
+		return err
 	}
-	if strings.TrimSpace(g.CompileVersion) == "" {
-		return fmt.Errorf("content subgraph compile_version is required")
+	if err := requireTrimmed("content subgraph compile_version", g.CompileVersion); err != nil {
+		return err
 	}
 	if err := validateRequiredRFC3339("compiled_at", g.CompiledAt); err != nil {
 		return err
@@ -72,6 +72,13 @@ func validateRequiredRFC3339(field, value string) error {
 		return fmt.Errorf("%s is required", field)
 	}
 	return validateOptionalRFC3339(field, value)
+}
+
+func requireTrimmed(field, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s is required", field)
+	}
+	return nil
 }
 
 func validateOptionalRFC3339(field, value string) error {
