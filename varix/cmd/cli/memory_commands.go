@@ -266,7 +266,7 @@ func runMemoryJobs(args []string, projectRoot string, stdout, stderr io.Writer) 
 	}
 	if *summary {
 		counts := map[string]int{}
-		now := time.Now().UTC()
+		now := currentUTC()
 		var oldestQueuedAt time.Time
 		var oldestRunningAt time.Time
 		for _, job := range jobs {
@@ -1215,7 +1215,7 @@ func runMemoryProjectAll(args []string, projectRoot string, stdout, stderr io.Wr
 		return 2
 	}
 	trimmedUserID := strings.TrimSpace(*userID)
-	now := time.Now().UTC()
+	now := currentUTC()
 	store, err := openStore(projectRoot)
 	if err != nil {
 		writeErr(stderr, err)
@@ -1303,7 +1303,7 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 	trimmedUserID := strings.TrimSpace(*userID)
 	trimmedPlatform := strings.TrimSpace(*platform)
 	trimmedExternalID := strings.TrimSpace(*externalID)
-	now := time.Now().UTC()
+	now := currentUTC()
 	switch selectedLayer {
 	case "content":
 		if err := store.PersistMemoryContentGraphFromCompiledOutput(context.Background(), trimmedUserID, trimmedPlatform, trimmedExternalID, now); err != nil {
@@ -1455,7 +1455,7 @@ func runMemoryCleanupStale(args []string, projectRoot string, stdout, stderr io.
 		return 1
 	}
 	defer store.Close()
-	cutoff := time.Now().UTC().Add(-*olderThan)
+	cutoff := currentUTC().Add(-*olderThan)
 	var deleted int64
 	if *dryRun {
 		deleted, err = store.CountStaleMemoryJobs(context.Background(), strings.TrimSpace(*userID), strings.TrimSpace(*platform), strings.TrimSpace(*externalID), cutoff)
