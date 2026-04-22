@@ -228,7 +228,7 @@ func runMemoryJobs(args []string, projectRoot string, stdout, stderr io.Writer) 
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*userID) == "" || (strings.TrimSpace(*externalID) != "" && strings.TrimSpace(*platform) == "") {
+	if invalidScopedMemorySourceRequest(*userID, *platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix memory jobs --user <user_id>")
 		return 2
 	}
@@ -341,7 +341,7 @@ func runMemoryPosteriorRun(args []string, projectRoot string, stdout, stderr io.
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*userID) == "" || (strings.TrimSpace(*externalID) != "" && strings.TrimSpace(*platform) == "") {
+	if invalidScopedMemorySourceRequest(*userID, *platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix memory posterior-run --user <user_id> [--platform <platform> --id <external_id>]")
 		return 2
 	}
@@ -859,6 +859,10 @@ func isGlobalV2ItemType(itemType string) bool {
 
 func writeMissingMemoryAction(w io.Writer, message, command, userID string) {
 	fmt.Fprintf(w, "%s; run: %s --user %s\n", message, command, userID)
+}
+
+func invalidScopedMemorySourceRequest(userID, platform, externalID string) bool {
+	return strings.TrimSpace(userID) == "" || (strings.TrimSpace(externalID) != "" && strings.TrimSpace(platform) == "")
 }
 
 func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMemoryV2Output, itemType string) string {
@@ -1455,7 +1459,7 @@ func runMemoryCleanupStale(args []string, projectRoot string, stdout, stderr io.
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*userID) == "" || (strings.TrimSpace(*externalID) != "" && strings.TrimSpace(*platform) == "") {
+	if invalidScopedMemorySourceRequest(*userID, *platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix memory cleanup-stale --user <user_id> [--older-than 24h] [--platform <platform> --id <external_id>]")
 		return 2
 	}
