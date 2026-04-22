@@ -303,7 +303,7 @@ func (s *SQLiteStore) UpsertMechanismGraph(ctx context.Context, graph memory.Mec
 	if mechanism.TraceabilityStatus == "" {
 		mechanism.TraceabilityStatus = memory.TraceabilityPartial
 	}
-	now := time.Now().UTC()
+	now := normalizeNow(time.Time{})
 	if mechanism.AsOf.IsZero() {
 		mechanism.AsOf = now
 	}
@@ -444,9 +444,7 @@ func (s *SQLiteStore) GetCurrentMechanismGraph(ctx context.Context, relationID s
 	if relationID == "" {
 		return memory.MechanismGraph{}, fmt.Errorf("relation id is required")
 	}
-	if asOf.IsZero() {
-		asOf = time.Now().UTC()
-	}
+	asOf = normalizeNow(asOf)
 	var mechanismID string
 	if err := s.db.QueryRowContext(
 		ctx,
@@ -937,7 +935,7 @@ func marshalLifecycleHistory(mergeHistory, splitHistory []string) (string, strin
 }
 
 func normalizeCreatedUpdatedTimes(createdAt, updatedAt *time.Time) {
-	now := time.Now().UTC()
+	now := normalizeNow(time.Time{})
 	if createdAt != nil && createdAt.IsZero() {
 		*createdAt = now
 	}
