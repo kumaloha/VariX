@@ -14,9 +14,7 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 	if len(nodes) == 0 {
 		return nil
 	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	now = normalizeNow(now)
 
 	byID := make(map[string]memory.AcceptedNode, len(nodes))
 	nodeIDs := make([]string, 0, len(nodes))
