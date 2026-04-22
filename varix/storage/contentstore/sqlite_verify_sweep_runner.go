@@ -20,14 +20,14 @@ func (s *SQLiteStore) RunVerifyQueueSweepFromContentGraphState(ctx context.Conte
 				if node.ID != item.ObjectID {
 					continue
 				}
-				return graphmodel.VerifyVerdict{ObjectType: item.ObjectType, ObjectID: item.ObjectID, Verdict: node.VerificationStatus, Reason: node.VerificationReason, AsOf: firstNonEmpty(node.VerificationAsOf, now.Format(time.RFC3339)), NextVerifyAt: node.NextVerifyAt}, nil
+				return graphmodel.VerifyVerdict{ObjectType: item.ObjectType, ObjectID: item.ObjectID, Verdict: node.VerificationStatus, Reason: node.VerificationReason, AsOf: firstTrimmed(node.VerificationAsOf, now.Format(time.RFC3339)), NextVerifyAt: node.NextVerifyAt}, nil
 			}
 		case graphmodel.VerifyQueueObjectEdge:
 			for _, edge := range subgraph.Edges {
 				if edge.ID != item.ObjectID {
 					continue
 				}
-				return graphmodel.VerifyVerdict{ObjectType: item.ObjectType, ObjectID: item.ObjectID, Verdict: edge.VerificationStatus, Reason: edge.VerificationReason, AsOf: firstNonEmpty(edge.VerificationAsOf, now.Format(time.RFC3339)), NextVerifyAt: edge.NextVerifyAt}, nil
+				return graphmodel.VerifyVerdict{ObjectType: item.ObjectType, ObjectID: item.ObjectID, Verdict: edge.VerificationStatus, Reason: edge.VerificationReason, AsOf: firstTrimmed(edge.VerificationAsOf, now.Format(time.RFC3339)), NextVerifyAt: edge.NextVerifyAt}, nil
 			}
 		}
 		return graphmodel.VerifyVerdict{}, fmt.Errorf("queue item object not found in content graph: %s", item.ObjectID)

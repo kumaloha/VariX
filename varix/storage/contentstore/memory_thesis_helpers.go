@@ -83,7 +83,3 @@ func firstTrimmed(values ...string) string {
 	}
 	return ""
 }
-
-func firstNonEmpty(values ...string) string {
-	return firstTrimmed(values...)
-}

@@ -8,7 +8,7 @@ import (
 )
 
 func (s *SQLiteStore) resolveCanonicalGraphNodeSubject(ctx context.Context, node graphmodel.GraphNode, cache map[string]string) (string, error) {
-	subject, err := s.resolveCanonicalSubject(ctx, strings.TrimSpace(firstNonEmpty(node.SubjectCanonical, node.SubjectText)), cache)
+	subject, err := s.resolveCanonicalSubject(ctx, firstTrimmed(node.SubjectCanonical, node.SubjectText), cache)
 	if err != nil {
 		return "", err
 	}
@@ -16,7 +16,7 @@ func (s *SQLiteStore) resolveCanonicalGraphNodeSubject(ctx context.Context, node
 }
 
 func normalizedEventBucket(values ...string) string {
-	bucket := strings.TrimSpace(firstNonEmpty(values...))
+	bucket := firstTrimmed(values...)
 	if bucket == "" {
 		return "timeless"
 	}

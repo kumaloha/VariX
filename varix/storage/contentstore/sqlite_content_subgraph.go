@@ -80,7 +80,7 @@ func (s *SQLiteStore) enqueuePendingVerifyItemsFromSubgraph(ctx context.Context,
 		if node.VerificationStatus != graphmodel.VerificationPending {
 			continue
 		}
-		scheduledAt := firstNonEmpty(strings.TrimSpace(node.NextVerifyAt), baseSchedule)
+		scheduledAt := firstTrimmed(node.NextVerifyAt, baseSchedule)
 		if err := s.EnqueueVerifyQueueItem(ctx, graphmodel.VerifyQueueItem{
 			ID:              verifyQueueID(subgraph.ID, "node", node.ID),
 			ObjectType:      graphmodel.VerifyQueueObjectNode,
@@ -97,7 +97,7 @@ func (s *SQLiteStore) enqueuePendingVerifyItemsFromSubgraph(ctx context.Context,
 		if edge.VerificationStatus != graphmodel.VerificationPending {
 			continue
 		}
-		scheduledAt := firstNonEmpty(strings.TrimSpace(edge.NextVerifyAt), baseSchedule)
+		scheduledAt := firstTrimmed(edge.NextVerifyAt, baseSchedule)
 		if err := s.EnqueueVerifyQueueItem(ctx, graphmodel.VerifyQueueItem{
 			ID:              verifyQueueID(subgraph.ID, "edge", edge.ID),
 			ObjectType:      graphmodel.VerifyQueueObjectEdge,
