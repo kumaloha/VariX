@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -45,19 +44,18 @@ func runVerifyRun(args []string, projectRoot string, stdout, stderr io.Writer) i
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*rawURL) == "" && fs.NArg() > 0 {
-		*rawURL = fs.Arg(0)
-	}
+	setRawURLFromArg(fs, rawURL)
 	if strings.TrimSpace(*rawURL) == "" && (strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "") {
 		fmt.Fprintln(stderr, "usage: varix verify run --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
 
-	app, err := buildApp(projectRoot)
+	app, store, err := openAppStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
+	defer store.Close()
 	c.EnableFactWebVerification()
 	client := buildCompileClient(projectRoot)
 	if client == nil {
@@ -68,49 +66,32 @@ func runVerifyRun(args []string, projectRoot string, stdout, stderr io.Writer) i
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
+	*platform, *externalID, err = resolveContentTarget(ctx, app, *rawURL, *platform, *externalID)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
-	}
-	defer store.Close()
-
-	if strings.TrimSpace(*rawURL) != "" {
-		parsed, err := app.Dispatcher.ParseURL(ctx, *rawURL)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		*platform = string(parsed.Platform)
-		*externalID = parsed.PlatformID
 	}
 
 	if !*force {
 		if existing, err := store.GetVerificationResult(ctx, *platform, *externalID); err == nil {
-			payload, marshalErr := json.MarshalIndent(existing, "", "  ")
-			if marshalErr != nil {
-				fmt.Fprintln(stderr, marshalErr)
-				return 1
-			}
-			fmt.Fprintln(stdout, string(payload))
-			return 0
+			return writeJSON(stdout, stderr, existing)
 		}
 	}
 
 	record, err := store.GetCompiledOutput(ctx, *platform, *externalID)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	raw, err := store.GetRawCapture(ctx, *platform, *externalID)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	bundle := c.BuildBundle(types.RawContent(raw))
 	verification, err := client.VerifyDetailed(ctx, bundle, record.Output)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	verifyRecord := c.VerificationRecord{
@@ -123,21 +104,14 @@ func runVerifyRun(args []string, projectRoot string, stdout, stderr io.Writer) i
 		VerifiedAt:     firstVerificationTime(verification),
 	}
 	if err := store.UpsertVerificationResult(ctx, verifyRecord); err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	if err := store.ApplyVerificationRecordToContentSubgraph(ctx, verifyRecord); err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
-
-	payload, err := json.MarshalIndent(verifyRecord, "", "  ")
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	fmt.Fprintln(stdout, string(payload))
-	return 0
+	return writeJSON(stdout, stderr, verifyRecord)
 }
 
 func runVerifyShow(args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -149,50 +123,32 @@ func runVerifyShow(args []string, projectRoot string, stdout, stderr io.Writer) 
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*rawURL) == "" && fs.NArg() > 0 {
-		*rawURL = fs.Arg(0)
-	}
+	setRawURLFromArg(fs, rawURL)
 
-	app, err := buildApp(projectRoot)
+	app, store, err := openAppStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
-	if strings.TrimSpace(*rawURL) != "" {
-		parsed, err := app.Dispatcher.ParseURL(context.Background(), *rawURL)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		*platform = string(parsed.Platform)
-		*externalID = parsed.PlatformID
+	defer store.Close()
+	*platform, *externalID, err = resolveContentTarget(context.Background(), app, *rawURL, *platform, *externalID)
+	if err != nil {
+		writeErr(stderr, err)
+		return 1
 	}
 	if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
 		fmt.Fprintln(stderr, "usage: varix verify show --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
-
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	defer store.Close()
 	record, err := store.GetVerificationResult(context.Background(), *platform, *externalID)
 	if err != nil {
 		record, err = store.BuildVerificationRecordFromContentSubgraph(context.Background(), *platform, *externalID)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			writeErr(stderr, err)
 			return 1
 		}
 	}
-	payload, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	fmt.Fprintln(stdout, string(payload))
-	return 0
+	return writeJSON(stdout, stderr, record)
 }
 
 func firstVerificationTime(v c.Verification) time.Time {
@@ -211,43 +167,26 @@ func runVerifyQueue(args []string, projectRoot string, stdout, stderr io.Writer)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
 	if *summary {
 		detail, err := store.GetVerifyQueueSummaryDetailed(context.Background(), time.Now().UTC())
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			writeErr(stderr, err)
 			return 1
 		}
-		payload, err := json.MarshalIndent(detail, "", "  ")
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		fmt.Fprintln(stdout, string(payload))
-		return 0
+		return writeJSON(stdout, stderr, detail)
 	}
 	items, err := store.ListVerifyQueueItemsByStatus(context.Background(), strings.TrimSpace(*status), *limit)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
-	payload, err := json.MarshalIndent(items, "", "  ")
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	fmt.Fprintln(stdout, string(payload))
-	return 0
+	return writeJSON(stdout, stderr, items)
 }
 
 func runVerifySweep(args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -257,27 +196,16 @@ func runVerifySweep(args []string, projectRoot string, stdout, stderr io.Writer)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
 	result, err := store.RunVerifyQueueSweepFromContentGraphState(context.Background(), time.Now().UTC(), *limit)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
-	payload, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	fmt.Fprintln(stdout, string(payload))
-	return 0
+	return writeJSON(stdout, stderr, result)
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -103,25 +102,24 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*rawURL) == "" && fs.NArg() > 0 {
-		*rawURL = fs.Arg(0)
-	}
+	setRawURLFromArg(fs, rawURL)
 	if strings.TrimSpace(*rawURL) == "" && (strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "") {
 		fmt.Fprintln(stderr, "usage: varix compile run --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
 
-	app, err := buildApp(projectRoot)
+	app, store, err := openAppStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
+	defer store.Close()
 	if !*noVerify {
 		c.EnableFactWebVerification()
 	}
 	client, err := selectCompileClient(projectRoot, *pipeline, *noVerify, *noValidate)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 2
 	}
 	if client == nil {
@@ -132,36 +130,17 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	defer store.Close()
-
 	if !*force {
 		switch {
 		case strings.TrimSpace(*rawURL) != "":
 			if parsed, err := app.Dispatcher.ParseURL(ctx, *rawURL); err == nil && strings.TrimSpace(parsed.PlatformID) != "" {
 				if record, err := store.GetCompiledOutput(ctx, string(parsed.Platform), parsed.PlatformID); err == nil {
-					payload, marshalErr := json.MarshalIndent(record, "", "  ")
-					if marshalErr != nil {
-						fmt.Fprintln(stderr, marshalErr)
-						return 1
-					}
-					fmt.Fprintln(stdout, string(payload))
-					return 0
+					return writeJSON(stdout, stderr, record)
 				}
 			}
 		case strings.TrimSpace(*platform) != "" && strings.TrimSpace(*externalID) != "":
 			if record, err := store.GetCompiledOutput(ctx, *platform, *externalID); err == nil {
-				payload, marshalErr := json.MarshalIndent(record, "", "  ")
-				if marshalErr != nil {
-					fmt.Fprintln(stderr, marshalErr)
-					return 1
-				}
-				fmt.Fprintln(stdout, string(payload))
-				return 0
+				return writeJSON(stdout, stderr, record)
 			}
 		}
 	}
@@ -190,7 +169,7 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	default:
 		raw, err = store.GetRawCapture(ctx, *platform, *externalID)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			writeErr(stderr, err)
 			return 1
 		}
 	}
@@ -199,7 +178,7 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	compileStart := time.Now()
 	record, err := client.Compile(ctx, bundle)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	if record.Metrics.CompileElapsedMS <= 0 {
@@ -209,17 +188,10 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 		}
 	}
 	if err := store.UpsertCompiledOutput(ctx, record); err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
-
-	payload, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	fmt.Fprintln(stdout, string(payload))
-	return 0
+	return writeJSON(stdout, stderr, record)
 }
 
 func runCompileShow(args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -231,47 +203,29 @@ func runCompileShow(args []string, projectRoot string, stdout, stderr io.Writer)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*rawURL) == "" && fs.NArg() > 0 {
-		*rawURL = fs.Arg(0)
-	}
+	setRawURLFromArg(fs, rawURL)
 
-	app, err := buildApp(projectRoot)
+	app, store, err := openAppStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
-	if strings.TrimSpace(*rawURL) != "" {
-		parsed, err := app.Dispatcher.ParseURL(context.Background(), *rawURL)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		*platform = string(parsed.Platform)
-		*externalID = parsed.PlatformID
+	defer store.Close()
+	*platform, *externalID, err = resolveContentTarget(context.Background(), app, *rawURL, *platform, *externalID)
+	if err != nil {
+		writeErr(stderr, err)
+		return 1
 	}
 	if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
 		fmt.Fprintln(stderr, "usage: varix compile show --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
-
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	defer store.Close()
 	record, err := store.GetCompiledOutput(context.Background(), *platform, *externalID)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
-	payload, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	fmt.Fprintln(stdout, string(payload))
-	return 0
+	return writeJSON(stdout, stderr, record)
 }
 
 func runCompileSummary(args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -283,38 +237,26 @@ func runCompileSummary(args []string, projectRoot string, stdout, stderr io.Writ
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*rawURL) == "" && fs.NArg() > 0 {
-		*rawURL = fs.Arg(0)
-	}
+	setRawURLFromArg(fs, rawURL)
 
-	app, err := buildApp(projectRoot)
+	app, store, err := openAppStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
-	if strings.TrimSpace(*rawURL) != "" {
-		parsed, err := app.Dispatcher.ParseURL(context.Background(), *rawURL)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		*platform = string(parsed.Platform)
-		*externalID = parsed.PlatformID
+	defer store.Close()
+	*platform, *externalID, err = resolveContentTarget(context.Background(), app, *rawURL, *platform, *externalID)
+	if err != nil {
+		writeErr(stderr, err)
+		return 1
 	}
 	if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
 		fmt.Fprintln(stderr, "usage: varix compile summary --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
-
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	defer store.Close()
 	record, err := store.GetCompiledOutput(context.Background(), *platform, *externalID)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 
@@ -339,43 +281,31 @@ func runCompileCompare(args []string, projectRoot string, stdout, stderr io.Writ
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*rawURL) == "" && fs.NArg() > 0 {
-		*rawURL = fs.Arg(0)
-	}
+	setRawURLFromArg(fs, rawURL)
 
-	app, err := buildApp(projectRoot)
+	app, store, err := openAppStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
-	if strings.TrimSpace(*rawURL) != "" {
-		parsed, err := app.Dispatcher.ParseURL(context.Background(), *rawURL)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		*platform = string(parsed.Platform)
-		*externalID = parsed.PlatformID
+	defer store.Close()
+	*platform, *externalID, err = resolveContentTarget(context.Background(), app, *rawURL, *platform, *externalID)
+	if err != nil {
+		writeErr(stderr, err)
+		return 1
 	}
 	if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
 		fmt.Fprintln(stderr, "usage: varix compile compare --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
-
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	defer store.Close()
 	raw, err := store.GetRawCapture(context.Background(), *platform, *externalID)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	record, err := store.GetCompiledOutput(context.Background(), *platform, *externalID)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 
@@ -421,38 +351,26 @@ func runCompileCard(args []string, projectRoot string, stdout, stderr io.Writer)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*rawURL) == "" && fs.NArg() > 0 {
-		*rawURL = fs.Arg(0)
-	}
+	setRawURLFromArg(fs, rawURL)
 
-	app, err := buildApp(projectRoot)
+	app, store, err := openAppStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
-	if strings.TrimSpace(*rawURL) != "" {
-		parsed, err := app.Dispatcher.ParseURL(context.Background(), *rawURL)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		*platform = string(parsed.Platform)
-		*externalID = parsed.PlatformID
+	defer store.Close()
+	*platform, *externalID, err = resolveContentTarget(context.Background(), app, *rawURL, *platform, *externalID)
+	if err != nil {
+		writeErr(stderr, err)
+		return 1
 	}
 	if strings.TrimSpace(*platform) == "" || strings.TrimSpace(*externalID) == "" {
 		fmt.Fprintln(stderr, "usage: varix compile card --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
-
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	defer store.Close()
 	record, err := store.GetCompiledOutput(context.Background(), *platform, *externalID)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	var subgraph *graphmodel.ContentSubgraph

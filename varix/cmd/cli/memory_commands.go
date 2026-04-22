@@ -16,9 +16,11 @@ import (
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
+const memoryCommandUsage = "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert> ..."
+
 func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert> ...")
+		fmt.Fprintln(stderr, memoryCommandUsage)
 		return 2
 	}
 	switch args[0] {
@@ -73,7 +75,7 @@ func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Write
 	case "canonical-entity-upsert":
 		return runMemoryCanonicalEntityUpsert(args[1:], projectRoot, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert> ...")
+		fmt.Fprintln(stderr, memoryCommandUsage)
 		return 2
 	}
 }
@@ -130,14 +132,9 @@ func runMemoryAcceptBatch(args []string, projectRoot string, stdout, stderr io.W
 }
 
 func runMemoryAcceptRequest(projectRoot string, stdout, stderr io.Writer, req memory.AcceptRequest) int {
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -166,14 +163,9 @@ func runMemoryList(args []string, projectRoot string, stdout, stderr io.Writer) 
 		fmt.Fprintln(stderr, "usage: varix memory list --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -204,14 +196,9 @@ func runMemoryShowSource(args []string, projectRoot string, stdout, stderr io.Wr
 		fmt.Fprintln(stderr, "usage: varix memory show-source --user <user_id> --platform <platform> --id <external_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -244,14 +231,9 @@ func runMemoryJobs(args []string, projectRoot string, stdout, stderr io.Writer) 
 		fmt.Fprintln(stderr, "usage: varix memory jobs --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -362,14 +344,9 @@ func runMemoryPosteriorRun(args []string, projectRoot string, stdout, stderr io.
 		fmt.Fprintln(stderr, "usage: varix memory posterior-run --user <user_id> [--platform <platform> --id <external_id>]")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -402,14 +379,9 @@ func runMemoryOrganizeRun(args []string, projectRoot string, stdout, stderr io.W
 		fmt.Fprintln(stderr, "usage: varix memory organize-run --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -440,14 +412,9 @@ func runMemoryOrganized(args []string, projectRoot string, stdout, stderr io.Wri
 		fmt.Fprintln(stderr, "usage: varix memory organized --user <user_id> --platform <platform> --id <external_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -484,14 +451,9 @@ func runMemoryGlobalOrganizeRun(args []string, projectRoot string, stdout, stder
 		fmt.Fprintln(stderr, "usage: varix memory global-organize-run --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -520,14 +482,9 @@ func runMemoryGlobalOrganized(args []string, projectRoot string, stdout, stderr 
 		fmt.Fprintln(stderr, "usage: varix memory global-organized --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -556,14 +513,9 @@ func runMemoryGlobalV2OrganizeRun(args []string, projectRoot string, stdout, std
 		fmt.Fprintln(stderr, "usage: varix memory global-v2-organize-run --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -592,14 +544,9 @@ func runMemoryGlobalV2Organized(args []string, projectRoot string, stdout, stder
 		fmt.Fprintln(stderr, "usage: varix memory global-v2-organized --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -632,14 +579,9 @@ func runMemoryGlobalCard(args []string, projectRoot string, stdout, stderr io.Wr
 		fmt.Fprintln(stderr, "usage: varix memory global-card --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -670,14 +612,9 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 		fmt.Fprintln(stderr, "item-type must be one of: card, conclusion, conflict")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -723,14 +660,9 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 		fmt.Fprintln(stderr, "item-type must be one of: card, conclusion, conflict")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -1021,14 +953,9 @@ func runMemoryEventGraphs(args []string, projectRoot string, stdout, stderr io.W
 		fmt.Fprintln(stderr, "usage: varix memory event-graphs --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -1088,14 +1015,9 @@ func runMemoryParadigms(args []string, projectRoot string, stdout, stderr io.Wri
 		fmt.Fprintln(stderr, "usage: varix memory paradigms --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -1146,14 +1068,9 @@ func runMemoryContentGraphs(args []string, projectRoot string, stdout, stderr io
 		fmt.Fprintln(stderr, "usage: varix memory content-graphs --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -1287,14 +1204,9 @@ func runMemoryProjectAll(args []string, projectRoot string, stdout, stderr io.Wr
 		fmt.Fprintln(stderr, "usage: varix memory project-all --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -1370,14 +1282,9 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 		fmt.Fprintln(stderr, "usage: varix memory backfill --layer <content|event|paradigm|global-v2|all> ...")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -1527,14 +1434,9 @@ func runMemoryCleanupStale(args []string, projectRoot string, stdout, stderr io.
 		fmt.Fprintln(stderr, "--older-than must be positive")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -1580,14 +1482,9 @@ func runMemoryCanonicalEntities(args []string, projectRoot string, stdout, stder
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -1725,14 +1622,9 @@ func runMemoryCanonicalEntityUpsert(args []string, projectRoot string, stdout, s
 			aliases = append(aliases, trimmed)
 		}
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -1769,14 +1661,9 @@ func runMemoryEventEvidence(args []string, projectRoot string, stdout, stderr io
 		fmt.Fprintln(stderr, "usage: varix memory event-evidence --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
@@ -1824,14 +1711,9 @@ func runMemoryParadigmEvidence(args []string, projectRoot string, stdout, stderr
 		fmt.Fprintln(stderr, "usage: varix memory paradigm-evidence --user <user_id>")
 		return 2
 	}
-	app, err := buildApp(projectRoot)
+	store, err := openStore(projectRoot)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	store, err := openSQLiteStore(app.Settings.ContentDBPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
