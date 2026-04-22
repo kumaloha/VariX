@@ -228,12 +228,17 @@ func debugV2Stage(bundle compile.Bundle, stageName, message string) {
 }
 
 func (c *Client) startDebugRun(bundle compile.Bundle) string {
-	if c == nil || strings.TrimSpace(os.Getenv("COMPILE_STAGE_DEBUG")) == "" || strings.TrimSpace(c.projectRoot) == "" {
+	if c == nil {
+		return ""
+	}
+	debugFlag := strings.TrimSpace(os.Getenv("COMPILE_STAGE_DEBUG"))
+	projectRoot := strings.TrimSpace(c.projectRoot)
+	if debugFlag == "" || projectRoot == "" {
 		return ""
 	}
 	unitID := sanitizeDebugPath(compile.FirstNonEmpty(bundle.UnitID, bundle.ExternalID, "unknown"))
 	ts := compile.NowUTC().Format("20060102T150405Z")
-	dir := filepath.Join(c.projectRoot, ".omx", "debug", "compilev2", unitID, ts)
+	dir := filepath.Join(projectRoot, ".omx", "debug", "compilev2", unitID, ts)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return ""
 	}
