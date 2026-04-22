@@ -104,27 +104,11 @@ func extractCorePath(nodes []memory.AcceptedNode, roles map[string]string) []str
 }
 
 func buildTraceabilityMap(nodes []memory.AcceptedNode) map[string][]string {
-	out := make(map[string][]string, len(nodes))
-	for _, node := range nodes {
-		out[node.NodeID] = []string{node.NodeID}
-	}
-	return out
+	return selfTraceabilityMap(nodes)
 }
 
 func supportingNodeIDs(nodes []memory.AcceptedNode, corePath []string) []string {
-	core := map[string]struct{}{}
-	for _, id := range corePath {
-		core[id] = struct{}{}
-	}
-	out := make([]string, 0)
-	for _, node := range nodes {
-		if _, ok := core[node.NodeID]; ok {
-			continue
-		}
-		out = append(out, node.NodeID)
-	}
-	sort.Strings(out)
-	return out
+	return sortedNonCoreNodeIDs(nodes, corePath)
 }
 
 func completenessScore(corePath []string) float64 {

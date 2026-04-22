@@ -35,7 +35,7 @@ func isConclusionAbstractable(thesis memory.CausalThesis, cards []memory.Cogniti
 }
 
 func isGenericConclusion(headline string) bool {
-	headline = strings.TrimSpace(headline)
+	headline = firstTrimmed(headline)
 	if headline == "" {
 		return true
 	}
@@ -53,11 +53,8 @@ func isGenericConclusion(headline string) bool {
 }
 
 func synthesizeConclusionHeadline(thesis memory.CausalThesis, card memory.CognitiveCard) string {
-	headline := strings.TrimSpace(card.Title)
-	driver := ""
-	if len(card.KeyEvidence) > 0 {
-		driver = strings.TrimSpace(card.KeyEvidence[0])
-	}
+	headline := firstTrimmed(card.Title)
+	driver := firstCardKeyEvidence(card)
 	if abstract := abstractHeadlineFromDebtPurchasingPower(thesis, card); abstract != "" {
 		return abstract
 	}
@@ -70,14 +67,15 @@ func synthesizeConclusionHeadline(thesis memory.CausalThesis, card memory.Cognit
 	if abstract := abstractHeadlineFromJPMResilience(thesis, card); abstract != "" {
 		return abstract
 	}
-	if len(card.Predictions) > 0 && strings.TrimSpace(card.Predictions[0]) != "" {
-		if abstract := abstractHeadlineFromPressureAndVolatility(driver, headline, strings.TrimSpace(card.Predictions[0])); abstract != "" {
+	prediction := firstCardPrediction(card)
+	if prediction != "" {
+		if abstract := abstractHeadlineFromPressureAndVolatility(driver, headline, prediction); abstract != "" {
 			return abstract
 		}
 		if driver != "" {
-			return driver + "会使" + headline + "，并可能导致" + strings.TrimSpace(card.Predictions[0])
+			return driver + "会使" + headline + "，并可能导致" + prediction
 		}
-		return headline + "，并可能导致" + strings.TrimSpace(card.Predictions[0])
+		return headline + "，并可能导致" + prediction
 	}
 	if driver != "" && headline != "" {
 		return driver + "会使" + headline
@@ -129,9 +127,9 @@ func abstractHeadlineFromJPMResilience(thesis memory.CausalThesis, card memory.C
 }
 
 func abstractHeadlineFromPressureAndVolatility(driver, headline, prediction string) string {
-	driver = strings.TrimSpace(driver)
-	headline = strings.TrimSpace(headline)
-	prediction = strings.TrimSpace(prediction)
+	driver = firstTrimmed(driver)
+	headline = firstTrimmed(headline)
+	prediction = firstTrimmed(prediction)
 	if driver == "" || headline == "" || prediction == "" {
 		return ""
 	}
@@ -142,7 +140,7 @@ func abstractHeadlineFromPressureAndVolatility(driver, headline, prediction stri
 		return ""
 	}
 	subject := strings.TrimSuffix(headline, "承压")
-	if strings.TrimSpace(subject) == "" {
+	if firstTrimmed(subject) == "" {
 		return ""
 	}
 	return driver + "正在把" + subject + "推向承压与更高波动"
@@ -154,7 +152,7 @@ func buildTopMemoryItems(conflicts []memory.ConflictSet, conclusions []memory.Co
 		items = append(items, newTopMemoryItem(
 			conflict.ConflictID,
 			memory.TopMemoryItemConflict,
-			firstNonEmpty(conflict.ConflictTopic, "存在认知矛盾"),
+			firstTrimmed(conflict.ConflictTopic, "存在认知矛盾"),
 			humanizeConflictReason(conflict.ConflictReason),
 			conflict.ConflictID,
 			memory.SignalHigh,
@@ -188,15 +186,6 @@ func buildTopMemoryItems(conflicts []memory.ConflictSet, conclusions []memory.Co
 	return items
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func firstNonZeroTime(values ...time.Time) time.Time {
 	for _, value := range values {
 		if !value.IsZero() {
@@ -208,11 +197,11 @@ func firstNonZeroTime(values ...time.Time) time.Time {
 
 func signalStrengthForConclusion(conclusion memory.CognitiveConclusion) memory.SignalStrength {
 	switch {
-	case (strings.Contains(conclusion.Headline, "推向") || strings.Contains(conclusion.Headline, "推高") || strings.Contains(conclusion.Headline, "侵蚀") || strings.Contains(conclusion.Headline, "放大") || strings.Contains(conclusion.Headline, "展现经营韧性")) && strings.TrimSpace(conclusion.Subheadline) != "":
+	case (strings.Contains(conclusion.Headline, "推向") || strings.Contains(conclusion.Headline, "推高") || strings.Contains(conclusion.Headline, "侵蚀") || strings.Contains(conclusion.Headline, "放大") || strings.Contains(conclusion.Headline, "展现经营韧性")) && firstTrimmed(conclusion.Subheadline) != "":
 		return memory.SignalHigh
 	case strings.Contains(conclusion.Headline, "并可能导致"):
 		return memory.SignalHigh
-	case strings.TrimSpace(conclusion.Subheadline) != "":
+	case firstTrimmed(conclusion.Subheadline) != "":
 		return memory.SignalMedium
 	default:
 		return memory.SignalLow
@@ -220,7 +209,7 @@ func signalStrengthForConclusion(conclusion memory.CognitiveConclusion) memory.S
 }
 
 func humanizeConflictReason(reason string) string {
-	switch strings.TrimSpace(reason) {
+	switch firstTrimmed(reason) {
 	case "antonym contradiction":
 		return "同一判断方向相反"
 	case "negation contradiction":
@@ -232,11 +221,25 @@ func humanizeConflictReason(reason string) string {
 	case "condition negation contradiction":
 		return "同一条件表达互相否定"
 	default:
-		if strings.TrimSpace(reason) == "" {
+		if firstTrimmed(reason) == "" {
 			return "存在认知冲突"
 		}
 		return reason
 	}
+}
+
+func firstCardKeyEvidence(card memory.CognitiveCard) string {
+	if len(card.KeyEvidence) == 0 {
+		return ""
+	}
+	return firstTrimmed(card.KeyEvidence[0])
+}
+
+func firstCardPrediction(card memory.CognitiveCard) string {
+	if len(card.Predictions) == 0 {
+		return ""
+	}
+	return firstTrimmed(card.Predictions[0])
 }
 
 func signalStrengthForCard(card memory.CognitiveCard) memory.SignalStrength {
