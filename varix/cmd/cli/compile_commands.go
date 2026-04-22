@@ -44,6 +44,8 @@ var openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
 	return contentstore.NewSQLiteStore(path)
 }
 
+const compileCommandUsage = "usage: varix compile <run|show|summary|compare|card> ..."
+
 func selectCompileClient(projectRoot, pipeline string, noVerify, noValidate bool) (compileClient, error) {
 	switch strings.TrimSpace(pipeline) {
 	case "", "legacy":
@@ -67,7 +69,7 @@ func selectCompileClient(projectRoot, pipeline string, noVerify, noValidate bool
 
 func runCompileCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: varix compile <run|show> ...")
+		fmt.Fprintln(stderr, compileCommandUsage)
 		return 2
 	}
 
@@ -83,7 +85,7 @@ func runCompileCommand(args []string, projectRoot string, stdout, stderr io.Writ
 	case "card":
 		return runCompileCard(args[1:], projectRoot, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: varix compile <run|show|summary|compare|card> ...")
+		fmt.Fprintln(stderr, compileCommandUsage)
 		return 2
 	}
 }
