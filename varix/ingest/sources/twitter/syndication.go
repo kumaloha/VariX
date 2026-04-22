@@ -530,7 +530,7 @@ func needsLongformFallback(note *syndicationNote) bool {
 }
 
 func (c *SyndicationHTTPClient) fetchLongformText(ctx context.Context, tweetID string) (string, error) {
-	if strings.TrimSpace(c.authToken) == "" || strings.TrimSpace(c.ct0) == "" {
+	if !c.hasAuthTokens() {
 		return "", fmt.Errorf("twitter longform auth missing")
 	}
 	endpoint, err := url.Parse("https://x.com/i/api/graphql/" + tweetResultByRestIDQueryID + "/TweetResultByRestId")
@@ -555,13 +555,7 @@ func (c *SyndicationHTTPClient) fetchLongformText(ctx context.Context, tweetID s
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("authorization", "Bearer "+webBearerToken)
-	req.Header.Set("x-csrf-token", c.ct0)
-	req.Header.Set("x-twitter-active-user", "yes")
-	req.Header.Set("x-twitter-auth-type", "OAuth2Session")
-	req.Header.Set("x-twitter-client-language", "en")
-	req.Header.Set("cookie", "auth_token="+c.authToken+"; ct0="+c.ct0)
-	req.Header.Set("user-agent", "Mozilla/5.0")
+	c.applyAuthHeaders(req, webBearerToken)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -590,7 +584,7 @@ func (c *SyndicationHTTPClient) fetchArticlePlainText(ctx context.Context, tweet
 }
 
 func (c *SyndicationHTTPClient) fetchTweetResultByRestIDGraphQL(ctx context.Context, tweetID string) (map[string]any, error) {
-	if strings.TrimSpace(c.authToken) == "" || strings.TrimSpace(c.ct0) == "" {
+	if !c.hasAuthTokens() {
 		return nil, fmt.Errorf("twitter graphql auth missing")
 	}
 	endpoint, err := url.Parse("https://x.com/i/api/graphql/" + tweetResultByRestIDQueryID + "/TweetResultByRestId")
@@ -615,13 +609,7 @@ func (c *SyndicationHTTPClient) fetchTweetResultByRestIDGraphQL(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("authorization", "Bearer "+webBearerToken)
-	req.Header.Set("x-csrf-token", c.ct0)
-	req.Header.Set("x-twitter-active-user", "yes")
-	req.Header.Set("x-twitter-auth-type", "OAuth2Session")
-	req.Header.Set("x-twitter-client-language", "en")
-	req.Header.Set("cookie", "auth_token="+c.authToken+"; ct0="+c.ct0)
-	req.Header.Set("user-agent", "Mozilla/5.0")
+	c.applyAuthHeaders(req, webBearerToken)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -746,7 +734,7 @@ func extractGraphQLArticlePlainText(payload map[string]any) string {
 }
 
 func (c *SyndicationHTTPClient) hydrateThread(ctx context.Context, item *types.RawContent) {
-	if item == nil || strings.TrimSpace(c.authToken) == "" || strings.TrimSpace(c.ct0) == "" {
+	if item == nil || !c.hasAuthTokens() {
 		return
 	}
 	ids, err := c.fetchSelfThreadIDs(ctx, item.ExternalID)
@@ -807,6 +795,23 @@ func (c *SyndicationHTTPClient) hydrateThread(ctx context.Context, item *types.R
 	item.References = mergedReferences
 	item.Attachments = mergedAttachments
 	item.Content = strings.Join(contents, "\n\n")
+}
+
+func (c *SyndicationHTTPClient) hasAuthTokens() bool {
+	return strings.TrimSpace(c.authToken) != "" && strings.TrimSpace(c.ct0) != ""
+}
+
+func (c *SyndicationHTTPClient) applyAuthHeaders(req *http.Request, bearerToken string) {
+	if req == nil {
+		return
+	}
+	req.Header.Set("authorization", "Bearer "+bearerToken)
+	req.Header.Set("x-csrf-token", c.ct0)
+	req.Header.Set("x-twitter-active-user", "yes")
+	req.Header.Set("x-twitter-auth-type", "OAuth2Session")
+	req.Header.Set("x-twitter-client-language", "en")
+	req.Header.Set("cookie", "auth_token="+c.authToken+"; ct0="+c.ct0)
+	req.Header.Set("user-agent", "Mozilla/5.0")
 }
 
 func (c *SyndicationHTTPClient) fetchSelfThreadIDs(ctx context.Context, focalTweetID string) ([]string, error) {
