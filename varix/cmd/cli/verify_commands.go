@@ -12,9 +12,11 @@ import (
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
 
+const verifyCommandUsage = "usage: varix verify <run|show|queue|sweep> ..."
+
 func runVerifyCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: varix verify <run|show|queue|sweep> ...")
+		fmt.Fprintln(stderr, verifyCommandUsage)
 		return 2
 	}
 
@@ -28,7 +30,7 @@ func runVerifyCommand(args []string, projectRoot string, stdout, stderr io.Write
 	case "sweep":
 		return runVerifySweep(args[1:], projectRoot, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: varix verify <run|show|queue|sweep> ...")
+		fmt.Fprintln(stderr, verifyCommandUsage)
 		return 2
 	}
 }
