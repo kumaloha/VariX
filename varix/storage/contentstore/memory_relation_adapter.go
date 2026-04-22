@@ -461,46 +461,79 @@ type aggregateState struct {
 	conflictCount       int
 }
 
+type aggregateSnapshot struct {
+	aggregateID         string
+	relationIDs         []string
+	neighborEntityIDs   []string
+	mechanismLabels     []string
+	coverageScore       float64
+	conflictCount       int
+	activeConclusionIDs []string
+	traceabilityStatus  memory.TraceabilityStatus
+}
+
 func buildDriverAggregatesFromState(states map[string]*aggregateState, now time.Time) []memory.DriverAggregate {
-	out := make([]memory.DriverAggregate, 0, len(states))
-	for driverEntityID, state := range states {
+	snapshots := aggregateSnapshots(states)
+	out := make([]memory.DriverAggregate, 0, len(snapshots))
+	for _, snapshot := range snapshots {
 		out = append(out, memory.DriverAggregate{
-			AggregateID:         driverEntityID + "-aggregate",
-			DriverEntityID:      driverEntityID,
-			RelationIDs:         uniquePreservingOrder(state.relationIDs),
-			TargetEntityIDs:     uniquePreservingOrder(state.neighborEntityIDs),
-			MechanismLabels:     uniquePreservingOrder(state.mechanismLabels),
-			CoverageScore:       state.coverageScore,
-			ConflictCount:       state.conflictCount,
-			ActiveConclusionIDs: uniquePreservingOrder(state.activeConclusionIDs),
-			TraceabilityStatus:  state.traceabilityStatus,
+			AggregateID:         snapshot.aggregateID,
+			DriverEntityID:      trimAggregateEntityID(snapshot.aggregateID),
+			RelationIDs:         snapshot.relationIDs,
+			TargetEntityIDs:     snapshot.neighborEntityIDs,
+			MechanismLabels:     snapshot.mechanismLabels,
+			CoverageScore:       snapshot.coverageScore,
+			ConflictCount:       snapshot.conflictCount,
+			ActiveConclusionIDs: snapshot.activeConclusionIDs,
+			TraceabilityStatus:  snapshot.traceabilityStatus,
 			AsOf:                now,
 			CreatedAt:           now,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].AggregateID < out[j].AggregateID })
 	return out
 }
 
 func buildTargetAggregatesFromState(states map[string]*aggregateState, now time.Time) []memory.TargetAggregate {
-	out := make([]memory.TargetAggregate, 0, len(states))
-	for targetEntityID, state := range states {
+	snapshots := aggregateSnapshots(states)
+	out := make([]memory.TargetAggregate, 0, len(snapshots))
+	for _, snapshot := range snapshots {
 		out = append(out, memory.TargetAggregate{
-			AggregateID:         targetEntityID + "-aggregate",
-			TargetEntityID:      targetEntityID,
-			RelationIDs:         uniquePreservingOrder(state.relationIDs),
-			DriverEntityIDs:     uniquePreservingOrder(state.neighborEntityIDs),
-			MechanismLabels:     uniquePreservingOrder(state.mechanismLabels),
-			CoverageScore:       state.coverageScore,
-			ConflictCount:       state.conflictCount,
-			ActiveConclusionIDs: uniquePreservingOrder(state.activeConclusionIDs),
-			TraceabilityStatus:  state.traceabilityStatus,
+			AggregateID:         snapshot.aggregateID,
+			TargetEntityID:      trimAggregateEntityID(snapshot.aggregateID),
+			RelationIDs:         snapshot.relationIDs,
+			DriverEntityIDs:     snapshot.neighborEntityIDs,
+			MechanismLabels:     snapshot.mechanismLabels,
+			CoverageScore:       snapshot.coverageScore,
+			ConflictCount:       snapshot.conflictCount,
+			ActiveConclusionIDs: snapshot.activeConclusionIDs,
+			TraceabilityStatus:  snapshot.traceabilityStatus,
 			AsOf:                now,
 			CreatedAt:           now,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].AggregateID < out[j].AggregateID })
 	return out
+}
+
+func aggregateSnapshots(states map[string]*aggregateState) []aggregateSnapshot {
+	out := make([]aggregateSnapshot, 0, len(states))
+	for entityID, state := range states {
+		out = append(out, aggregateSnapshot{
+			aggregateID:         entityID + "-aggregate",
+			relationIDs:         uniquePreservingOrder(state.relationIDs),
+			neighborEntityIDs:   uniquePreservingOrder(state.neighborEntityIDs),
+			mechanismLabels:     uniquePreservingOrder(state.mechanismLabels),
+			coverageScore:       state.coverageScore,
+			conflictCount:       state.conflictCount,
+			activeConclusionIDs: uniquePreservingOrder(state.activeConclusionIDs),
+			traceabilityStatus:  state.traceabilityStatus,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].aggregateID < out[j].aggregateID })
+	return out
+}
+
+func trimAggregateEntityID(aggregateID string) string {
+	return strings.TrimSuffix(aggregateID, "-aggregate")
 }
 
 func maxFloat(left, right float64) float64 {
