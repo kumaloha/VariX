@@ -26,3 +26,16 @@ func newTopMemoryItem(itemID string, itemType memory.TopMemoryItemType, headline
 		UpdatedAt:       updatedAt,
 	}
 }
+
+func newCognitiveConclusion(conclusionID, sourceType, sourceID, headline, subheadline string, traceabilityStatus memory.TraceabilityStatus, asOf, createdAt time.Time) memory.CognitiveConclusion {
+	return memory.CognitiveConclusion{
+		ConclusionID:       conclusionID,
+		SourceType:         sourceType,
+		SourceID:           sourceID,
+		Headline:           headline,
+		Subheadline:        subheadline,
+		TraceabilityStatus: traceabilityStatus,
+		AsOf:               asOf,
+		CreatedAt:          createdAt,
+	}
+}

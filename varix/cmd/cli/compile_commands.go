@@ -405,12 +405,12 @@ type compileCardProjection struct {
 func buildCompileCardProjection(record c.Record, subgraph *graphmodel.ContentSubgraph) compileCardProjection {
 	projection := compileCardProjection{
 		Summary:      record.Output.Summary,
-		Topics:       append([]string(nil), record.Output.Topics...),
+		Topics:       cloneStringSlice(record.Output.Topics),
 		Confidence:   record.Output.Confidence,
-		Drivers:      append([]string(nil), record.Output.Drivers...),
-		Targets:      append([]string(nil), record.Output.Targets...),
-		Evidence:     append([]string(nil), record.Output.EvidenceNodes...),
-		Explanations: append([]string(nil), record.Output.ExplanationNodes...),
+		Drivers:      cloneStringSlice(record.Output.Drivers),
+		Targets:      cloneStringSlice(record.Output.Targets),
+		Evidence:     cloneStringSlice(record.Output.EvidenceNodes),
+		Explanations: cloneStringSlice(record.Output.ExplanationNodes),
 		LogicChains:  legacyLogicChains(record),
 	}
 	if subgraph == nil {

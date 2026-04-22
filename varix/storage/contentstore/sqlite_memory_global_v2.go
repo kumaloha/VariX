@@ -314,16 +314,16 @@ func buildTargetAggregatesFromEventGraphs(graphs []EventGraphRecord, now time.Ti
 func buildConclusionsFromParadigms(items []ParadigmRecord, now time.Time) []memory.CognitiveConclusion {
 	out := make([]memory.CognitiveConclusion, 0, len(items))
 	for _, item := range items {
-		out = append(out, memory.CognitiveConclusion{
-			ConclusionID:       item.ParadigmID + "-conclusion",
-			SourceType:         "paradigm",
-			SourceID:           item.ParadigmID,
-			Headline:           paradigmHeadline(item),
-			Subheadline:        buildCardOrConclusionSubheadline(item.CredibilityState),
-			TraceabilityStatus: memory.TraceabilityPartial,
-			AsOf:               now,
-			CreatedAt:          now,
-		})
+		out = append(out, newCognitiveConclusion(
+			item.ParadigmID+"-conclusion",
+			"paradigm",
+			item.ParadigmID,
+			paradigmHeadline(item),
+			buildCardOrConclusionSubheadline(item.CredibilityState),
+			memory.TraceabilityPartial,
+			now,
+			now,
+		))
 	}
 	return out
 }

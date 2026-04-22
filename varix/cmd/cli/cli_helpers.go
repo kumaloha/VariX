@@ -64,3 +64,7 @@ func writeErr(stderr io.Writer, err error) {
 	_, _ = io.WriteString(stderr, err.Error())
 	_, _ = io.WriteString(stderr, "\n")
 }
+
+func cloneStringSlice(values []string) []string {
+	return append([]string(nil), values...)
+}
