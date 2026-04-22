@@ -27,17 +27,17 @@ func NewClientFromConfig(projectRoot string, httpClient *http.Client) *Client {
 }
 
 func NewClientFromConfigWithRetry(projectRoot string, httpClient *http.Client, retryCfg RetryConfig) *Client {
-	apiKey := firstConfiguredValue(projectRoot, "ASR_API_KEY", "DASHSCOPE_API_KEY")
+	apiKey := config.FirstConfiguredValue(projectRoot, "ASR_API_KEY", "DASHSCOPE_API_KEY")
 	if apiKey == "" {
 		return nil
 	}
 
 	baseURL := "https://api.openai.com/v1"
-	if value := firstConfiguredValue(projectRoot, "ASR_BASE_URL"); value != "" {
+	if value := config.FirstConfiguredValue(projectRoot, "ASR_BASE_URL"); value != "" {
 		baseURL = strings.TrimRight(value, "/")
 	}
 	model := "whisper-1"
-	if value := firstConfiguredValue(projectRoot, "ASR_MODEL"); value != "" {
+	if value := config.FirstConfiguredValue(projectRoot, "ASR_MODEL"); value != "" {
 		model = value
 	}
 	client := NewClient(httpClient, baseURL, apiKey, model)
@@ -54,7 +54,7 @@ func NewClientFromConfigWithRetry(projectRoot string, httpClient *http.Client, r
 	if len(maxKeys) == 0 {
 		maxKeys = []string{"ASR_RETRY_MAX", "ASR_RATE_LIMIT_RETRIES"}
 	}
-	if value := firstConfiguredValue(projectRoot, maxKeys...); value != "" {
+	if value := config.FirstConfiguredValue(projectRoot, maxKeys...); value != "" {
 		if retries, err := strconv.Atoi(value); err == nil && retries >= 0 {
 			client.rateLimitRetries = retries
 		}
@@ -63,7 +63,7 @@ func NewClientFromConfigWithRetry(projectRoot string, httpClient *http.Client, r
 	if len(delayKeys) == 0 {
 		delayKeys = []string{"ASR_RETRY_DELAY_MS"}
 	}
-	if value := firstConfiguredValue(projectRoot, delayKeys...); value != "" {
+	if value := config.FirstConfiguredValue(projectRoot, delayKeys...); value != "" {
 		if delayMS, err := strconv.Atoi(value); err == nil && delayMS >= 0 {
 			client.retryDelay = linearRetryDelay(time.Duration(delayMS) * time.Millisecond)
 		}
@@ -78,15 +78,4 @@ func linearRetryDelay(delay time.Duration) func(int) time.Duration {
 		}
 		return time.Duration(attempt) * delay
 	}
-}
-
-func firstConfiguredValue(projectRoot string, keys ...string) string {
-	for _, key := range keys {
-		if value, ok := config.Get(projectRoot, key); ok {
-			if trimmed := strings.TrimSpace(value); trimmed != "" {
-				return trimmed
-			}
-		}
-	}
-	return ""
 }
