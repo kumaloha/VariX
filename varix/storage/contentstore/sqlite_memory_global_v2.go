@@ -14,26 +14,27 @@ import (
 )
 
 func (s *SQLiteStore) RunGlobalMemoryOrganizationV2(ctx context.Context, userID string, now time.Time) (memory.GlobalMemoryV2Output, error) {
-	if strings.TrimSpace(userID) == "" {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
 		return memory.GlobalMemoryV2Output{}, fmt.Errorf("user id is required")
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 	// refresh graph-first persisted projections first so global-v2 sees the freshest event/paradigm layers
-	if _, err := s.RunEventGraphProjection(ctx, strings.TrimSpace(userID), now); err != nil {
+	if _, err := s.RunEventGraphProjection(ctx, userID, now); err != nil {
 		return memory.GlobalMemoryV2Output{}, err
 	}
-	if _, err := s.RunParadigmProjection(ctx, strings.TrimSpace(userID), now); err != nil {
+	if _, err := s.RunParadigmProjection(ctx, userID, now); err != nil {
 		return memory.GlobalMemoryV2Output{}, err
 	}
 
-	nodes, err := s.ListUserMemory(ctx, strings.TrimSpace(userID))
+	nodes, err := s.ListUserMemory(ctx, userID)
 	if err != nil {
 		return memory.GlobalMemoryV2Output{}, err
 	}
-	persistedEventGraphs, _ := s.ListEventGraphs(ctx, strings.TrimSpace(userID))
-	persistedParadigms, _ := s.ListParadigms(ctx, strings.TrimSpace(userID))
+	persistedEventGraphs, _ := s.ListEventGraphs(ctx, userID)
+	persistedParadigms, _ := s.ListParadigms(ctx, userID)
 	activeNodes := make([]memory.AcceptedNode, 0, len(nodes))
 	nodesByID := make(map[string]memory.AcceptedNode, len(nodes))
 	for _, node := range nodes {
@@ -71,27 +72,10 @@ func (s *SQLiteStore) RunGlobalMemoryOrganizationV2(ctx context.Context, userID 
 		return memory.GlobalMemoryV2Output{}, err
 	}
 
-	if len(relationProjection.driverAggregates) == 0 && len(persistedEventGraphs) > 0 {
-		relationProjection.driverAggregates = buildDriverAggregatesFromEventGraphs(persistedEventGraphs, now)
-	}
-	if len(relationProjection.targetAggregates) == 0 && len(persistedEventGraphs) > 0 {
-		relationProjection.targetAggregates = buildTargetAggregatesFromEventGraphs(persistedEventGraphs, now)
-	}
-	if len(cognitiveCards) == 0 && len(persistedEventGraphs) > 0 {
-		cognitiveCards = buildCardsFromEventGraphs(persistedEventGraphs, now)
-	}
-	if len(cognitiveConclusions) == 0 && len(persistedParadigms) > 0 {
-		cognitiveConclusions = buildConclusionsFromParadigms(persistedParadigms, now)
-	}
-	if len(topMemoryItems) == 0 && len(persistedParadigms) > 0 {
-		topMemoryItems = buildTopItemsFromParadigms(persistedParadigms, now)
-	}
-	if len(topMemoryItems) == 0 && len(persistedEventGraphs) > 0 {
-		topMemoryItems = buildTopItemsFromEventGraphs(persistedEventGraphs, now)
-	}
+	applyGlobalV2Fallbacks(&relationProjection, persistedEventGraphs, persistedParadigms, now, &cognitiveCards, &cognitiveConclusions, &topMemoryItems)
 
 	output := memory.GlobalMemoryV2Output{
-		UserID:               strings.TrimSpace(userID),
+		UserID:               userID,
 		GeneratedAt:          now,
 		CanonicalEntities:    relationProjection.canonicalEntities,
 		Relations:            relationProjection.relations,
@@ -110,6 +94,38 @@ func (s *SQLiteStore) RunGlobalMemoryOrganizationV2(ctx context.Context, userID 
 		TopMemoryItems:       topMemoryItems,
 	}
 	return persistGlobalMemoryV2Output(ctx, s.db, output)
+}
+
+func applyGlobalV2Fallbacks(
+	relationProjection *relationFirstProjection,
+	persistedEventGraphs []EventGraphRecord,
+	persistedParadigms []ParadigmRecord,
+	now time.Time,
+	cognitiveCards *[]memory.CognitiveCard,
+	cognitiveConclusions *[]memory.CognitiveConclusion,
+	topMemoryItems *[]memory.TopMemoryItem,
+) {
+	if relationProjection == nil {
+		return
+	}
+	if len(relationProjection.driverAggregates) == 0 && len(persistedEventGraphs) > 0 {
+		relationProjection.driverAggregates = buildDriverAggregatesFromEventGraphs(persistedEventGraphs, now)
+	}
+	if len(relationProjection.targetAggregates) == 0 && len(persistedEventGraphs) > 0 {
+		relationProjection.targetAggregates = buildTargetAggregatesFromEventGraphs(persistedEventGraphs, now)
+	}
+	if len(*cognitiveCards) == 0 && len(persistedEventGraphs) > 0 {
+		*cognitiveCards = buildCardsFromEventGraphs(persistedEventGraphs, now)
+	}
+	if len(*cognitiveConclusions) == 0 && len(persistedParadigms) > 0 {
+		*cognitiveConclusions = buildConclusionsFromParadigms(persistedParadigms, now)
+	}
+	if len(*topMemoryItems) == 0 && len(persistedParadigms) > 0 {
+		*topMemoryItems = buildTopItemsFromParadigms(persistedParadigms, now)
+	}
+	if len(*topMemoryItems) == 0 && len(persistedEventGraphs) > 0 {
+		*topMemoryItems = buildTopItemsFromEventGraphs(persistedEventGraphs, now)
+	}
 }
 
 func (s *SQLiteStore) GetLatestGlobalMemoryOrganizationV2Output(ctx context.Context, userID string) (memory.GlobalMemoryV2Output, error) {
@@ -329,7 +345,7 @@ func buildCardsFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memor
 			AsOf:           now,
 			CardType:       "event_graph",
 			Title:          graph.AnchorSubject,
-			Summary:        graph.Scope + " / " + graph.TimeBucket,
+			Summary:        eventGraphSummary(graph),
 			MechanismChain: append([]string(nil), graph.RepresentativeChanges...),
 			SourceRefs:     append([]string(nil), graph.SourceSubgraphIDs...),
 			CreatedAt:      now,
@@ -341,7 +357,11 @@ func buildCardsFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memor
 func buildTopItemsFromEventGraphs(graphs []EventGraphRecord, now time.Time) []memory.TopMemoryItem {
 	out := make([]memory.TopMemoryItem, 0, len(graphs))
 	for _, graph := range graphs {
-		out = append(out, memory.TopMemoryItem{ItemID: graph.EventGraphID + "-top", ItemType: memory.TopMemoryItemCard, Headline: graph.AnchorSubject, Subheadline: graph.Scope + " / " + graph.TimeBucket, BackingObjectID: graph.EventGraphID, SignalStrength: memory.SignalMedium, AsOf: now, UpdatedAt: now})
+		out = append(out, memory.TopMemoryItem{ItemID: graph.EventGraphID + "-top", ItemType: memory.TopMemoryItemCard, Headline: graph.AnchorSubject, Subheadline: eventGraphSummary(graph), BackingObjectID: graph.EventGraphID, SignalStrength: memory.SignalMedium, AsOf: now, UpdatedAt: now})
 	}
 	return out
+}
+
+func eventGraphSummary(graph EventGraphRecord) string {
+	return graph.Scope + " / " + graph.TimeBucket
 }

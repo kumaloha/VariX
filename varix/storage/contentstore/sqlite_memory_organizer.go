@@ -25,6 +25,26 @@ type posteriorStateRow struct {
 	UpdatedAt        *time.Time
 }
 
+type organizationJobSourceData struct {
+	record                        compile.Record
+	verification                  compile.Verification
+	nodes                         []memory.AcceptedNode
+	posteriorByMemoryID           map[int64]posteriorStateRow
+	graphFirstSubgraph            graphmodel.ContentSubgraph
+	hasGraphFirstSubgraph         bool
+	graphNodesByID                map[string]compile.GraphNode
+	graphFirstNodesByID           map[string]graphmodel.GraphNode
+	factStatusByNode              map[string]compile.FactStatus
+	explicitConditionStatusByNode map[string]compile.ExplicitConditionStatus
+	predictionStatusByNode        map[string]compile.PredictionStatus
+}
+
+type organizationNodeSets struct {
+	derived  []memory.AcceptedNode
+	active   []memory.AcceptedNode
+	inactive []memory.AcceptedNode
+}
+
 func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID string, now time.Time) (memory.OrganizationOutput, error) {
 	var job memory.OrganizationJob
 	var createdAt string
@@ -56,103 +76,18 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 		return memory.OrganizationOutput{}, err
 	}
 
-	nodes, err := listUserMemoryBySourceTx(ctx, tx, job.UserID, job.SourcePlatform, job.SourceExternalID)
+	sourceData, err := loadOrganizationJobSourceData(ctx, tx, job)
 	if err != nil {
 		return memory.OrganizationOutput{}, err
 	}
-	posteriorByMemoryID, err := loadPosteriorStatesBySourceTx(ctx, tx, job.UserID, job.SourcePlatform, job.SourceExternalID)
-	if err != nil {
-		return memory.OrganizationOutput{}, err
-	}
-	record, err := getCompiledOutputTx(ctx, tx, job.SourcePlatform, job.SourceExternalID)
-	if err != nil {
-		return memory.OrganizationOutput{}, err
-	}
-	verifyRecord, err := getVerificationResultTx(ctx, tx, job.SourcePlatform, job.SourceExternalID)
-	if err != nil && err != sql.ErrNoRows {
-		return memory.OrganizationOutput{}, err
-	}
-	verification := effectiveVerification(record, verifyRecord)
-	var graphFirstSubgraph graphmodel.ContentSubgraph
-	hasGraphFirstSubgraph := false
-	if graphFirst, err := getMemoryContentGraphBySourceTx(ctx, tx, job.UserID, job.SourcePlatform, job.SourceExternalID); err == nil {
-		graphFirstSubgraph = graphFirst
-		hasGraphFirstSubgraph = true
-		verification = overlayVerificationFromContentGraph(verification, graphFirst)
-	}
-	factStatusByNode := factStatusMap(verification)
-	explicitConditionStatusByNode := explicitConditionStatusMap(verification)
-	predictionStatusByNode := predictionStatusMap(verification)
-	graphNodesByID := map[string]compile.GraphNode{}
-	for _, node := range record.Output.Graph.Nodes {
-		graphNodesByID[node.ID] = node
-	}
-	graphFirstNodesByID := map[string]graphmodel.GraphNode{}
-	if hasGraphFirstSubgraph {
-		for _, node := range graphFirstSubgraph.Nodes {
-			graphFirstNodesByID[node.ID] = node
-		}
-	}
-
-	derivedNodes := make([]memory.AcceptedNode, 0, len(nodes))
-	active := make([]memory.AcceptedNode, 0)
-	inactive := make([]memory.AcceptedNode, 0)
-	for _, node := range nodes {
-		if posterior, ok := posteriorByMemoryID[node.MemoryID]; ok {
-			node.PosteriorState = posterior.State
-			node.PosteriorDiagnosis = posterior.Diagnosis
-			node.PosteriorReason = posterior.Reason
-			node.BlockedByNodeIDs = append([]string(nil), posterior.BlockedByNodeIDs...)
-			node.PosteriorUpdatedAt = posterior.UpdatedAt
-		}
-		graphFirstApplied := false
-		if graphFirst, ok := graphFirstNodesByID[node.NodeID]; ok {
-			if strings.TrimSpace(graphFirst.RawText) != "" {
-				node.NodeText = strings.TrimSpace(graphFirst.RawText)
-				graphFirstApplied = true
-			}
-			if graphFirst.Kind == graphmodel.NodeKindPrediction {
-				node.NodeKind = string(compile.NodePrediction)
-			}
-			graphFirstStart, graphFirstEnd := graphFirstValidityWindow(graphFirst)
-			if !graphFirstStart.IsZero() {
-				node.ValidFrom = graphFirstStart
-			}
-			if !graphFirstEnd.IsZero() {
-				node.ValidTo = graphFirstEnd
-			}
-		}
-		if derived, ok := graphNodesByID[node.NodeID]; ok {
-			if graphFirstApplied || sameNodeMeaning(node.NodeText, derived.Text) || strings.TrimSpace(node.NodeText) == strings.TrimSpace(derived.Text) {
-				if strings.TrimSpace(derived.Text) != "" && (!graphFirstApplied || sameNodeMeaning(node.NodeText, derived.Text)) {
-					node.NodeText = derived.Text
-				}
-				if strings.TrimSpace(string(derived.Kind)) != "" {
-					node.NodeKind = string(derived.Kind)
-				}
-				derivedStart, derivedEnd := derived.LegacyValidityWindow()
-				if node.ValidFrom.IsZero() {
-					node.ValidFrom = derivedStart
-				}
-				if node.ValidTo.IsZero() {
-					node.ValidTo = derivedEnd
-				}
-			}
-		}
-		derivedNodes = append(derivedNodes, node)
-		if isAcceptedNodeActiveAt(node, now) {
-			active = append(active, node)
-		} else {
-			inactive = append(inactive, node)
-		}
-	}
-	dedupeGroups := buildDedupeGroups(active, factStatusByNode, predictionStatusByNode)
-	contradictionGroups := buildContradictionGroups(active)
-	hierarchy := buildHierarchy(active, record, verification, graphFirstSubgraph, hasGraphFirstSubgraph)
-	nodeHints := buildNodeHints(derivedNodes, active, dedupeGroups, contradictionGroups, hierarchy, factStatusByNode, explicitConditionStatusByNode, predictionStatusByNode)
-	dominantDriver := buildDominantDriverSummary(active, nodeHints)
+	nodeSets := deriveOrganizationNodeSets(sourceData, now)
+	dedupeGroups := buildDedupeGroups(nodeSets.active, sourceData.factStatusByNode, sourceData.predictionStatusByNode)
+	contradictionGroups := buildContradictionGroups(nodeSets.active)
+	hierarchy := buildHierarchy(nodeSets.active, sourceData.record, sourceData.verification, sourceData.graphFirstSubgraph, sourceData.hasGraphFirstSubgraph)
+	nodeHints := buildNodeHints(nodeSets.derived, nodeSets.active, dedupeGroups, contradictionGroups, hierarchy, sourceData.factStatusByNode, sourceData.explicitConditionStatusByNode, sourceData.predictionStatusByNode)
+	dominantDriver := buildDominantDriverSummary(nodeSets.active, nodeHints)
 	nodeHints = applyDominantDriverRoles(nodeHints, dominantDriver)
-	feedback := buildOrganizationFeedback(derivedNodes, nodeHints)
+	feedback := buildOrganizationFeedback(nodeSets.derived, nodeHints)
 
 	output := memory.OrganizationOutput{
 		JobID:               job.JobID,
@@ -160,14 +95,14 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 		SourcePlatform:      job.SourcePlatform,
 		SourceExternalID:    job.SourceExternalID,
 		GeneratedAt:         now,
-		ActiveNodes:         active,
-		InactiveNodes:       inactive,
+		ActiveNodes:         nodeSets.active,
+		InactiveNodes:       nodeSets.inactive,
 		DedupeGroups:        dedupeGroups,
 		ContradictionGroups: contradictionGroups,
 		Hierarchy:           hierarchy,
-		PredictionStatuses:  extractPredictionStatuses(nodes, verification),
-		FactVerifications:   extractFactVerifications(active, verification),
-		OpenQuestions:       buildOpenQuestions(active, verification),
+		PredictionStatuses:  extractPredictionStatuses(sourceData.nodes, sourceData.verification),
+		FactVerifications:   extractFactVerifications(nodeSets.active, sourceData.verification),
+		OpenQuestions:       buildOpenQuestions(nodeSets.active, sourceData.verification),
 		NodeHints:           nodeHints,
 		DominantDriver:      dominantDriver,
 		Feedback:            feedback,
@@ -201,6 +136,136 @@ func (s *SQLiteStore) RunNextMemoryOrganizationJob(ctx context.Context, userID s
 		return memory.OrganizationOutput{}, err
 	}
 	return output, nil
+}
+
+func loadOrganizationJobSourceData(ctx context.Context, tx *sql.Tx, job memory.OrganizationJob) (organizationJobSourceData, error) {
+	nodes, err := listUserMemoryBySourceTx(ctx, tx, job.UserID, job.SourcePlatform, job.SourceExternalID)
+	if err != nil {
+		return organizationJobSourceData{}, err
+	}
+	posteriorByMemoryID, err := loadPosteriorStatesBySourceTx(ctx, tx, job.UserID, job.SourcePlatform, job.SourceExternalID)
+	if err != nil {
+		return organizationJobSourceData{}, err
+	}
+	record, err := getCompiledOutputTx(ctx, tx, job.SourcePlatform, job.SourceExternalID)
+	if err != nil {
+		return organizationJobSourceData{}, err
+	}
+	verifyRecord, err := getVerificationResultTx(ctx, tx, job.SourcePlatform, job.SourceExternalID)
+	if err != nil && err != sql.ErrNoRows {
+		return organizationJobSourceData{}, err
+	}
+	verification := effectiveVerification(record, verifyRecord)
+	var graphFirstSubgraph graphmodel.ContentSubgraph
+	hasGraphFirstSubgraph := false
+	if graphFirst, err := getMemoryContentGraphBySourceTx(ctx, tx, job.UserID, job.SourcePlatform, job.SourceExternalID); err == nil {
+		graphFirstSubgraph = graphFirst
+		hasGraphFirstSubgraph = true
+		verification = overlayVerificationFromContentGraph(verification, graphFirst)
+	}
+	data := organizationJobSourceData{
+		record:                        record,
+		verification:                  verification,
+		nodes:                         nodes,
+		posteriorByMemoryID:           posteriorByMemoryID,
+		graphFirstSubgraph:            graphFirstSubgraph,
+		hasGraphFirstSubgraph:         hasGraphFirstSubgraph,
+		graphNodesByID:                map[string]compile.GraphNode{},
+		graphFirstNodesByID:           map[string]graphmodel.GraphNode{},
+		factStatusByNode:              factStatusMap(verification),
+		explicitConditionStatusByNode: explicitConditionStatusMap(verification),
+		predictionStatusByNode:        predictionStatusMap(verification),
+	}
+	for _, node := range record.Output.Graph.Nodes {
+		data.graphNodesByID[node.ID] = node
+	}
+	if hasGraphFirstSubgraph {
+		for _, node := range graphFirstSubgraph.Nodes {
+			data.graphFirstNodesByID[node.ID] = node
+		}
+	}
+	return data, nil
+}
+
+func deriveOrganizationNodeSets(data organizationJobSourceData, now time.Time) organizationNodeSets {
+	sets := organizationNodeSets{
+		derived:  make([]memory.AcceptedNode, 0, len(data.nodes)),
+		active:   make([]memory.AcceptedNode, 0, len(data.nodes)),
+		inactive: make([]memory.AcceptedNode, 0, len(data.nodes)),
+	}
+	for _, node := range data.nodes {
+		node = applyPosteriorToAcceptedNode(node, data.posteriorByMemoryID)
+		node, graphFirstApplied := applyGraphFirstNodeProjection(node, data.graphFirstNodesByID)
+		node = applyCompileNodeProjection(node, data.graphNodesByID, graphFirstApplied)
+		sets.derived = append(sets.derived, node)
+		if isAcceptedNodeActiveAt(node, now) {
+			sets.active = append(sets.active, node)
+		} else {
+			sets.inactive = append(sets.inactive, node)
+		}
+	}
+	return sets
+}
+
+func applyPosteriorToAcceptedNode(node memory.AcceptedNode, posteriorByMemoryID map[int64]posteriorStateRow) memory.AcceptedNode {
+	posterior, ok := posteriorByMemoryID[node.MemoryID]
+	if !ok {
+		return node
+	}
+	node.PosteriorState = posterior.State
+	node.PosteriorDiagnosis = posterior.Diagnosis
+	node.PosteriorReason = posterior.Reason
+	node.BlockedByNodeIDs = append([]string(nil), posterior.BlockedByNodeIDs...)
+	node.PosteriorUpdatedAt = posterior.UpdatedAt
+	return node
+}
+
+func applyGraphFirstNodeProjection(node memory.AcceptedNode, graphFirstNodesByID map[string]graphmodel.GraphNode) (memory.AcceptedNode, bool) {
+	graphFirst, ok := graphFirstNodesByID[node.NodeID]
+	if !ok {
+		return node, false
+	}
+	graphFirstApplied := false
+	if rawText := strings.TrimSpace(graphFirst.RawText); rawText != "" {
+		node.NodeText = rawText
+		graphFirstApplied = true
+	}
+	if graphFirst.Kind == graphmodel.NodeKindPrediction {
+		node.NodeKind = string(compile.NodePrediction)
+	}
+	graphFirstStart, graphFirstEnd := graphFirstValidityWindow(graphFirst)
+	if !graphFirstStart.IsZero() {
+		node.ValidFrom = graphFirstStart
+	}
+	if !graphFirstEnd.IsZero() {
+		node.ValidTo = graphFirstEnd
+	}
+	return node, graphFirstApplied
+}
+
+func applyCompileNodeProjection(node memory.AcceptedNode, graphNodesByID map[string]compile.GraphNode, graphFirstApplied bool) memory.AcceptedNode {
+	derived, ok := graphNodesByID[node.NodeID]
+	if !ok {
+		return node
+	}
+	sameMeaning := sameNodeMeaning(node.NodeText, derived.Text) || strings.TrimSpace(node.NodeText) == strings.TrimSpace(derived.Text)
+	if !graphFirstApplied && !sameMeaning {
+		return node
+	}
+	if derivedText := strings.TrimSpace(derived.Text); derivedText != "" && (!graphFirstApplied || sameNodeMeaning(node.NodeText, derived.Text)) {
+		node.NodeText = derivedText
+	}
+	if derivedKind := strings.TrimSpace(string(derived.Kind)); derivedKind != "" {
+		node.NodeKind = derivedKind
+	}
+	derivedStart, derivedEnd := derived.LegacyValidityWindow()
+	if node.ValidFrom.IsZero() {
+		node.ValidFrom = derivedStart
+	}
+	if node.ValidTo.IsZero() {
+		node.ValidTo = derivedEnd
+	}
+	return node
 }
 
 func (s *SQLiteStore) GetLatestMemoryOrganizationOutput(ctx context.Context, userID, sourcePlatform, sourceExternalID string) (memory.OrganizationOutput, error) {
