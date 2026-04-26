@@ -16,7 +16,7 @@ func TestUsageTextShowsDistinctCommandGroups(t *testing.T) {
 	for _, want := range []string{
 		"usage: varix <ingest|compile|verify|memory>",
 		"ingest: fetch|follow|list-follows|poll|provenance-run",
-		"compile: run|show|summary|compare|card",
+		"compile: run|batch-run|show|summary|compare|card",
 		"verify: run|show|queue",
 		"memory: accept|accept-batch|list|show-source|content-graphs|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert",
 	} {

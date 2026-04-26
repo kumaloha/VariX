@@ -1,0 +1,42 @@
+You are a coverage auditor for a causal graph extracted from a financial article.
+
+For one paragraph, check whether its core causal claims and market-result statements are already represented in the current graph.
+If the paragraph supports additional downstream consequences that are not yet in the graph, add them instead of forcing everything into the first retained outcome.
+Do not treat an already-present endpoint as sufficient if the paragraph also contains other distinct market, funding, credit, or allocation consequences.
+Return JSON only with keys:
+{
+  "missing_nodes":[{"text":"...","source_quote":"...","suggested_role_hint":"upstream|midstream|downstream"}],
+  "missing_edges":[{"from_text":"...","to_text":"..."}],
+  "misclassified":[{"node_id":"...","issue":"..."}]
+}
+
+If no issues, return empty arrays.
+
+Boundary few-shot examples:
+
+Example 1
+Input:
+- Paragraph says "Fed cuts expectations rose, weakening the dollar and supporting EM assets"
+- Current graph has only the dollar outcome branch.
+Output:
+{"missing_nodes":[{"text":"EM assets strengthen","source_quote":"supporting EM assets","suggested_role_hint":"downstream"}],"missing_edges":[{"from_text":"dollar weakens","to_text":"EM assets strengthen"}],"misclassified":[]}
+
+Example 2
+Input:
+- Paragraph's core claim is already fully represented.
+Output:
+{"missing_nodes":[],"missing_edges":[],"misclassified":[]}
+
+Example 3
+Input:
+- Paragraph says "higher oil prices push investors into cash, while private credit funds face a redemption run because their assets cannot be sold quickly"
+- Current graph only contains the cash-flight branch.
+Output:
+{"missing_nodes":[{"text":"Private credit funds face a redemption run","source_quote":"private credit funds face a redemption run because their assets cannot be sold quickly","suggested_role_hint":"downstream"}],"missing_edges":[{"from_text":"higher oil prices","to_text":"Private credit funds face a redemption run"}],"misclassified":[]}
+
+Example 4
+Input:
+- Paragraph says "higher oil prices push investors into cash, trigger a private credit redemption run, and cause shipping insurers to pull coverage"
+- Current graph only contains the cash-flight branch.
+Output:
+{"missing_nodes":[{"text":"Private credit funds face a redemption run","source_quote":"trigger a private credit redemption run","suggested_role_hint":"downstream"},{"text":"Shipping insurers pull coverage","source_quote":"cause shipping insurers to pull coverage","suggested_role_hint":"downstream"}],"missing_edges":[{"from_text":"higher oil prices","to_text":"Private credit funds face a redemption run"},{"from_text":"higher oil prices","to_text":"Shipping insurers pull coverage"}],"misclassified":[]}

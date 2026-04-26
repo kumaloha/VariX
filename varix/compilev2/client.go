@@ -87,73 +87,78 @@ func (c *Client) Compile(ctx context.Context, bundle compile.Bundle) (compile.Re
 	stageStart := time.Now()
 	graph, err := stage1Extract(ctx, c.runtime, c.model, bundle)
 	if err != nil {
-		debugV2Stage(bundle, "stage1_extract", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "stage1_extract.error.txt", []byte(err.Error()))
+		debugV2Stage(bundle, "extract", "error: "+err.Error())
+		c.writeDebugArtifact(debugRunDir, "extract.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
-	recordStageMetric(stageMetrics, "stage1_extract", time.Since(stageStart))
-	debugV2Stage(bundle, "stage1_extract", fmt.Sprintf("done nodes=%d edges=%d off_graph=%d", len(graph.Nodes), len(graph.Edges), len(graph.OffGraph)))
-	c.writeDebugJSON(debugRunDir, "stage1_extract.json", graph)
+	recordStageMetric(stageMetrics, "extract", time.Since(stageStart))
+	debugV2Stage(bundle, "extract", fmt.Sprintf("done nodes=%d edges=%d off_graph=%d", len(graph.Nodes), len(graph.Edges), len(graph.OffGraph)))
+	c.writeDebugJSON(debugRunDir, "extract.json", graph)
 	stageStart = time.Now()
-	graph, err = stage2Dedup(ctx, c.runtime, c.model, bundle, graph)
+	graph, err = stage1Refine(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {
-		debugV2Stage(bundle, "stage2_dedup", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "stage2_dedup.error.txt", []byte(err.Error()))
+		debugV2Stage(bundle, "refine", "error: "+err.Error())
+		c.writeDebugArtifact(debugRunDir, "refine.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
-	recordStageMetric(stageMetrics, "stage2_dedup", time.Since(stageStart))
-	debugV2Stage(bundle, "stage2_dedup", fmt.Sprintf("done nodes=%d edges=%d off_graph=%d", len(graph.Nodes), len(graph.Edges), len(graph.OffGraph)))
-	c.writeDebugJSON(debugRunDir, "stage2_dedup.json", graph)
+	recordStageMetric(stageMetrics, "refine", time.Since(stageStart))
+	debugV2Stage(bundle, "refine", fmt.Sprintf("done nodes=%d off_graph=%d", len(graph.Nodes), len(graph.OffGraph)))
+	c.writeDebugJSON(debugRunDir, "refine.json", graph)
+	stageStart = time.Now()
+	graph, err = stage1Aggregate(ctx, c.runtime, c.model, bundle, graph)
+	if err != nil {
+		debugV2Stage(bundle, "aggregate", "error: "+err.Error())
+		c.writeDebugArtifact(debugRunDir, "aggregate.error.txt", []byte(err.Error()))
+		return compile.Record{}, err
+	}
+	recordStageMetric(stageMetrics, "aggregate", time.Since(stageStart))
+	debugV2Stage(bundle, "aggregate", fmt.Sprintf("done nodes=%d aux_edges=%d", len(graph.Nodes), len(graph.AuxEdges)))
+	c.writeDebugJSON(debugRunDir, "aggregate.json", graph)
+	stageStart = time.Now()
+	graph, err = stage2Support(ctx, c.runtime, c.model, bundle, graph)
+	if err != nil {
+		debugV2Stage(bundle, "support", "error: "+err.Error())
+		c.writeDebugArtifact(debugRunDir, "support.error.txt", []byte(err.Error()))
+		return compile.Record{}, err
+	}
+	recordStageMetric(stageMetrics, "support", time.Since(stageStart))
+	debugV2Stage(bundle, "support", fmt.Sprintf("done nodes=%d aux_edges=%d", len(graph.Nodes), len(graph.AuxEdges)))
+	c.writeDebugJSON(debugRunDir, "support.json", graph)
+	stageStart = time.Now()
+	graph = collapseClusters(graph)
+	recordStageMetric(stageMetrics, "collapse", time.Since(stageStart))
+	debugV2Stage(bundle, "collapse", fmt.Sprintf("done nodes=%d off_graph=%d heads=%d", len(graph.Nodes), len(graph.OffGraph), len(graph.BranchHeads)))
+	c.writeDebugJSON(debugRunDir, "collapse.json", graph)
+	stageStart = time.Now()
+	graph, err = stage3Mainline(ctx, c.runtime, c.model, bundle, graph)
+	if err != nil {
+		debugV2Stage(bundle, "mainline", "error: "+err.Error())
+		c.writeDebugArtifact(debugRunDir, "mainline.error.txt", []byte(err.Error()))
+		return compile.Record{}, err
+	}
+	recordStageMetric(stageMetrics, "mainline", time.Since(stageStart))
+	debugV2Stage(bundle, "mainline", fmt.Sprintf("done nodes=%d edges=%d", len(graph.Nodes), len(graph.Edges)))
+	c.writeDebugJSON(debugRunDir, "mainline.json", graph)
 	stageStart = time.Now()
 	graph, err = stage3Classify(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {
-		debugV2Stage(bundle, "stage3_classify", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "stage3_classify.error.txt", []byte(err.Error()))
+		debugV2Stage(bundle, "classify", "error: "+err.Error())
+		c.writeDebugArtifact(debugRunDir, "classify.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
-	recordStageMetric(stageMetrics, "stage3_classify", time.Since(stageStart))
-	debugV2Stage(bundle, "stage3_classify", fmt.Sprintf("done drivers=%d targets=%d", countRole(graph, roleDriver), countRole(graph, roleTarget)))
-	c.writeDebugJSON(debugRunDir, "stage3_classify.json", graph)
-	stageStart = time.Now()
-	graph, err = stage3Relations(ctx, c.runtime, c.model, bundle, graph)
-	if err != nil {
-		debugV2Stage(bundle, "stage3_relations", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "stage3_relations.error.txt", []byte(err.Error()))
-		return compile.Record{}, err
-	}
-	recordStageMetric(stageMetrics, "stage3_relations", time.Since(stageStart))
-	debugV2Stage(bundle, "stage3_relations", fmt.Sprintf("done nodes=%d edges=%d off_graph=%d", len(graph.Nodes), len(graph.Edges), len(graph.OffGraph)))
-	c.writeDebugJSON(debugRunDir, "stage3_relations.json", graph)
-	stageStart = time.Now()
-	graph, err = stage3Classify(ctx, c.runtime, c.model, bundle, graph)
-	if err != nil {
-		debugV2Stage(bundle, "stage3_reclassify", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "stage3_reclassify.error.txt", []byte(err.Error()))
-		return compile.Record{}, err
-	}
-	recordStageMetric(stageMetrics, "stage3_reclassify", time.Since(stageStart))
-	debugV2Stage(bundle, "stage3_reclassify", fmt.Sprintf("done drivers=%d targets=%d", countRole(graph, roleDriver), countRole(graph, roleTarget)))
-	c.writeDebugJSON(debugRunDir, "stage3_reclassify.json", graph)
-	stageStart = time.Now()
-	graph, err = stage4Validate(ctx, c.runtime, c.model, bundle, graph, 1)
-	if err != nil {
-		debugV2Stage(bundle, "stage4_validate", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "stage4_validate.error.txt", []byte(err.Error()))
-		return compile.Record{}, err
-	}
-	recordStageMetric(stageMetrics, "stage4_validate", time.Since(stageStart))
-	debugV2Stage(bundle, "stage4_validate", fmt.Sprintf("done rounds=%d nodes=%d edges=%d", graph.Rounds, len(graph.Nodes), len(graph.Edges)))
-	c.writeDebugJSON(debugRunDir, "stage4_validate.json", graph)
+	recordStageMetric(stageMetrics, "classify", time.Since(stageStart))
+	debugV2Stage(bundle, "classify", fmt.Sprintf("done drivers=%d targets=%d", countRole(graph, roleDriver), countTargets(graph)))
+	c.writeDebugJSON(debugRunDir, "classify.json", graph)
 	stageStart = time.Now()
 	out, err := stage5Render(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {
-		debugV2Stage(bundle, "stage5_render", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "stage5_render.error.txt", []byte(err.Error()))
+		debugV2Stage(bundle, "render", "error: "+err.Error())
+		c.writeDebugArtifact(debugRunDir, "render.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
-	recordStageMetric(stageMetrics, "stage5_render", time.Since(stageStart))
-	debugV2Stage(bundle, "stage5_render", fmt.Sprintf("done drivers=%d targets=%d paths=%d evidence=%d explanation=%d supplementary=%d", len(out.Drivers), len(out.Targets), len(out.TransmissionPaths), len(out.EvidenceNodes), len(out.ExplanationNodes), len(out.SupplementaryNodes)))
-	c.writeDebugJSON(debugRunDir, "stage5_render.json", out)
+	recordStageMetric(stageMetrics, "render", time.Since(stageStart))
+	debugV2Stage(bundle, "render", fmt.Sprintf("done drivers=%d targets=%d paths=%d evidence=%d explanation=%d supplementary=%d", len(out.Drivers), len(out.Targets), len(out.TransmissionPaths), len(out.EvidenceNodes), len(out.ExplanationNodes), len(out.SupplementaryNodes)))
+	c.writeDebugJSON(debugRunDir, "render.json", out)
 	return compile.Record{
 		UnitID:         bundle.UnitID,
 		Source:         bundle.Source,

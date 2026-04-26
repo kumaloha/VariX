@@ -43,13 +43,7 @@ func TestInspectG04Stages(t *testing.T) {
 	}
 	printJSON("STAGE1", stage1)
 
-	stage2, err := stage2Dedup(ctx, client.runtime, client.model, bundle, stage1)
-	if err != nil {
-		t.Fatalf("stage2Dedup() error = %v", err)
-	}
-	printJSON("STAGE2", stage2)
-
-	stage3, err := stage3Classify(ctx, client.runtime, client.model, bundle, stage2)
+	stage3, err := stage3Classify(ctx, client.runtime, client.model, bundle, stage1)
 	if err != nil {
 		t.Fatalf("stage3Classify() error = %v", err)
 	}

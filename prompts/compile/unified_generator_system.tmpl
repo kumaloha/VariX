@@ -58,3 +58,27 @@ Priority order for ambiguous items:
 2. else if the item mainly proves something on the spine, classify it as evidence
 3. else if the item mainly interprets or frames the thesis, classify it as explanation
 4. otherwise omit it
+
+Boundary few-shot examples:
+
+Example 1
+Input signal:
+- The article argues that "the sell-America trade never really existed" and supports that with evidence about continued foreign demand for US assets.
+Expected handling:
+- retain the directly argued market-state outcome as a target
+- do not force a narrower price target just because one could be imagined
+- treat sloganized trade-label wording as framing or supplementary unless the article is explicitly about the label itself
+
+Example 2
+Input signal:
+- One retained sentence still mixes cause and effect, such as "Fed cuts push the dollar lower".
+Expected handling:
+- split it into a source-side unit and an affected-outcome unit before deciding driver/target/path placement
+- do not keep the full mixed clause as a retained driver or retained target
+
+Example 3
+Input signal:
+- Two retained target candidates are near-paraphrases, where one is the direct market result and the other is a slogan-like gloss of the same result.
+Expected handling:
+- keep the direct article-native market result in targets or paths
+- move the slogan, gloss, or near-paraphrase to supplementary_nodes

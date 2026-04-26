@@ -9,22 +9,24 @@ import (
 )
 
 func TestLoadGoldDatasetBatch1(t *testing.T) {
-	dataset, err := LoadGoldDataset(batch1GoldDatasetPath(t))
-	if err != nil {
-		t.Fatalf("LoadGoldDataset() error = %v", err)
-	}
-	if got := len(dataset.Samples); got != 9 {
-		t.Fatalf("len(dataset.Samples) = %d, want 9", got)
-	}
-	for _, sample := range dataset.Samples {
-		if strings.TrimSpace(sample.Summary) == "" {
-			t.Fatalf("sample %s summary is empty", sample.ID)
+	for _, path := range batch1GoldDatasetPaths(t) {
+		dataset, err := LoadGoldDataset(path)
+		if err != nil {
+			t.Fatalf("LoadGoldDataset(%s) error = %v", path, err)
 		}
-		if len(sample.Drivers) == 0 {
-			t.Fatalf("sample %s drivers are empty", sample.ID)
+		if got := len(dataset.Samples); got != 9 {
+			t.Fatalf("len(%s.Samples) = %d, want 9", path, got)
 		}
-		if len(sample.Targets) == 0 {
-			t.Fatalf("sample %s targets are empty", sample.ID)
+		for _, sample := range dataset.Samples {
+			if strings.TrimSpace(sample.Summary) == "" {
+				t.Fatalf("%s sample %s summary is empty", path, sample.ID)
+			}
+			if len(sample.Drivers) == 0 {
+				t.Fatalf("%s sample %s drivers are empty", path, sample.ID)
+			}
+			if len(sample.Targets) == 0 {
+				t.Fatalf("%s sample %s targets are empty", path, sample.ID)
+			}
 		}
 	}
 }
@@ -99,12 +101,26 @@ func TestGoldDatasetValidateRejectsBlankDriverOrTarget(t *testing.T) {
 
 func batch1GoldDatasetPath(t *testing.T) string {
 	t.Helper()
+	return batch1GoldDatasetPathNamed(t, "compile-gold-batch1-v1.json")
+}
+
+func batch1GoldDatasetPaths(t *testing.T) []string {
+	t.Helper()
+	paths := []string{batch1GoldDatasetPathNamed(t, "compile-gold-batch1-v1.json")}
+	if path := optionalBatch1GoldDatasetPath(t, "compile-gold-batch1-v2.json"); path != "" {
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+func batch1GoldDatasetPathNamed(t *testing.T, name string) string {
+	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("os.Getwd() error = %v", err)
 	}
 	for dir := wd; ; dir = filepath.Dir(dir) {
-		candidate := filepath.Join(dir, "data", "gold", "compile-gold-batch1-v1.json")
+		candidate := filepath.Join(dir, "data", "gold", name)
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}
@@ -113,6 +129,25 @@ func batch1GoldDatasetPath(t *testing.T) string {
 			break
 		}
 	}
-	t.Fatalf("compile-gold-batch1-v1.json not found from %s upward", wd)
+	t.Fatalf("%s not found from %s upward", name, wd)
+	return ""
+}
+
+func optionalBatch1GoldDatasetPath(t *testing.T, name string) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd() error = %v", err)
+	}
+	for dir := wd; ; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, "data", "gold", name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+	}
 	return ""
 }

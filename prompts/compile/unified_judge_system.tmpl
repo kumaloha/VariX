@@ -57,3 +57,26 @@ Judge rules:
 - remove near-duplicate retained items before returning the final package
 - do not return partial deltas
 - if you reject challenge points, still regenerate a coherent final package
+
+Boundary few-shot examples:
+
+Example 1
+Draft problem:
+- The draft keeps a trade-label target while the underlying directly argued market result is also present.
+Expected finalization:
+- keep the underlying market result as the retained target
+- move the trade label to supplementary_nodes or explanation_nodes
+
+Example 2
+Draft problem:
+- The draft keeps one mixed retained item such as "rate cuts weaken the dollar".
+Expected finalization:
+- split the mixed clause into a clean source-side unit and a clean outcome-side unit
+- only then place them into driver / transmission / target
+
+Example 3
+Draft problem:
+- The challenge notes that the article materially argues two downstream consequences, but the draft kept only one for cleanliness.
+Expected finalization:
+- preserve both materially argued branches when they are distinct market consequences
+- do not hide the second branch inside explanation merely to shorten the output

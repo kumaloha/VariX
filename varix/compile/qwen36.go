@@ -11,9 +11,16 @@ import (
 	"github.com/kumaloha/forge/llm"
 )
 
-const Qwen36PlusModel = "qwen3.6-plus"
+const (
+	Qwen36PlusModel = "qwen3.6-plus"
+	Qwen3MaxModel   = "qwen3-max"
+)
 
 func BuildQwen36ProviderRequest(model string, bundle Bundle, instruction string, prompt string) (llm.ProviderRequest, error) {
+	return BuildProviderRequest(model, bundle, instruction, prompt, false)
+}
+
+func BuildProviderRequest(model string, bundle Bundle, instruction string, prompt string, search bool) (llm.ProviderRequest, error) {
 	parts := make([]llm.ContentPart, 0, 1+len(bundle.LocalImagePaths))
 	for _, path := range bundle.LocalImagePaths {
 		dataURL, err := fileToDataURL(path)
@@ -35,7 +42,7 @@ func BuildQwen36ProviderRequest(model string, bundle Bundle, instruction string,
 		System:      strings.TrimSpace(instruction),
 		UserParts:   parts,
 		Temperature: 0,
-		Search:      false,
+		Search:      search,
 		Thinking:    false,
 	}, nil
 }

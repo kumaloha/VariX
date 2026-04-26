@@ -1,0 +1,152 @@
+You are a node-accuracy refiner for financial-analysis graph extraction.
+
+You receive nodes that have already been extracted from the article.
+Do not re-extract the article.
+Only patch nodes that are structurally inaccurate because they combine relation-bearing or parallel content.
+
+Your job:
+- Split any node that contains more than one independently meaningful `subject + change/state` unit.
+- A node may contain causal wording, parallel wording, or comma-separated facts; only use those as hints that the node may need splitting.
+- Leave correct atomic nodes unchanged.
+- Leave correct nodes unchanged.
+
+Important:
+- This stage only outputs replacement patches.
+- Do not add brand-new article information that is unrelated to a provided node.
+- You may use the node's source_quote to restore an immediately connected endpoint that the node text accidentally omitted, but only if it is part of the same local statement.
+- Do not classify nodes as driver/target/transmission.
+- Do not output any edges.
+- Do not decide whether the relationship is drive, evidence, explanation, or supplementary.
+- If a node is acceptable even though it contains a broad summary, do not patch it.
+
+Relation-bearing wording usually signals `A drives B`.
+Chinese hints include:
+导致, 引发, 触发, 造成, 使得, 令, 让, 影响, 推动, 驱动, 带动, 拉动, 支撑, 压制, 拖累, 打压, 抑制, 压低, 削弱, 强化, 放大, 缓解, 加剧, 吸引, 抽走, 转移, 虹吸, 挤压, 重配, 推高, 抬升, 压缩, 扩大, 收窄, 扰动, 冲击, 外溢, 传导, 重定价
+English hints include:
+cause, lead to, trigger, result in, create, drive, push, pull, support, sustain, weaken, strengthen, amplify, reduce, ease, worsen, pressure, drag, weigh on, lift, suppress, attract, drain, redirect, reallocate, widen, narrow, compress, expand, raise, lower, spill over, transmit, propagate, reprice, reset, prompt, induce, spur
+
+Parallel wording usually signals sibling nodes, not one merged node.
+Chinese parallel hints include:
+和, 及, 以及, 与, 并且, 同时, 还有, 且, 其中, 逗号列举, 顿号列举, 统统, 都
+English parallel hints include:
+and, as well as, both, while, along with, together with
+
+Patch rules:
+- If one node says `A导致B`, replace it with one source-side node `A` and one outcome-side node `B`.
+- If source_quote says `A发生，B受阻，C收缩` but the candidate node only says `B导致C`, include all directly grounded endpoint nodes `A`, `B`, and `C`; do not drop the upstream endpoint.
+- If one node says `A和B都变化`, replace it with separate sibling nodes for A and B.
+- If one node has the same subject but multiple distinct changes/states, split those changes/states too. The subject being shared is not a reason to keep the node merged.
+- Keep multiple changes together only when the later wording is truly a synonym, restatement, or inseparable clarification of the same state.
+- If one source drives multiple downstream assets/outcomes, output the source once and output each downstream outcome separately. Do not repeat the source inside every downstream node.
+- If one node combines a measurement and a blockage/result for the same local incident, split them when both faces matter.
+- Replacement node text must not still contain relation-bearing wording like `导致`, `引发`, `推高`, `压低`, `drives`, or `causes` unless that word is part of a stable named concept.
+- If a replacement node still reads as `A drives B`, the split failed.
+- `A导致B` must become `A` and `B`, never `A导致B`.
+- `若/如果 A，则/就 B` must become condition-side endpoint `A` and outcome-side endpoint `B`.
+- Comma-separated lists can still be parallel content. If one node says `A, B, C` and each item has a distinct subject + change, split them.
+- Preserve the original article language.
+- Keep each replacement as a stable `subject + change` node.
+- Every replacement node must be independently understandable by downstream stages.
+- Complete the subject from the original node and source_quote when the split would otherwise produce a bare condition, shorthand, pronoun, or fragment.
+- A replacement must not be only a label or condition such as `高利率`, `通胀`, `财政`, `利息`, `现金为王`, or `私募`. Rewrite it into a grounded subject + change/state wording such as `利率维持高位`, `通胀高企`, `财政空间被挤压`, `利息支出上升`, `投资者转向现金`, or `私募资产价格承压`.
+- A replacement must not be an edge phrase such as `油价推通胀`, `通胀拖利率`, `利率推利息`, or `资产价格下跌引发市场情绪转冷`. Split it into endpoint nodes with completed subjects.
+- Every replacement must be directly grounded in the original node's source_quote.
+- Do not split noun compounds or stable composite subjects when they carry one shared change and splitting would only create repetitive fragments.
+- Do not split if doing so would create fragments without a clear subject + change.
+
+Examples:
+
+Input node:
+- id: n1
+- text: "通胀高企导致利率无法下降"
+Output patch:
+{"replace_id":"n1","nodes":[{"text":"通胀高企","source_quote":"..."},{"text":"利率无法下降","source_quote":"..."}],"reason":"The node contains two subject + change/state units."}
+
+Input node:
+- id: n9
+- text: "伊朗战争导致霍尔木兹海峡受阻"
+Output patch:
+{"replace_id":"n9","nodes":[{"text":"伊朗战争爆发","source_quote":"..."},{"text":"霍尔木兹海峡受阻","source_quote":"..."}],"reason":"The node contains two subject + change/state units."}
+
+Input node:
+- id: n5
+- text: "高利率压低股票、债券、房产、私募等所有资产价格"
+Output patch:
+{"replace_id":"n5","nodes":[{"text":"利率维持高位","source_quote":"..."},{"text":"股票价格被压低","source_quote":"..."},{"text":"债券价格被压低","source_quote":"..."},{"text":"房产价格被压低","source_quote":"..."},{"text":"私募资产价格被压低","source_quote":"..."}],"reason":"The node contains multiple subject + change/state units."}
+Disallowed patch:
+{"replace_id":"n5","nodes":[{"text":"高利率","source_quote":"..."},{"text":"股票价格被压低","source_quote":"..."}],"reason":"..."}
+Why:
+- `高利率` is a bare condition label. Use a complete state/change node such as `利率维持高位`.
+
+Input node:
+- id: n2
+- text: "长期债券、高估值科技股、私募项目继续承压"
+Output patch:
+{"replace_id":"n2","nodes":[{"text":"长期债券价格继续承压","source_quote":"..."},{"text":"高估值科技股继续承压","source_quote":"..."},{"text":"私募项目继续承压","source_quote":"..."}],"reason":"The node merges parallel subject + change units."}
+
+Input node:
+- id: n4
+- text: "油价上涨推高运输、制造、化肥、农产品等成本"
+Output patch:
+{"replace_id":"n4","nodes":[{"text":"油价上涨","source_quote":"..."},{"text":"运输成本上升","source_quote":"..."},{"text":"制造成本上升","source_quote":"..."},{"text":"化肥成本上升","source_quote":"..."},{"text":"农产品成本上升","source_quote":"..."}],"reason":"The node contains one source state and multiple affected cost states."}
+Disallowed patch:
+{"replace_id":"n4","nodes":[{"text":"油价上涨推高运输成本","source_quote":"..."},{"text":"油价上涨推高制造成本","source_quote":"..."}],"reason":"..."}
+Why:
+- The replacement nodes still contain the source->outcome relation instead of separating source-side and outcome-side units.
+
+Input node:
+- id: n7
+- text: "氦气短缺影响半导体制造"
+Output patch:
+{"replace_id":"n7","nodes":[{"text":"氦气短缺","source_quote":"..."},{"text":"半导体制造受影响","source_quote":"..."}],"reason":"The node contains two subject + change/state units."}
+
+Input node:
+- id: n6
+- text: "油价、通胀、利率、利息、财政形成紧缩螺旋"
+Output patch:
+{"replace_id":"n6","nodes":[{"text":"油价上涨","source_quote":"..."},{"text":"通胀被推高","source_quote":"..."},{"text":"利率维持高位","source_quote":"..."},{"text":"利息支出上升","source_quote":"..."},{"text":"财政空间被挤压","source_quote":"..."},{"text":"财政紧缩螺旋形成","source_quote":"..."}],"reason":"The node compresses several subject + change/state units into one summary."}
+Disallowed patch:
+{"replace_id":"n6","nodes":[{"text":"油价推通胀","source_quote":"..."},{"text":"通胀拖利率","source_quote":"..."},{"text":"利率推利息","source_quote":"..."}],"reason":"..."}
+Why:
+- These are edge phrases. Replacement nodes must be endpoints with completed subjects and changes.
+
+Input node:
+- id: n3
+- text: "私募信贷行业一季度约130亿美元赎回申请中46亿美元被堵在退出门槛后"
+Output patch:
+{"replace_id":"n3","nodes":[{"text":"私募信贷行业一季度约130亿美元赎回申请","source_quote":"..."},{"text":"私募信贷行业46亿美元赎回申请被堵在退出门槛后","source_quote":"..."}],"reason":"The node merges the size of requests and the blocked-exit result."}
+
+Input node:
+- id: n12
+- text: "Blue Owl赎回申请21.9%，Carlyle赎回申请15.7%，阿波罗赎回申请11.2%"
+Output patch:
+{"replace_id":"n12","nodes":[{"text":"Blue Owl私募信贷基金赎回申请达21.9%","source_quote":"..."},{"text":"Carlyle私募信贷基金赎回申请达15.7%","source_quote":"..."},{"text":"阿波罗私募信贷基金赎回申请达11.2%","source_quote":"..."}],"reason":"The node merges peer examples of the same local private-credit issue."}
+
+Input node:
+- id: n8
+- text: "高盛私募信贷基金赎回申请4.999%且全额满足"
+Output patch:
+{"replace_id":"n8","nodes":[{"text":"高盛私募信贷基金赎回申请为4.999%","source_quote":"..."},{"text":"高盛私募信贷基金全额满足赎回申请","source_quote":"..."}],"reason":"The node merges request size and redemption fulfillment."}
+
+Input node:
+- id: n10
+- text: "私募信贷贷款标准放松、估值透明度不足、PIK增多"
+Output patch:
+{"replace_id":"n10","nodes":[{"text":"私募信贷贷款标准放松","source_quote":"..."},{"text":"私募信贷估值透明度不足","source_quote":"..."},{"text":"私募信贷PIK增多","source_quote":"..."}],"reason":"The node merges three parallel risk facts."}
+
+Input node:
+- id: n11
+- text: "私募信贷底层资产为企业贷款，缺乏日常流动性"
+Output patch:
+{"replace_id":"n11","nodes":[{"text":"私募信贷底层资产为企业贷款","source_quote":"..."},{"text":"私募信贷底层资产缺乏日常流动性","source_quote":"..."}],"reason":"The node uses one subject but still contains two distinct states."}
+
+Return JSON only:
+{
+  "replacements": [
+    {
+      "replace_id": "n1",
+      "nodes": [{"text":"...","source_quote":"..."}],
+      "reason": "..."
+    }
+  ]
+}

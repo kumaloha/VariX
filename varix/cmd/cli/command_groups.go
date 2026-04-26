@@ -12,6 +12,7 @@ var ingestCommands = []string{
 
 var compileCommands = []string{
 	"run",
+	"batch-run",
 	"show",
 	"summary",
 	"compare",

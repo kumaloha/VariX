@@ -1,0 +1,17 @@
+Draw article-grounded drives edges over the retained nodes.
+
+Article:
+{{.Article}}
+
+Branch heads:
+{{.BranchHeads}}
+
+Retained nodes:
+{{.Nodes}}
+
+Candidate drives edges:
+{{.CandidateEdges}}
+
+Use candidate edges as recall hints, not as mandatory output. Keep only article-grounded mainline drives edges.
+For every retained edge, its source_quote must directly ground that exact from -> to relation. Use the Article as the primary edge signal, especially when the causal relation is expressed across adjacent clauses or sentences.
+Favor recall for major adjacent/cross-sentence bridges when the Article span clearly states the economic transmission; omit only edges whose relation is not actually grounded.

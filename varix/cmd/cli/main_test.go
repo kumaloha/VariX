@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -2586,14 +2587,12 @@ func TestRunCompileWritesCompiledRecordJSON(t *testing.T) {
 	prevBuildApp := buildApp
 	prevBuildCompileClient := buildCompileClient
 	prevBuildCompileClientNoVerify := buildCompileClientNoVerify
-	prevBuildCompileClientNoVerifyNoValidate := buildCompileClientNoVerifyNoValidate
 	prevBuildCompileClientV2 := buildCompileClientV2
 	prevOpenSQLiteStore := openSQLiteStore
 	t.Cleanup(func() {
 		buildApp = prevBuildApp
 		buildCompileClient = prevBuildCompileClient
 		buildCompileClientNoVerify = prevBuildCompileClientNoVerify
-		buildCompileClientNoVerifyNoValidate = prevBuildCompileClientNoVerifyNoValidate
 		buildCompileClientV2 = prevBuildCompileClientV2
 		openSQLiteStore = prevOpenSQLiteStore
 	})
@@ -2674,14 +2673,12 @@ func TestRunCompilePipelineV2UsesV2Client(t *testing.T) {
 	prevBuildApp := buildApp
 	prevBuildCompileClient := buildCompileClient
 	prevBuildCompileClientNoVerify := buildCompileClientNoVerify
-	prevBuildCompileClientNoVerifyNoValidate := buildCompileClientNoVerifyNoValidate
 	prevBuildCompileClientV2 := buildCompileClientV2
 	prevOpenSQLiteStore := openSQLiteStore
 	t.Cleanup(func() {
 		buildApp = prevBuildApp
 		buildCompileClient = prevBuildCompileClient
 		buildCompileClientNoVerify = prevBuildCompileClientNoVerify
-		buildCompileClientNoVerifyNoValidate = prevBuildCompileClientNoVerifyNoValidate
 		buildCompileClientV2 = prevBuildCompileClientV2
 		openSQLiteStore = prevOpenSQLiteStore
 	})
@@ -2718,7 +2715,7 @@ func TestRunCompilePipelineV2UsesV2Client(t *testing.T) {
 			Source:     "web",
 			ExternalID: "v2-id",
 			Model:      "qwen3.6-plus",
-			Metrics:    c.RecordMetrics{CompileElapsedMS: 777, CompileStageElapsedMS: map[string]int64{"stage1_extract": 101, "stage2_dedup": 102, "stage3_classify": 103, "stage3_relations": 104, "stage3_reclassify": 105, "stage4_validate": 106, "stage5_render": 107}},
+			Metrics:    c.RecordMetrics{CompileElapsedMS: 777, CompileStageElapsedMS: map[string]int64{"extract": 101, "refine": 102, "aggregate": 103, "support": 104, "collapse": 105, "mainline": 106, "classify": 107, "render": 108}},
 			Output: c.Output{
 				Summary: "v2 summary",
 				Graph: c.ReasoningGraph{
@@ -2749,10 +2746,13 @@ func TestRunCompilePipelineV2UsesV2Client(t *testing.T) {
 	if got.Metrics.CompileElapsedMS != 777 {
 		t.Fatalf("CompileElapsedMS = %d, want 777", got.Metrics.CompileElapsedMS)
 	}
-	for _, stage := range []string{"stage1_extract", "stage2_dedup", "stage3_classify", "stage3_relations", "stage3_reclassify", "stage4_validate", "stage5_render"} {
+	for _, stage := range []string{"extract", "refine", "aggregate", "support", "collapse", "mainline", "classify", "render"} {
 		if got.Metrics.CompileStageElapsedMS[stage] <= 0 {
 			t.Fatalf("CompileStageElapsedMS = %#v, want positive persisted v2 stage metric for %q", got.Metrics.CompileStageElapsedMS, stage)
 		}
+	}
+	if _, ok := got.Metrics.CompileStageElapsedMS["validate"]; ok {
+		t.Fatalf("CompileStageElapsedMS = %#v, compile metrics must not include validate", got.Metrics.CompileStageElapsedMS)
 	}
 	stdout.Reset()
 	stderr.Reset()
@@ -2767,10 +2767,13 @@ func TestRunCompilePipelineV2UsesV2Client(t *testing.T) {
 	if shown.Metrics.CompileElapsedMS != 777 {
 		t.Fatalf("shown CompileElapsedMS = %d, want 777", shown.Metrics.CompileElapsedMS)
 	}
-	for _, stage := range []string{"stage1_extract", "stage2_dedup", "stage3_classify", "stage3_relations", "stage3_reclassify", "stage4_validate", "stage5_render"} {
+	for _, stage := range []string{"extract", "refine", "aggregate", "support", "collapse", "mainline", "classify", "render"} {
 		if shown.Metrics.CompileStageElapsedMS[stage] <= 0 {
 			t.Fatalf("shown CompileStageElapsedMS = %#v, want positive persisted v2 stage metric for %q", shown.Metrics.CompileStageElapsedMS, stage)
 		}
+	}
+	if _, ok := shown.Metrics.CompileStageElapsedMS["validate"]; ok {
+		t.Fatalf("shown CompileStageElapsedMS = %#v, compile metrics must not include validate", shown.Metrics.CompileStageElapsedMS)
 	}
 }
 
@@ -2788,18 +2791,15 @@ func TestRunCompileRejectsUnknownPipeline(t *testing.T) {
 func TestSelectCompileClientKeepsLegacyPipelineIsolated(t *testing.T) {
 	prevBuildCompileClient := buildCompileClient
 	prevBuildCompileClientNoVerify := buildCompileClientNoVerify
-	prevBuildCompileClientNoVerifyNoValidate := buildCompileClientNoVerifyNoValidate
 	prevBuildCompileClientV2 := buildCompileClientV2
 	t.Cleanup(func() {
 		buildCompileClient = prevBuildCompileClient
 		buildCompileClientNoVerify = prevBuildCompileClientNoVerify
-		buildCompileClientNoVerifyNoValidate = prevBuildCompileClientNoVerifyNoValidate
 		buildCompileClientV2 = prevBuildCompileClientV2
 	})
 
 	legacyCalls := 0
 	noVerifyCalls := 0
-	noVerifyNoValidateCalls := 0
 	v2Calls := 0
 	buildCompileClient = func(projectRoot string) compileClient {
 		legacyCalls++
@@ -2809,26 +2809,19 @@ func TestSelectCompileClientKeepsLegacyPipelineIsolated(t *testing.T) {
 		noVerifyCalls++
 		return fakeCompileClient{}
 	}
-	buildCompileClientNoVerifyNoValidate = func(projectRoot string) compileClient {
-		noVerifyNoValidateCalls++
-		return fakeCompileClient{}
-	}
 	buildCompileClientV2 = func(projectRoot string) compileClient {
 		v2Calls++
 		return fakeCompileClient{}
 	}
 
-	if _, err := selectCompileClient("/tmp/project", "", false, false); err != nil {
+	if _, err := selectCompileClient("/tmp/project", "", false); err != nil {
 		t.Fatalf("selectCompileClient(default legacy) error = %v", err)
 	}
-	if _, err := selectCompileClient("/tmp/project", "legacy", false, false); err != nil {
+	if _, err := selectCompileClient("/tmp/project", "legacy", false); err != nil {
 		t.Fatalf("selectCompileClient(explicit legacy) error = %v", err)
 	}
-	if _, err := selectCompileClient("/tmp/project", "legacy", true, false); err != nil {
+	if _, err := selectCompileClient("/tmp/project", "legacy", true); err != nil {
 		t.Fatalf("selectCompileClient(no verify) error = %v", err)
-	}
-	if _, err := selectCompileClient("/tmp/project", "legacy", true, true); err != nil {
-		t.Fatalf("selectCompileClient(no verify + no validate) error = %v", err)
 	}
 
 	if legacyCalls != 2 {
@@ -2836,9 +2829,6 @@ func TestSelectCompileClientKeepsLegacyPipelineIsolated(t *testing.T) {
 	}
 	if noVerifyCalls != 1 {
 		t.Fatalf("no-verify builder calls = %d, want 1", noVerifyCalls)
-	}
-	if noVerifyNoValidateCalls != 1 {
-		t.Fatalf("no-verify/no-validate builder calls = %d, want 1", noVerifyNoValidateCalls)
 	}
 	if v2Calls != 0 {
 		t.Fatalf("v2 builder calls = %d, want 0 for legacy pipeline selections", v2Calls)
@@ -2848,12 +2838,10 @@ func TestSelectCompileClientKeepsLegacyPipelineIsolated(t *testing.T) {
 func TestSelectCompileClientUsesV2OnlyWhenRequested(t *testing.T) {
 	prevBuildCompileClient := buildCompileClient
 	prevBuildCompileClientNoVerify := buildCompileClientNoVerify
-	prevBuildCompileClientNoVerifyNoValidate := buildCompileClientNoVerifyNoValidate
 	prevBuildCompileClientV2 := buildCompileClientV2
 	t.Cleanup(func() {
 		buildCompileClient = prevBuildCompileClient
 		buildCompileClientNoVerify = prevBuildCompileClientNoVerify
-		buildCompileClientNoVerifyNoValidate = prevBuildCompileClientNoVerifyNoValidate
 		buildCompileClientV2 = prevBuildCompileClientV2
 	})
 
@@ -2867,16 +2855,12 @@ func TestSelectCompileClientUsesV2OnlyWhenRequested(t *testing.T) {
 		t.Fatal("legacy no-verify builder should not be used for v2 pipeline")
 		return nil
 	}
-	buildCompileClientNoVerifyNoValidate = func(projectRoot string) compileClient {
-		t.Fatal("legacy no-verify/no-validate builder should not be used for v2 pipeline")
-		return nil
-	}
 	buildCompileClientV2 = func(projectRoot string) compileClient {
 		v2Calls++
 		return fakeCompileClient{}
 	}
 
-	if _, err := selectCompileClient("/tmp/project", "v2", false, false); err != nil {
+	if _, err := selectCompileClient("/tmp/project", "v2", false); err != nil {
 		t.Fatalf("selectCompileClient(v2) error = %v", err)
 	}
 	if v2Calls != 1 {
@@ -2886,11 +2870,8 @@ func TestSelectCompileClientUsesV2OnlyWhenRequested(t *testing.T) {
 		t.Fatalf("legacy builder calls = %d, want 0 for v2 selection", legacyCalls)
 	}
 
-	if _, err := selectCompileClient("/tmp/project", "v2", true, false); err == nil {
+	if _, err := selectCompileClient("/tmp/project", "v2", true); err == nil {
 		t.Fatal("selectCompileClient(v2, --no-verify) error = nil, want unsupported flag error")
-	}
-	if _, err := selectCompileClient("/tmp/project", "v2", false, true); err == nil {
-		t.Fatal("selectCompileClient(v2, --no-validate) error = nil, want unsupported flag error")
 	}
 	if v2Calls != 1 {
 		t.Fatalf("v2 builder calls after unsupported flag checks = %d, want 1", v2Calls)
@@ -3815,6 +3796,129 @@ func TestRunCompileSummaryPrintsHumanReadableOutput(t *testing.T) {
 	}
 	if !strings.Contains(out, "Compile elapsed:") || !strings.Contains(out, "Stages:") {
 		t.Fatalf("stdout = %q, want compile metrics in summary view", out)
+	}
+}
+
+func TestRunCompileGoldScoreOutputsReviewItems(t *testing.T) {
+	tmp := t.TempDir()
+	goldPath := filepath.Join(tmp, "gold.json")
+	candidatePath := filepath.Join(tmp, "candidate.json")
+	gold := c.GoldDataset{
+		Version: "test-v1",
+		Samples: []c.GoldSample{{
+			ID:      "G04",
+			Summary: "海外资金继续流入美国资产，说明美国增长叙事仍然吸引全球资金",
+			Drivers: []string{
+				"美国增长叙事仍然吸引全球资金",
+				"政治风险没有压倒市场对美国资产的增长偏好",
+			},
+			Targets: []string{
+				"海外资金继续流入美国资产",
+				"没有形成 sell America 交易",
+			},
+		}},
+	}
+	candidates := []c.GoldCandidate{{
+		SampleID: "G04",
+		Output: c.Output{
+			Summary: "美国政治风险导致美元走弱",
+			Drivers: []string{
+				"美国增长叙事吸引全球资金",
+				"美联储政治化压低收益率",
+			},
+			Targets: []string{
+				"海外资金继续流入美国资产",
+				"美元下跌",
+			},
+		},
+	}}
+	writeTestJSONFile(t, goldPath, gold)
+	writeTestJSONFile(t, candidatePath, candidates)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "gold-score", "--gold", goldPath, "--candidate", candidatePath}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	var out c.GoldScorecard
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(stdout) error = %v; stdout=%s", err, stdout.String())
+	}
+	if out.DatasetVersion != "test-v1" || out.SampleCount != 1 {
+		t.Fatalf("scorecard = %#v, want dataset metadata", out)
+	}
+	if len(out.Samples) != 1 || len(out.Samples[0].ReviewItems) == 0 {
+		t.Fatalf("scorecard missing review items: %#v", out)
+	}
+}
+
+func TestRunCompileGoldScoreReadsCandidateDir(t *testing.T) {
+	tmp := t.TempDir()
+	goldPath := filepath.Join(tmp, "gold.json")
+	candidateDir := filepath.Join(tmp, "candidates")
+	outPath := filepath.Join(tmp, "scorecard.json")
+	if err := os.Mkdir(candidateDir, 0o755); err != nil {
+		t.Fatalf("os.Mkdir() error = %v", err)
+	}
+	gold := c.GoldDataset{
+		Version: "test-v1",
+		Samples: []c.GoldSample{{
+			ID:      "G01",
+			Summary: "资金流入硬资产以对冲货币贬值",
+			Drivers: []string{
+				"央行扩表压低实际利率",
+			},
+			Targets: []string{
+				"资金流入硬资产",
+			},
+		}},
+	}
+	report := struct {
+		UnitID string   `json:"unit_id"`
+		Output c.Output `json:"output"`
+	}{
+		UnitID: "twitter:1",
+		Output: c.Output{
+			Summary: "实际利率为负导致资金买入黄金",
+			Drivers: []string{
+				"实际利率下降",
+			},
+			Targets: []string{
+				"资金买入黄金",
+			},
+		},
+	}
+	writeTestJSONFile(t, goldPath, gold)
+	writeTestJSONFile(t, filepath.Join(candidateDir, "G01.json"), report)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "gold-score", "--gold", goldPath, "--candidate-dir", candidateDir, "--out", outPath}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	var out c.GoldScorecard
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(stdout) error = %v; stdout=%s", err, stdout.String())
+	}
+	if out.SampleCount != 1 || len(out.Samples) != 1 {
+		t.Fatalf("scorecard = %#v, want one scored sample", out)
+	}
+	if out.Samples[0].ID != "G01" {
+		t.Fatalf("sample id = %q, want G01", out.Samples[0].ID)
+	}
+	if len(out.Samples[0].ReviewItems) == 0 {
+		t.Fatalf("scorecard missing review items: %#v", out)
+	}
+	rawOut, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(outPath) error = %v", err)
+	}
+	var fileOut c.GoldScorecard
+	if err := json.Unmarshal(rawOut, &fileOut); err != nil {
+		t.Fatalf("json.Unmarshal(outPath) error = %v; raw=%s", err, string(rawOut))
+	}
+	if fileOut.DatasetVersion != "test-v1" {
+		t.Fatalf("file scorecard version = %q, want test-v1", fileOut.DatasetVersion)
 	}
 }
 
@@ -7934,5 +8038,16 @@ func TestRunMemoryParadigmEvidenceCardPrintsReadableSections(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
 		}
+	}
+}
+
+func writeTestJSONFile(t *testing.T, path string, value any) {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v", path, err)
 	}
 }
