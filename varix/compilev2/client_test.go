@@ -326,6 +326,34 @@ func TestStage3MainlineDemotesExtraPrimarySpines(t *testing.T) {
 	}
 }
 
+func TestStage3MainlinePromotesBestSpineWhenPrimaryMissing(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n2","to":"n3","source_quote":"policy shock drives market repricing","reason":"policy shock drives repricing"}],"spines":[{"id":"s_risk","level":"branch","priority":1,"thesis":"Named risk family","node_ids":["n1"],"edge_indexes":[],"scope":"section","why":"single-node risk branch"},{"id":"s_policy","level":"branch","priority":2,"thesis":"Policy shock reprices markets","node_ids":["n2","n3"],"edge_indexes":[0],"scope":"section","why":"best available causal spine"}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:v2-mainline-missing-primary",
+		Content: "risk family; policy shock drives market repricing",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "Named risk family"},
+			{ID: "n2", Text: "Policy shock"},
+			{ID: "n3", Text: "Market repricing"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	if len(state.Spines) != 2 {
+		t.Fatalf("Spines = %#v, want two spines", state.Spines)
+	}
+	if state.Spines[0].Level != "branch" {
+		t.Fatalf("single-node risk spine level = %q, want branch", state.Spines[0].Level)
+	}
+	if state.Spines[1].Level != "primary" || state.Spines[1].Scope != "article" {
+		t.Fatalf("best causal spine metadata = %#v, want promoted primary article spine", state.Spines[1])
+	}
+}
+
 func TestStage3MainlineMergesCryptoSellPressureSpines(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
 		Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"tight reserves weaken Bitcoin","reason":"tight reserves weaken Bitcoin"},{"from":"n3","to":"n2","source_quote":"ETF outflows worsen Bitcoin selling pressure","reason":"ETF outflows worsen Bitcoin selling pressure"},{"from":"n4","to":"n2","source_quote":"market makers sell into thin liquidity","reason":"market makers add selling pressure"},{"from":"n5","to":"n2","source_quote":"stablecoin supply contraction caused Bitcoin to fall","reason":"stablecoin contraction caused Bitcoin weakness"},{"from":"n6","to":"n7","source_quote":"TGA drawdown restores reserves","reason":"TGA drawdown restores reserves"},{"from":"n7","to":"n8","source_quote":"reserve recovery triggers a new Bitcoin trend","reason":"reserve recovery supports Bitcoin"}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Tight dollar liquidity weakens Bitcoin","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"article thesis"},{"id":"s2","level":"branch","priority":2,"thesis":"ETF outflows worsen Bitcoin selling pressure","node_ids":["n3","n2"],"edge_indexes":[1],"scope":"section","why":"sell-pressure branch"},{"id":"s3","level":"branch","priority":3,"thesis":"Market makers sell into thin crypto liquidity","node_ids":["n4","n2"],"edge_indexes":[2],"scope":"section","why":"sell-pressure branch"},{"id":"s4","level":"branch","priority":4,"thesis":"Stablecoin supply contraction caused Bitcoin to fall","node_ids":["n5","n2"],"edge_indexes":[3],"scope":"section","why":"sell-pressure branch"},{"id":"s5","level":"branch","priority":5,"thesis":"Future reserve recovery supports Bitcoin","node_ids":["n6","n7","n8"],"edge_indexes":[4,5],"scope":"section","why":"recovery branch"}]}`,

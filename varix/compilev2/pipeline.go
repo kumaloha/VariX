@@ -1038,21 +1038,40 @@ func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdg
 		}
 		return out[i].ID < out[j].ID
 	})
-	seenPrimary := false
-	for i := range out {
-		if out[i].Level != "primary" {
+	return compactSpines(enforceSinglePrimarySpine(out), valid)
+}
+
+func enforceSinglePrimarySpine(spines []PreviewSpine) []PreviewSpine {
+	if len(spines) == 0 {
+		return spines
+	}
+	primaryIndex := -1
+	for i := range spines {
+		if spines[i].Level != "primary" {
 			continue
 		}
-		if !seenPrimary {
-			seenPrimary = true
+		if primaryIndex == -1 {
+			primaryIndex = i
 			continue
 		}
-		out[i].Level = "branch"
-		if out[i].Scope == "article" {
-			out[i].Scope = "branch"
+		spines[i].Level = "branch"
+		if spines[i].Scope == "article" {
+			spines[i].Scope = "branch"
 		}
 	}
-	return compactSpines(out, valid)
+	if primaryIndex != -1 {
+		return spines
+	}
+	promoteIndex := 0
+	for i := range spines {
+		if len(spines[i].Edges) > 0 {
+			promoteIndex = i
+			break
+		}
+	}
+	spines[promoteIndex].Level = "primary"
+	spines[promoteIndex].Scope = "article"
+	return spines
 }
 
 func compactSpines(spines []PreviewSpine, valid map[string]graphNode) []PreviewSpine {
