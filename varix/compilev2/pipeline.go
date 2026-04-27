@@ -20,12 +20,13 @@ const (
 )
 
 type graphNode struct {
-	ID          string
-	Text        string
-	SourceQuote string
-	Role        graphRole
-	Ontology    string
-	IsTarget    bool
+	ID            string
+	Text          string
+	SourceQuote   string
+	Role          graphRole
+	DiscourseRole string
+	Ontology      string
+	IsTarget      bool
 }
 
 type graphEdge struct {
@@ -58,6 +59,7 @@ type graphState struct {
 	OffGraph    []offGraphItem
 	BranchHeads []string
 	Spines      []PreviewSpine
+	ArticleForm string
 	Rounds      int
 }
 
@@ -105,6 +107,7 @@ func stage1Extract(ctx context.Context, rt runtimeChat, model string, bundle com
 		return graphState{}, err
 	}
 	state := graphState{}
+	state.ArticleForm = normalizeArticleForm(asString(payload["article_form"]))
 	state.Nodes = decodeStage1Nodes(payload["nodes"])
 	state.Edges = nil
 	state.OffGraph = decodeStage1OffGraph(payload["off_graph"])
@@ -149,8 +152,9 @@ type refineReplacement struct {
 }
 
 type refineReplacementNode struct {
-	Text        string `json:"text"`
-	SourceQuote string `json:"source_quote"`
+	Text          string `json:"text"`
+	SourceQuote   string `json:"source_quote"`
+	DiscourseRole string `json:"role"`
 }
 
 type refineReplacementEdge struct {
@@ -326,9 +330,10 @@ func applyAggregatePatches(state graphState, aggregates []aggregatePatch) graphS
 		id := fmt.Sprintf("agg_%d", nextIndex)
 		nextIndex++
 		state.Nodes = append(state.Nodes, graphNode{
-			ID:          id,
-			Text:        text,
-			SourceQuote: strings.TrimSpace(aggregate.SourceQuote),
+			ID:            id,
+			Text:          text,
+			SourceQuote:   strings.TrimSpace(aggregate.SourceQuote),
+			DiscourseRole: aggregateDiscourseRole(validMembers, valid),
 		})
 		existingText[key] = struct{}{}
 		for _, memberID := range validMembers {
@@ -348,6 +353,23 @@ func applyAggregatePatches(state graphState, aggregates []aggregatePatch) graphS
 
 func aggregateForbiddenMarkers() []string {
 	return []string{"导致", "引发", "造成", "使", "影响", "推高", "推动", "压低", "拖累", "传导", "drive", "drives", "cause", "causes", "lead to", "leads to"}
+}
+
+func aggregateDiscourseRole(memberIDs []string, nodeIndex map[string]graphNode) string {
+	best := ""
+	bestScore := -1
+	for _, id := range memberIDs {
+		role := normalizeDiscourseRole(nodeIndex[id].DiscourseRole)
+		score := discourseRolePriority(role)
+		if score > bestScore {
+			best = role
+			bestScore = score
+		}
+	}
+	if best == "" {
+		return "mechanism"
+	}
+	return best
 }
 
 func refineCandidateNodes(nodes []graphNode) []graphNode {
@@ -404,9 +426,10 @@ func applyRefineReplacements(state graphState, replacements []refineReplacement)
 			}
 			sourceQuote := strings.TrimSpace(item.SourceQuote)
 			nodes = append(nodes, graphNode{
-				ID:          fmt.Sprintf("%s_%d", replaceID, idx+1),
-				Text:        text,
-				SourceQuote: sourceQuote,
+				ID:            fmt.Sprintf("%s_%d", replaceID, idx+1),
+				Text:          text,
+				SourceQuote:   sourceQuote,
+				DiscourseRole: normalizeDiscourseRole(item.DiscourseRole),
 			})
 		}
 		if len(nodes) == 0 {
@@ -429,6 +452,9 @@ func applyRefineReplacements(state graphState, replacements []refineReplacement)
 			if strings.TrimSpace(nodes[i].SourceQuote) == "" {
 				nodes[i].SourceQuote = node.SourceQuote
 			}
+			if strings.TrimSpace(nodes[i].DiscourseRole) == "" {
+				nodes[i].DiscourseRole = node.DiscourseRole
+			}
 			out = append(out, nodes[i])
 		}
 	}
@@ -450,12 +476,14 @@ func normalizeStage1State(state graphState) graphState {
 		n.ID = strings.TrimSpace(n.ID)
 		n.Text = strings.TrimSpace(n.Text)
 		n.SourceQuote = strings.TrimSpace(n.SourceQuote)
+		n.DiscourseRole = normalizeDiscourseRole(n.DiscourseRole)
 		if n.Text == "" {
 			continue
 		}
 		nodes = append(nodes, n)
 	}
 	state.Nodes = nodes
+	state.ArticleForm = normalizeArticleForm(state.ArticleForm)
 
 	validIDs := map[string]struct{}{}
 	for _, n := range state.Nodes {
@@ -503,13 +531,32 @@ func decodeStage1Nodes(raw any) []graphNode {
 			out = append(out, graphNode{Text: strings.TrimSpace(v)})
 		case map[string]any:
 			out = append(out, graphNode{
-				ID:          strings.TrimSpace(asString(v["id"])),
-				Text:        strings.TrimSpace(compile.FirstNonEmpty(asString(v["text"]), asString(v["content"]))),
-				SourceQuote: strings.TrimSpace(asString(v["source_quote"])),
+				ID:            strings.TrimSpace(asString(v["id"])),
+				Text:          strings.TrimSpace(compile.FirstNonEmpty(asString(v["text"]), asString(v["content"]))),
+				SourceQuote:   strings.TrimSpace(asString(v["source_quote"])),
+				DiscourseRole: normalizeDiscourseRole(asString(v["role"])),
 			})
 		}
 	}
 	return out
+}
+
+func normalizeArticleForm(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "single_thesis", "main_narrative_plus_investment_implication", "risk_list", "macro_framework", "market_update":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+func normalizeDiscourseRole(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "thesis", "mechanism", "evidence", "example", "implication", "caveat", "market_move":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
 }
 
 func decodeStage1Edges(raw any) []graphEdge {
@@ -779,13 +826,15 @@ func collapseClusters(state graphState) graphState {
 		return state
 	}
 	if len(state.AuxEdges) == 0 {
-		state.BranchHeads = nil
-		for _, node := range state.Nodes {
-			state.BranchHeads = append(state.BranchHeads, node.ID)
+		state = demoteSupportingRoleNodes(state)
+		if len(state.BranchHeads) == 0 {
+			state.BranchHeads = nil
+			for _, node := range state.Nodes {
+				state.BranchHeads = append(state.BranchHeads, node.ID)
+			}
+			state.BranchHeads = dedupeStrings(state.BranchHeads)
 		}
-		state.BranchHeads = dedupeStrings(state.BranchHeads)
-		state = pruneDanglingEdges(state)
-		return state
+		return pruneDanglingEdges(state)
 	}
 	nodeIndex := map[string]graphNode{}
 	for _, node := range state.Nodes {
@@ -854,8 +903,80 @@ func collapseClusters(state graphState) graphState {
 	state.Nodes = nodes
 	state.BranchHeads = dedupeStrings(heads)
 	state.OffGraph = offGraph
+	state = demoteSupportingRoleNodes(state)
 	state = pruneDanglingEdges(state)
 	return state
+}
+
+func demoteSupportingRoleNodes(state graphState) graphState {
+	if len(state.Nodes) == 0 || !hasMainlineDiscourseNode(state.Nodes) {
+		return state
+	}
+	attachTo := firstMainlineDiscourseNodeID(state.Nodes)
+	nodes := make([]graphNode, 0, len(state.Nodes))
+	branchHeads := make([]string, 0, len(state.BranchHeads))
+	demoted := map[string]struct{}{}
+	for _, node := range state.Nodes {
+		if !isSupportingDiscourseRole(node.DiscourseRole) {
+			nodes = append(nodes, node)
+			continue
+		}
+		role := normalizeDiscourseRole(node.DiscourseRole)
+		if role == "" {
+			role = "supplementary"
+		}
+		state.OffGraph = append(state.OffGraph, offGraphItem{
+			ID:          fmt.Sprintf("discourse_%s_%s", role, node.ID),
+			Text:        node.Text,
+			Role:        role,
+			AttachesTo:  attachTo,
+			SourceQuote: node.SourceQuote,
+		})
+		demoted[node.ID] = struct{}{}
+	}
+	if len(demoted) == 0 {
+		return state
+	}
+	for _, id := range state.BranchHeads {
+		if _, ok := demoted[id]; ok {
+			continue
+		}
+		branchHeads = append(branchHeads, id)
+	}
+	state.Nodes = nodes
+	state.BranchHeads = dedupeStrings(branchHeads)
+	return state
+}
+
+func hasMainlineDiscourseNode(nodes []graphNode) bool {
+	return firstMainlineDiscourseNodeID(nodes) != ""
+}
+
+func firstMainlineDiscourseNodeID(nodes []graphNode) string {
+	for _, node := range nodes {
+		if isMainlineDiscourseRole(node.DiscourseRole) {
+			return node.ID
+		}
+	}
+	return ""
+}
+
+func isMainlineDiscourseRole(role string) bool {
+	switch normalizeDiscourseRole(role) {
+	case "thesis", "mechanism", "implication", "market_move":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportingDiscourseRole(role string) bool {
+	switch normalizeDiscourseRole(role) {
+	case "evidence", "example", "caveat":
+		return true
+	default:
+		return false
+	}
 }
 
 func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState) (graphState, error) {
@@ -866,7 +987,7 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle co
 	if err != nil {
 		return graphState{}, err
 	}
-	userPrompt, err := renderStage3MainlineUserPrompt(bundle.TextContext(), serializeRelationNodes(state.Nodes), serializeBranchHeads(state), serializeMainlineCandidateEdges(bundle.TextContext(), state.Nodes))
+	userPrompt, err := renderStage3MainlineUserPrompt(bundle.TextContext(), state.ArticleForm, serializeRelationNodes(state.Nodes), serializeBranchHeads(state), serializeMainlineCandidateEdges(bundle.TextContext(), state.Nodes))
 	if err != nil {
 		return graphState{}, err
 	}
@@ -1911,7 +2032,50 @@ func canonicalityScore(nodeID string, inScore, outScore map[string]float64) floa
 }
 
 func clusterHeadScore(nodeID string, inScore, outScore map[string]float64, nodeIndex map[string]graphNode) float64 {
-	return canonicalityScore(nodeID, inScore, outScore) + 0.35*clusterHeadTieBreak(nodeIndex[nodeID].Text)
+	node := nodeIndex[nodeID]
+	return canonicalityScore(nodeID, inScore, outScore) + discourseRoleHeadBoost(node.DiscourseRole) + 0.35*clusterHeadTieBreak(node.Text)
+}
+
+func discourseRolePriority(role string) int {
+	switch normalizeDiscourseRole(role) {
+	case "thesis":
+		return 7
+	case "mechanism":
+		return 6
+	case "implication":
+		return 5
+	case "market_move":
+		return 4
+	case "caveat":
+		return 3
+	case "evidence":
+		return 2
+	case "example":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func discourseRoleHeadBoost(role string) float64 {
+	switch normalizeDiscourseRole(role) {
+	case "thesis":
+		return 8.0
+	case "mechanism":
+		return 5.0
+	case "implication":
+		return 3.0
+	case "market_move":
+		return 2.0
+	case "caveat":
+		return -1.0
+	case "evidence":
+		return -3.0
+	case "example":
+		return -4.0
+	default:
+		return 0
+	}
 }
 
 func clusterHeadTieBreak(text string) float64 {
@@ -2273,17 +2437,19 @@ func stageJSONSchema(stageName string) *llm.Schema {
 	case "extract":
 		return &llm.Schema{
 			Name:     "compile_extract",
-			Required: []string{"nodes", "off_graph"},
+			Required: []string{"article_form", "nodes", "off_graph"},
 			Properties: map[string]any{
+				"article_form": map[string]any{"type": "string"},
 				"nodes": map[string]any{
 					"type": "array",
 					"items": map[string]any{
 						"type":     "object",
-						"required": []string{"id", "text", "source_quote"},
+						"required": []string{"id", "text", "source_quote", "role"},
 						"properties": map[string]any{
 							"id":           map[string]any{"type": "string"},
 							"text":         map[string]any{"type": "string"},
 							"source_quote": map[string]any{"type": "string"},
+							"role":         map[string]any{"type": "string"},
 						},
 					},
 				},
@@ -2320,10 +2486,11 @@ func stageJSONSchema(stageName string) *llm.Schema {
 								"type": "array",
 								"items": map[string]any{
 									"type":     "object",
-									"required": []string{"text", "source_quote"},
+									"required": []string{"text", "source_quote", "role"},
 									"properties": map[string]any{
 										"text":         map[string]any{"type": "string"},
 										"source_quote": map[string]any{"type": "string"},
+										"role":         map[string]any{"type": "string"},
 									},
 								},
 							},
@@ -2610,7 +2777,7 @@ func serializeEdgeList(edges []graphEdge) string {
 func serializeRelationNodes(nodes []graphNode) string {
 	return joinSerializedLines(len(nodes), func(out *[]string) {
 		for _, n := range nodes {
-			*out = append(*out, fmt.Sprintf("%s | %s | role=%s | ontology=%s | quote=%s", n.ID, n.Text, n.Role, n.Ontology, n.SourceQuote))
+			*out = append(*out, fmt.Sprintf("%s | %s | role=%s | discourse_role=%s | ontology=%s | quote=%s", n.ID, n.Text, n.Role, n.DiscourseRole, n.Ontology, n.SourceQuote))
 		}
 	})
 }
@@ -2640,6 +2807,9 @@ func serializeMainlineCandidateEdges(article string, nodes []graphNode) string {
 			if from.ID == to.ID {
 				continue
 			}
+			if !eligibleForMainlineCandidateHint(from) || !eligibleForMainlineCandidateHint(to) {
+				continue
+			}
 			if quote, reason, ok := suggestMainlineCandidate(article, from, to); ok {
 				candidates = append(candidates, candidate{from: from, to: to, quote: quote, reason: reason})
 			}
@@ -2653,6 +2823,15 @@ func serializeMainlineCandidateEdges(article string, nodes []graphNode) string {
 		fmt.Fprintf(&b, "- %s [%s] -> %s [%s] | quote=%s | hint=%s\n", c.from.ID, c.from.Text, c.to.ID, c.to.Text, c.quote, c.reason)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func eligibleForMainlineCandidateHint(node graphNode) bool {
+	switch normalizeDiscourseRole(node.DiscourseRole) {
+	case "evidence", "example", "caveat":
+		return false
+	default:
+		return true
+	}
 }
 
 func suggestMainlineCandidate(article string, from, to graphNode) (string, string, bool) {

@@ -18,6 +18,8 @@ Important:
 - Do not output any edges.
 - Do not decide whether the relationship is drive, evidence, explanation, or supplementary.
 - If a node is acceptable even though it contains a broad summary, do not patch it.
+- Every replacement node must include a `role` from: `thesis`, `mechanism`, `evidence`, `example`, `implication`, `caveat`, `market_move`.
+- Preserve the original node's role when the split pieces serve the same discourse function; otherwise assign the most specific role for each replacement endpoint.
 
 Relation-bearing wording usually signals `A drives B`.
 Chinese hints include:
@@ -145,7 +147,7 @@ Return JSON only:
   "replacements": [
     {
       "replace_id": "n1",
-      "nodes": [{"text":"...","source_quote":"..."}],
+      "nodes": [{"text":"...","source_quote":"...","role":"thesis|mechanism|evidence|example|implication|caveat|market_move"}],
       "reason": "..."
     }
   ]

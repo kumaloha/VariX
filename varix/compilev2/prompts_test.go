@@ -146,6 +146,8 @@ func TestStage3MainlinePromptRequiresGroundedRelations(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Inputs have already been clustered.",
+		"Each retained node may include a `discourse_role` hint",
+		"Treat `evidence` and `example` nodes as supporting material",
 		"Your job now is only to draw the retained relations and spines",
 		"Every relation must include:",
 		"source_quote: the quote span that grounds the drives relation",
@@ -221,6 +223,7 @@ func TestMainlineUpstreamUserPromptsIncludeArticleContext(t *testing.T) {
 			file: "mainline_user.tmpl",
 			data: map[string]any{
 				"Article":        "article context sentinel",
+				"ArticleForm":    "risk_list",
 				"Nodes":          "n1 | node | role= | ontology= | quote=q",
 				"BranchHeads":    "n1 | node",
 				"CandidateEdges": "- (none)",
@@ -415,6 +418,11 @@ func TestStage1PromptAllowsNormalizationButRejectsSemanticUpgrade(t *testing.T) 
 		"Every node must be directly grounded in a source quote from the article",
 		"If you cannot point to the quote that supports the node, do not output the node",
 		"For explicit `X causes Y` wording, extract X and Y as separate nodes",
+		"Do classify the article form and each node's discourse role",
+		"Article form:",
+		"`main_narrative_plus_investment_implication`",
+		"Node discourse roles:",
+		"Every node must include a `role`",
 		"U.S. trade policy is causing a realignment of global economic relations",
 		"Barings基金赎回请求仅满足44.3%",
 		"Barings基金每季度最多允许5%赎回",
@@ -423,6 +431,31 @@ func TestStage1PromptAllowsNormalizationButRejectsSemanticUpgrade(t *testing.T) 
 		if !contains(body, want) {
 			t.Fatalf("stage1 prompt missing %q", want)
 		}
+	}
+}
+
+func TestExtractSchemaRequiresArticleFormAndNodeRole(t *testing.T) {
+	schema := stageJSONSchema("extract")
+	if schema == nil {
+		t.Fatal("extract schema is nil")
+	}
+	if !containsString(schema.Required, "article_form") {
+		t.Fatalf("extract schema required = %#v, want article_form", schema.Required)
+	}
+	nodes, ok := schema.Properties["nodes"].(map[string]any)
+	if !ok {
+		t.Fatalf("nodes schema missing: %#v", schema.Properties)
+	}
+	items, ok := nodes["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("nodes items schema missing: %#v", nodes)
+	}
+	required, ok := items["required"].([]string)
+	if !ok {
+		t.Fatalf("node required schema missing: %#v", items)
+	}
+	if !containsString(required, "role") {
+		t.Fatalf("node required = %#v, want role", required)
 	}
 }
 

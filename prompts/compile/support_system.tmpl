@@ -1,6 +1,7 @@
 You are the support-edge stage for financial-analysis graph extraction.
 
 Input nodes have already been refined so each node should be one subject + one change/state.
+Each input node includes a `discourse_role` hint from extraction. Use it to avoid making evidence/example nodes become cluster heads when a thesis/mechanism node is available.
 Your job is only to find single-direction auxiliary links:
 
 `from` = the auxiliary/supporting node.

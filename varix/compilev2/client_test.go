@@ -97,6 +97,94 @@ func TestClientCompileNeverUsesValidateSearch(t *testing.T) {
 	}
 }
 
+func TestStage1ExtractPreservesArticleFormAndNodeRoles(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"article_form":"main_narrative_plus_investment_implication","nodes":[{"id":"n1","text":"War desensitization drives US stock highs","source_quote":"markets are desensitized and stocks hit highs","role":"thesis"},{"id":"n2","text":"Oil prices erode consumer confidence","source_quote":"oil prices erode consumer confidence","role":"mechanism"},{"id":"n3","text":"FactSet reports earnings growth","source_quote":"FactSet reports earnings growth","role":"evidence"}],"off_graph":[]}`,
+	}}}
+	state, err := stage1Extract(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:v2-extract-form-role",
+		Content: "markets are desensitized and stocks hit highs. oil prices erode consumer confidence. FactSet reports earnings growth.",
+	})
+	if err != nil {
+		t.Fatalf("stage1Extract() error = %v", err)
+	}
+	if state.ArticleForm != "main_narrative_plus_investment_implication" {
+		t.Fatalf("ArticleForm = %q", state.ArticleForm)
+	}
+	if got := state.Nodes[0].DiscourseRole; got != "thesis" {
+		t.Fatalf("node role = %q, want thesis", got)
+	}
+	if got := state.Nodes[2].DiscourseRole; got != "evidence" {
+		t.Fatalf("evidence node role = %q, want evidence", got)
+	}
+}
+
+func TestSerializeRelationNodesIncludesDiscourseRole(t *testing.T) {
+	body := serializeRelationNodes([]graphNode{{
+		ID:            "n1",
+		Text:          "Oil prices erode consumer confidence",
+		SourceQuote:   "oil prices erode consumer confidence",
+		DiscourseRole: "mechanism",
+	}})
+	if !strings.Contains(body, "discourse_role=mechanism") {
+		t.Fatalf("serialized nodes = %q, want discourse_role", body)
+	}
+}
+
+func TestChooseClusterHeadPrefersMainlineRoles(t *testing.T) {
+	nodeIndex := map[string]graphNode{
+		"n1": {ID: "n1", Text: "FactSet reports earnings growth", DiscourseRole: "evidence"},
+		"n2": {ID: "n2", Text: "Strong earnings drive US stock highs", DiscourseRole: "thesis"},
+	}
+	got := chooseClusterHead([]string{"n1", "n2"}, nil, nodeIndex)
+	if got != "n2" {
+		t.Fatalf("cluster head = %q, want thesis node n2", got)
+	}
+}
+
+func TestMainlineCandidateEdgesSkipEvidenceAndExamples(t *testing.T) {
+	nodes := []graphNode{
+		{
+			ID:            "n1",
+			Text:          "earnings growth",
+			SourceQuote:   "earnings growth drives stock highs",
+			DiscourseRole: "evidence",
+		},
+		{
+			ID:            "n2",
+			Text:          "stock highs",
+			SourceQuote:   "earnings growth drives stock highs",
+			DiscourseRole: "thesis",
+		},
+	}
+	got := serializeMainlineCandidateEdges("earnings growth drives stock highs", nodes)
+	if got != "- (none)" {
+		t.Fatalf("candidate edges = %q, want evidence/example nodes excluded from hints", got)
+	}
+}
+
+func TestCollapseDemotesSupportingRolesWithoutAuxEdges(t *testing.T) {
+	state := collapseClusters(graphState{Nodes: []graphNode{
+		{ID: "n1", Text: "Strong earnings drive US stock highs", DiscourseRole: "thesis"},
+		{ID: "n2", Text: "FactSet reports earnings growth", SourceQuote: "FactSet reports earnings growth", DiscourseRole: "evidence"},
+		{ID: "n3", Text: "Intel is an illustrative case", SourceQuote: "Intel earnings improved", DiscourseRole: "example"},
+	}})
+	if got := strings.Join(state.BranchHeads, ","); got != "n1" {
+		t.Fatalf("BranchHeads = %q, want only thesis node", got)
+	}
+	if len(state.Nodes) != 1 || state.Nodes[0].ID != "n1" {
+		t.Fatalf("Nodes = %#v, want only thesis node retained", state.Nodes)
+	}
+	if len(state.OffGraph) != 2 {
+		t.Fatalf("OffGraph = %#v, want evidence/example demoted", state.OffGraph)
+	}
+	for _, item := range state.OffGraph {
+		if item.AttachesTo != "n1" {
+			t.Fatalf("offgraph item = %#v, want attached to n1", item)
+		}
+	}
+}
+
 func TestClientCompilePassesArticleContextToMainline(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{
 		{Text: `{"nodes":[{"id":"n1","text":"Middle East buys arms","source_quote":"they buy arms"},{"id":"n2","text":"Less money buys US bonds and stocks","source_quote":"less money buys US bonds and stocks"}],"off_graph":[]}`},

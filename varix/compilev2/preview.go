@@ -19,6 +19,7 @@ type FlowPreviewResult struct {
 	Platform    string           `json:"platform"`
 	ExternalID  string           `json:"external_id"`
 	URL         string           `json:"url"`
+	ArticleForm string           `json:"article_form,omitempty"`
 	Extract     PreviewGraph     `json:"extract"`
 	Refine      PreviewGraph     `json:"refine"`
 	Aggregate   PreviewGraph     `json:"aggregate"`
@@ -45,12 +46,13 @@ type PreviewGraph struct {
 }
 
 type PreviewNode struct {
-	ID          string `json:"id"`
-	Text        string `json:"text"`
-	SourceQuote string `json:"source_quote,omitempty"`
-	Role        string `json:"role,omitempty"`
-	Ontology    string `json:"ontology,omitempty"`
-	IsTarget    bool   `json:"is_target,omitempty"`
+	ID            string `json:"id"`
+	Text          string `json:"text"`
+	SourceQuote   string `json:"source_quote,omitempty"`
+	Role          string `json:"role,omitempty"`
+	DiscourseRole string `json:"discourse_role,omitempty"`
+	Ontology      string `json:"ontology,omitempty"`
+	IsTarget      bool   `json:"is_target,omitempty"`
 }
 
 type PreviewEdge struct {
@@ -96,6 +98,7 @@ func (c *Client) PreviewFlow(ctx context.Context, bundle compile.Bundle, opts Fl
 		return FlowPreviewResult{}, fmt.Errorf("extract: %w", err)
 	}
 	result.Extract = toPreviewGraph(extractState)
+	result.ArticleForm = extractState.ArticleForm
 	result.Metrics["extract_ms"] = time.Since(start).Milliseconds()
 	if strings.TrimSpace(opts.StopAfter) == "extract" {
 		return result, nil
@@ -562,12 +565,13 @@ func toPreviewGraph(state graphState) PreviewGraph {
 	}
 	for _, node := range state.Nodes {
 		out.Nodes = append(out.Nodes, PreviewNode{
-			ID:          node.ID,
-			Text:        node.Text,
-			SourceQuote: node.SourceQuote,
-			Role:        string(node.Role),
-			Ontology:    node.Ontology,
-			IsTarget:    node.IsTarget,
+			ID:            node.ID,
+			Text:          node.Text,
+			SourceQuote:   node.SourceQuote,
+			Role:          string(node.Role),
+			DiscourseRole: node.DiscourseRole,
+			Ontology:      node.Ontology,
+			IsTarget:      node.IsTarget,
 		})
 	}
 	for _, edge := range state.Edges {
@@ -606,6 +610,8 @@ func cloneGraphState(state graphState) graphState {
 		AuxEdges:    append([]auxEdge(nil), state.AuxEdges...),
 		OffGraph:    append([]offGraphItem(nil), state.OffGraph...),
 		BranchHeads: append([]string(nil), state.BranchHeads...),
+		Spines:      append([]PreviewSpine(nil), state.Spines...),
+		ArticleForm: state.ArticleForm,
 		Rounds:      state.Rounds,
 	}
 }

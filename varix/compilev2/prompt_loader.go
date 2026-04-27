@@ -188,9 +188,10 @@ func renderStage3MainlineSystemPrompt() (string, error) {
 	return defaultPromptLoader.render("mainline_system.tmpl", nil)
 }
 
-func renderStage3MainlineUserPrompt(article string, nodes string, branchHeads string, candidateEdges string) (string, error) {
+func renderStage3MainlineUserPrompt(article string, articleForm string, nodes string, branchHeads string, candidateEdges string) (string, error) {
 	return defaultPromptLoader.render("mainline_user.tmpl", map[string]any{
 		"Article":        article,
+		"ArticleForm":    articleForm,
 		"Nodes":          nodes,
 		"BranchHeads":    branchHeads,
 		"CandidateEdges": candidateEdges,
