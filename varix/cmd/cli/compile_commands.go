@@ -111,7 +111,7 @@ func runCompileBatchRun(args []string, projectRoot string, stdout, stderr io.Wri
 	workers := fs.Int("workers", 5, "parallel workers")
 	platform := fs.String("platform", "", "optional source platform filter")
 	externalID := fs.String("id", "", "optional single external id (requires --platform)")
-	stopAfter := fs.String("stop-after", "", "stop preview after a compile stage (extract|refine|aggregate|support|collapse|mainline|classify)")
+	stopAfter := fs.String("stop-after", "", "stop preview after a compile stage (extract|refine|aggregate|support|collapse|relations|spines|classify)")
 	itemTimeout := fs.Duration("item-timeout", 30*time.Minute, "per-sample preview timeout")
 	if err := fs.Parse(args); err != nil {
 		return 2

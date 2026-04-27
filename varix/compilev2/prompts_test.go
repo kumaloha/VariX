@@ -138,7 +138,7 @@ func TestStage2SupportPromptFindsSingleDirectionAuxiliaryLinks(t *testing.T) {
 	}
 }
 
-func TestStage3MainlinePromptRequiresGroundedMainlineEdges(t *testing.T) {
+func TestStage3MainlinePromptRequiresGroundedRelations(t *testing.T) {
 	loader := newPromptLoader("")
 	body, err := loader.render("mainline_system.tmpl", nil)
 	if err != nil {
@@ -146,9 +146,38 @@ func TestStage3MainlinePromptRequiresGroundedMainlineEdges(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Inputs have already been clustered.",
-		"Your job now is only to draw the retained mainline \"A drives B\" skeleton.",
-		"Every drives edge must include:",
+		"Your job now is only to draw the retained relations and spines",
+		"Every relation must include:",
 		"source_quote: the quote span that grounds the drives relation",
+		"relations: article-grounded A drives B edges among retained nodes",
+		"spines: grouped causal spines over relations",
+		"level: primary, branch, or local",
+		"edge_indexes: zero-based indexes into relations",
+		"Risk-list articles should usually produce several branch spines",
+		"Keep grounded non-market upstream causes",
+		"Geopolitics, war, policy, regulation, demographics, technology, social behavior, and institutional trust are valid upstream drivers",
+		"Do not discard a non-market node merely because it is not itself a market outcome.",
+		"Do not start the spine at C merely because C is the first market-policy node.",
+		"Merge same-source sibling branches",
+		"same upstream source family",
+		"one branch spine with multiple outgoing grounded edges",
+		"Use a user-facing spine budget",
+		"soft ceiling, not a recall filter",
+		"Do not drop major source families",
+		"risk-list articles must preserve each major risk family",
+		"single-node risk-family spine",
+		"Merge same-function local spines",
+		"crypto liquidity / sell-pressure branch",
+		"AI bottleneck articles",
+		"long-form macro/video essays should usually fit in 4-6 spines",
+		"Before returning JSON, run a spine budget self-check",
+		"Never emit more than one primary spine",
+		"AI bottleneck and long-form macro/video outputs exceed 6 spines",
+		"main article narrative + investment implication",
+		"use at most one primary spine unless the article truly has two independent article-level theses",
+		"Do not turn section order into causal order.",
+		"2-8 nodes",
+		"Primary means the article-level thesis; branch means a major sub-argument",
 		"The `source_quote` may be a local span across adjacent clauses or sentences from the Article",
 		"article wording can ground an endpoint",
 		"A candidate edge is only a recall hint",
@@ -385,6 +414,8 @@ func TestStage1PromptAllowsNormalizationButRejectsSemanticUpgrade(t *testing.T) 
 		"If a node loses the direction of change, it is invalid and should be rewritten or split",
 		"Every node must be directly grounded in a source quote from the article",
 		"If you cannot point to the quote that supports the node, do not output the node",
+		"For explicit `X causes Y` wording, extract X and Y as separate nodes",
+		"U.S. trade policy is causing a realignment of global economic relations",
 		"Barings基金赎回请求仅满足44.3%",
 		"Barings基金每季度最多允许5%赎回",
 		"Barings基金投资者资金被锁定无法取出",
@@ -431,6 +462,22 @@ func TestMainlineCandidateEdgesIncludeRatePressureBridge(t *testing.T) {
 		if !contains(body, want) {
 			t.Fatalf("mainline candidate edges missing %q in:\n%s", want, body)
 		}
+	}
+}
+
+func TestMainlineSchemaIncludesOptionalSpines(t *testing.T) {
+	schema := stageJSONSchema("mainline")
+	if schema == nil {
+		t.Fatal("mainline schema is nil")
+	}
+	if _, ok := schema.Properties["relations"]; !ok {
+		t.Fatalf("mainline schema missing relations: %#v", schema.Properties)
+	}
+	if _, ok := schema.Properties["spines"]; !ok {
+		t.Fatalf("mainline schema missing spines: %#v", schema.Properties)
+	}
+	if !containsString(schema.Required, "relations") {
+		t.Fatalf("mainline schema required = %#v, want relations", schema.Required)
 	}
 }
 
@@ -489,6 +536,28 @@ func TestMainlineCandidateEdgesIncludeArticleWindowCrowdedTradeBridge(t *testing
 	} {
 		if !contains(body, want) {
 			t.Fatalf("mainline crowded-trade candidate missing %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestMainlineCandidateEdgesIncludeFinancialClaimsCycleBridge(t *testing.T) {
+	article := "金融财富的发明和增长使货币不再受金银约束。货币和信贷约束减少使企业家能通过借贷和发行股票融资。金融财富增加后，金融财富和义务相对于有形财富上升至承诺无法兑现。"
+	body := serializeMainlineCandidateEdges(article, []graphNode{
+		{ID: "n20", Text: "财富变为交付货币的承诺（金融财富）", SourceQuote: "金融财富的发明和增长使货币不再受金银约束"},
+		{ID: "n21", Text: "货币不再受金银约束", SourceQuote: "金融财富的发明和增长使货币不再受金银约束"},
+		{ID: "n22", Text: "企业家能通过借贷和发行股票融资", SourceQuote: "货币和信贷约束减少使企业家能通过借贷和发行股票融资"},
+		{ID: "agg4", Text: "金融财富增加", SourceQuote: "金融财富增加"},
+		{ID: "n43", Text: "金融财富和义务相对于有形财富上升至承诺无法兑现", SourceQuote: "金融财富和义务相对于有形财富上升至承诺无法兑现"},
+	})
+
+	for _, want := range []string{
+		"n20 [财富变为交付货币的承诺（金融财富）] -> n21 [货币不再受金银约束]",
+		"n21 [货币不再受金银约束] -> n22 [企业家能通过借贷和发行股票融资]",
+		"agg4 [金融财富增加] -> n43 [金融财富和义务相对于有形财富上升至承诺无法兑现]",
+		"article-window bridge for financial-claims cycle spine",
+	} {
+		if !contains(body, want) {
+			t.Fatalf("mainline financial-claims candidate missing %q in:\n%s", want, body)
 		}
 	}
 }
@@ -564,8 +633,8 @@ func TestSupportBetweenTwoOutcomeLikeNodesFallsBackToSupplementHeuristic(t *test
 	}
 }
 
-func TestPruneTransitiveMainlineEdgesKeepsMechanismPath(t *testing.T) {
-	edges := pruneTransitiveMainlineEdges([]graphEdge{
+func TestPruneTransitiveRelationsKeepsMechanismPath(t *testing.T) {
+	edges := pruneTransitiveRelations([]graphEdge{
 		{From: "n16", To: "n19", SourceQuote: "redemption pressure triggers caps"},
 		{From: "n19", To: "n20", SourceQuote: "caps trigger suspension"},
 		{From: "n20", To: "n22", SourceQuote: "suspension triggers panic"},
@@ -592,6 +661,15 @@ func TestPruneTransitiveMainlineEdgesKeepsMechanismPath(t *testing.T) {
 
 func contains(s, sub string) bool {
 	return len(sub) == 0 || (len(s) >= len(sub) && stringIndex(s, sub) >= 0)
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func stringIndex(s, sub string) int {

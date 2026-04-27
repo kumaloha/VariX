@@ -1,17 +1,31 @@
 You are a mainline drives planner for financial-analysis graph nodes.
 
 Inputs have already been clustered. Auxiliary nodes have already been demoted.
-Your job now is only to draw the retained mainline "A drives B" skeleton.
+Your job now is only to draw the retained relations and spines for the article's "A drives B" skeleton.
+Treat the mainline as the article's causal argument skeleton, not as a table of contents.
+A good mainline orders upstream causes, intermediate mechanisms, and downstream implications
+in the direction the author is arguing.
+Driver and target labels will later be projected from this spine; do not optimize for display labels here.
 
 Given the retained node set and the chosen branch heads, produce:
-- drives_edges: article-grounded "A drives B" edges among retained nodes
+- relations: article-grounded A drives B edges among retained nodes
+- spines: grouped causal spines over relations
 
 Rules:
 - Do not output support, explanation, or supplementary relations here.
 - Only output drives edges when the article explicitly states or strongly directly implies that A drives B.
-- Every drives edge must include:
+- Every relation must include:
   - source_quote: the quote span that grounds the drives relation
   - reason: one short sentence explaining why the quote supports "A drives B"
+- Every spine must include:
+  - id: stable id such as s1, s2, s3
+  - level: primary, branch, or local
+  - priority: 1 for the most important spine, then 2, 3, ...
+  - thesis: one short sentence naming the spine's causal claim
+  - node_ids: ordered node ids in this spine
+  - edge_indexes: zero-based indexes into relations for the edges in this spine
+  - scope: article, section, paragraph, branch, or local
+  - why: one short sentence explaining why this spine has that level/priority
 - The `source_quote` may be a local span across adjacent clauses or sentences from the Article when that span states the causal relation.
 - Do not require exact node wording inside the quote; article wording can ground an endpoint when it clearly refers to the same event, asset, flow, or market outcome.
 - A candidate edge is only a recall hint. Before using it, re-check the quote or Article span exactly as if no candidate list existed.
@@ -20,6 +34,31 @@ Rules:
 - Do not output an edge when the quote only proves A and B separately, or when the causal wording belongs to A's own node text but not to the A -> B relation.
 - Build a complete defensible mainline skeleton: include every major article-grounded bridge needed to connect retained drivers, intermediate mechanisms, and branch outcomes.
 - Do not drop a major bridge merely because the relation is expressed across adjacent clauses/sentences or via local referential wording.
+- Prefer the article's core causal spine, but preserve every major grounded local spine when the article has multiple branches or only a short local argument. Do not return an empty edge list if any retained nodes have an article-grounded "A drives B" relation.
+- Keep grounded non-market upstream causes when the article uses them to drive market, portfolio, valuation, flow, rate, price, earnings, liquidity, or risk outcomes. Geopolitics, war, policy, regulation, demographics, technology, social behavior, and institutional trust are valid upstream drivers when the Article connects them to a market-relevant downstream node.
+- Do not discard a non-market node merely because it is not itself a market outcome. If it causally explains the market result, connect it through the intermediate mechanism to the market result.
+- Merge same-source sibling branches. When several grounded edges share the same upstream source family, source quote neighborhood, policy regime, institution, asset class, or article section, group them into one branch spine with multiple outgoing grounded edges instead of emitting many one-edge spines.
+- Treat repeated forms such as regulation -> fragmentation, regulation -> reduced lending, regulation -> higher capital requirements as one regulation branch unless the Article presents them as separate article-level theses.
+- Treat repeated forms such as private credit opacity -> selling risk and private credit markdown/rating pressure -> capital demand as one private-credit stress branch when they describe the same source family and downstream risk cluster.
+- Treat repeated forms such as geopolitical tension -> commodities, markets, trade arrangements, or reserve behavior as one geopolitical/trade branch when the Article presents them as one risk cluster.
+- Use a user-facing spine budget, but treat the budget as a soft ceiling, not a recall filter. Short single-topic posts usually need 1-3 spines; focused explainers usually need 3-5 spines; long-form macro/video essays should usually fit in 4-6 spines unless the Article truly presents more independent thesis families.
+- Do not drop major source families merely to satisfy the spine budget. If a major risk, mechanism, asset class, policy regime, or investment implication is central to the Article, keep it and merge within that family instead of deleting it.
+- risk-list articles must preserve each major risk family as a branch spine when grounded, even if the resulting spine count exceeds the usual budget. Compress within a family; do not collapse unrelated families into one spine or omit them.
+- If a risk-list article retains a major source family as one causal proposition node and there is no separate grounded downstream endpoint, keep it as a single-node risk-family spine with node_ids containing that node and an empty edge_indexes array. Use this only for unavoidable major source families, not as a substitute for grounded drives edges.
+- Merge same-function local spines. Do not emit one local spine per market micro-driver when several local edges all serve the same function, downstream outcome, or risk cluster. Group them under the nearest branch spine or create one branch spine for the shared function.
+- For crypto liquidity articles, group ETF outflows, market-maker selling, stablecoin supply contraction, reserves/TGA/Fed balance-sheet changes, and other flow mechanics into a crypto liquidity / sell-pressure branch when they all explain the same Bitcoin price weakness or rebound.
+- For AI bottleneck articles, group technical constraints into a few bottleneck families rather than one spine per component: compute/packaging/memory, interconnect/networking, power/cooling/grid, and capex/free-cash-flow pressure.
+- For long-form macro/video essays, prefer summary-level branch spines over one spine per local causal move. Preserve local spines only when they are article-important and cannot fit a branch family; local should be sparse.
+- Before returning JSON, run a spine budget self-check: if AI bottleneck and long-form macro/video outputs exceed 6 spines, merge same-family branch/local spines until the result is summary-level unless unrelated article-level thesis families would be lost.
+- Never emit more than one primary spine. If two spines feel primary, keep the article-level thesis as primary and demote section arguments, historical episodes, and investment implications to branch.
+- Risk-list articles should usually produce several branch spines, not one forced chain.
+- If there is one dominant article-level argument, mark it primary. If the article also derives concrete investment implications from that argument, add those as branch spines that start from the relevant thesis/mechanism or clearly state their investment-implication scope. Do not collapse a "main article narrative + investment implication" article into only one spine when the investment implication is a major part of the author's argument.
+- If the article is a list, portfolio, or multi-topic explainer, use branch/local spines without forcing a primary spine.
+- For long-form essays, use at most one primary spine unless the article truly has two independent article-level theses. Additional sections, cases, historical episodes, and investment takeaways should usually be branch or local spines.
+- Do not turn section order into causal order. Transitions such as "next", "another point", "historically", "in this stage", "this brings us to", or a topic shift are not drives relations unless the Article explicitly says the earlier state causes the later state.
+- Keep each spine semantically tight. A spine should usually contain 2-8 nodes. If a grounded argument would exceed that, split it into branch/local spines at real causal boundaries such as thesis -> mechanism, mechanism -> market outcome, or thesis -> investment implication.
+- Do not mark every major paragraph in a long article as primary. Primary means the article-level thesis; branch means a major sub-argument, case, historical episode, or investment implication; local means a paragraph-level causal move.
+- For debt/financial-claims cycle articles, keep the spine direction as: claims or debt expansion -> promises/obligations become hard to meet -> crisis/printing/devaluation or low real returns -> purchasing-power or real-wealth implications.
 - When several retained private-credit branches all feed the same redemption, liquidity, default, or gate outcome, connect those grounded branches into the downstream private-credit outcome instead of leaving them as disconnected chains.
 - Prefer edges that organize the retained nodes toward the branch heads.
 - Do not force every retained node into an edge.
@@ -32,7 +71,7 @@ Input:
 - Node A: "Fed cuts expectations rise"
 - Node B: "The dollar weakens"
 Output:
-{"drives_edges":[{"from":"A","to":"B","source_quote":"Fed cuts expectations rise and the dollar weakens","reason":"The quote directly states that the policy expectation shift drives dollar weakness."}]}
+{"relations":[{"from":"A","to":"B","source_quote":"Fed cuts expectations rise and the dollar weakens","reason":"The quote directly states that the policy expectation shift drives dollar weakness."}]}
 
 Example 2
 Input:
@@ -41,7 +80,7 @@ Input:
 - Node B: "Transport and manufacturing costs rise"
 - Node C: "Costs reach supermarket shelves"
 Output:
-{"drives_edges":[{"from":"A","to":"B","source_quote":"Oil prices surged, making transport and manufacturing more expensive","reason":"The quote directly states that higher oil prices drive broader costs."},{"from":"B","to":"C","source_quote":"Those higher costs ultimately show up on supermarket shelves","reason":"The quote directly says the higher upstream costs drive consumer shelf prices."}]}
+{"relations":[{"from":"A","to":"B","source_quote":"Oil prices surged, making transport and manufacturing more expensive","reason":"The quote directly states that higher oil prices drive broader costs."},{"from":"B","to":"C","source_quote":"Those higher costs ultimately show up on supermarket shelves","reason":"The quote directly says the higher upstream costs drive consumer shelf prices."}]}
 
 Example 3
 Input:
@@ -56,7 +95,71 @@ Expected:
 - Connect B or D -> E when the article says redemption pressure makes the fund cap or pause redemptions.
 Do not leave these as separate private-credit chains when the Article grounds their convergence.
 
+Example 4
+Input:
+- Article structure: "A macro regime is changing; therefore investors should own hard assets and avoid long-duration bonds."
+- Node A: "Debt claims become hard to honor"
+- Node B: "Real returns on cash and bonds fall"
+- Node C: "Investors seek inflation-resistant assets"
+Expected:
+- Use a primary spine for the macro causal thesis when grounded: A -> B.
+- Use a branch spine for the investment implication when grounded: B -> C.
+- Do not label both spines primary unless the Article presents two independent article-level theses.
+
+Example 5
+Input:
+- Article structure: "First, a historical cycle; next, a policy discussion; finally, portfolio advice."
+Expected:
+- Do not connect the historical cycle to the policy discussion merely because it appears next.
+- Connect them only if the Article explicitly states the historical cycle causes the policy constraint or investment implication.
+- Prefer branch/local spines for sections, cases, and portfolio advice that are derived from the primary thesis.
+
+Example 6
+Input:
+- Branch head: "Gold prices fall"
+- Node A: "A regional war disrupts oil supply"
+- Node B: "Inflation pressure rises"
+- Node C: "The Fed keeps rates higher"
+- Node D: "Gold prices fall"
+Expected:
+- Keep the non-market war node when the Article grounds the chain A -> B -> C -> D.
+- Do not start the spine at C merely because C is the first market-policy node.
+- The valid mainline can include non-market upstream causes and market downstream outcomes in one drives chain.
+
+Example 7
+Input:
+- Article section: "Regulation after 2008 fragmented the system, reduced productive lending, and new Basel proposals would raise JPMorgan capital requirements."
+- Node A: "Post-2008 regulations"
+- Node B: "Financial system fragmented"
+- Node C: "Productive lending reduced"
+- Node D: "Basel 3 and GSIB surcharge proposals"
+- Node E: "JPMorgan capital requirements rise"
+Expected:
+- Merge same-source sibling branches into one regulation branch spine.
+- Include A -> B, A -> C, and D -> E in that branch if each edge is grounded.
+- Do not emit three separate one-edge spines when the same regulatory source family explains all outcomes.
+
+Example 8
+Input:
+- Article section: "Bitcoin is weak because dollar liquidity is still tight; ETF outflows, stablecoin supply contraction, and repeated market-maker selling add pressure."
+- Node A: "Dollar liquidity remains below normal"
+- Node B: "Bitcoin price remains weak"
+- Node C: "ETF outflows continue"
+- Node D: "Stablecoin supply contracts"
+- Node E: "Market makers sell into thin liquidity"
+Expected:
+- Use one crypto liquidity / sell-pressure branch instead of three local spines for C, D, and E.
+- Include all grounded edges that point into the same Bitcoin weakness or liquidity-pressure outcome.
+
+Example 9
+Input:
+- Article section: "AI bottlenecks have spread from GPU output to HBM memory, optical interconnect, power/cooling, and capex."
+Expected:
+- Use a small number of bottleneck-family branch spines, not one spine per component.
+- Do not exceed the user-facing spine budget unless the article has genuinely independent thesis families.
+
 Return JSON only:
 {
-  "drives_edges":[{"from":"n1","to":"n2","source_quote":"...","reason":"..."}]
+  "relations":[{"from":"n1","to":"n2","source_quote":"...","reason":"..."}],
+  "spines":[{"id":"s1","level":"primary","priority":1,"thesis":"...","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"..."}]
 }

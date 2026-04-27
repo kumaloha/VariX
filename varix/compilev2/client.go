@@ -132,13 +132,13 @@ func (c *Client) Compile(ctx context.Context, bundle compile.Bundle) (compile.Re
 	stageStart = time.Now()
 	graph, err = stage3Mainline(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {
-		debugV2Stage(bundle, "mainline", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "mainline.error.txt", []byte(err.Error()))
+		debugV2Stage(bundle, "relations", "error: "+err.Error())
+		c.writeDebugArtifact(debugRunDir, "relations.error.txt", []byte(err.Error()))
 		return compile.Record{}, err
 	}
-	recordStageMetric(stageMetrics, "mainline", time.Since(stageStart))
-	debugV2Stage(bundle, "mainline", fmt.Sprintf("done nodes=%d edges=%d", len(graph.Nodes), len(graph.Edges)))
-	c.writeDebugJSON(debugRunDir, "mainline.json", graph)
+	recordStageMetric(stageMetrics, "relations", time.Since(stageStart))
+	debugV2Stage(bundle, "relations", fmt.Sprintf("done nodes=%d relations=%d spines=%d", len(graph.Nodes), len(graph.Edges), len(graph.Spines)))
+	c.writeDebugJSON(debugRunDir, "relations.json", graph)
 	stageStart = time.Now()
 	graph, err = stage3Classify(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {

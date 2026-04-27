@@ -32,6 +32,7 @@ Rules:
 - A node must be single-sided: either a source-side unit or an outcome-side unit.
 - A node must not mix cause and effect in one clause.
 - If a clause contains both source and changed outcome, split it.
+- For explicit `X causes Y` wording, extract X and Y as separate nodes when both sides are stable subject + change units.
 - If conjunction introduces parallel causes or parallel outcomes, split them.
 - If one sentence contains an event chain, split the chain into separate nodes.
 - If one sentence contains one subject with multiple distinct changes, split the changes.
@@ -199,6 +200,17 @@ Disallowed off_graph-only handling:
 - Putting the whole sentence into off_graph as explanation.
 Why:
 - These are concrete mechanism endpoints. They explain a key liquidity outcome and must remain available for later explanation edges.
+
+Example 12
+Source quote:
+- "U.S. trade policy is causing a realignment of global economic relations"
+Allowed node text:
+- "U.S. trade policy is changing"
+- "Global economic relations are realigning"
+Disallowed node text:
+- "U.S. trade policy is causing a realignment of global economic relations"
+Why:
+- The source quote explicitly contains a source and changed outcome. Extraction must preserve both endpoints for later relations instead of merging the mini-chain into one node.
 
 Return JSON only with keys:
 {

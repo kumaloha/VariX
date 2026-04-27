@@ -57,6 +57,7 @@ type graphState struct {
 	AuxEdges    []auxEdge
 	OffGraph    []offGraphItem
 	BranchHeads []string
+	Spines      []PreviewSpine
 	Rounds      int
 }
 
@@ -606,6 +607,17 @@ func stage3Classify(ctx context.Context, rt runtimeChat, model string, bundle co
 	return state, nil
 }
 
+type mainlineSpinePatch struct {
+	ID          string   `json:"id"`
+	Level       string   `json:"level"`
+	Priority    int      `json:"priority"`
+	Thesis      string   `json:"thesis"`
+	NodeIDs     []string `json:"node_ids"`
+	EdgeIndexes []int    `json:"edge_indexes"`
+	Scope       string   `json:"scope"`
+	Why         string   `json:"why"`
+}
+
 func stage2Supplement(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState) (graphState, error) {
 	if len(state.Nodes) == 0 {
 		return state, nil
@@ -859,12 +871,19 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle co
 		return graphState{}, err
 	}
 	var result struct {
-		DrivesEdges []struct {
+		Relations []struct {
+			From        string `json:"from"`
+			To          string `json:"to"`
+			SourceQuote string `json:"source_quote"`
+			Reason      string `json:"reason"`
+		} `json:"relations"`
+		LegacyDrivesEdges []struct {
 			From        string `json:"from"`
 			To          string `json:"to"`
 			SourceQuote string `json:"source_quote"`
 			Reason      string `json:"reason"`
 		} `json:"drives_edges"`
+		Spines []mainlineSpinePatch `json:"spines"`
 	}
 	if err := stageJSONCall(ctx, rt, model, bundle, systemPrompt, userPrompt, "mainline", &result); err != nil {
 		return graphState{}, err
@@ -873,8 +892,12 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle co
 	for _, n := range state.Nodes {
 		valid[n.ID] = n
 	}
-	newEdges := make([]graphEdge, 0, len(result.DrivesEdges))
-	for _, e := range result.DrivesEdges {
+	relationPatches := result.Relations
+	if len(relationPatches) == 0 {
+		relationPatches = result.LegacyDrivesEdges
+	}
+	newEdges := make([]graphEdge, 0, len(relationPatches))
+	for _, e := range relationPatches {
 		if _, ok := valid[e.From]; !ok {
 			continue
 		}
@@ -892,7 +915,8 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle co
 		})
 	}
 	oldEdges := state.Edges
-	state.Edges = pruneTransitiveMainlineEdges(dedupeEdges(append(append([]graphEdge(nil), oldEdges...), newEdges...)))
+	state.Edges = pruneTransitiveRelations(dedupeEdges(append(append([]graphEdge(nil), oldEdges...), newEdges...)))
+	state.Spines = buildSpinesFromLLM(result.Spines, newEdges, state.Edges, valid)
 	if len(state.BranchHeads) > 0 {
 		keep := collectBranchMainlineNodes(state.Edges, state.BranchHeads)
 		demoted := map[string]struct{}{}
@@ -923,6 +947,241 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle co
 	}
 	state = pruneDanglingEdges(state)
 	return state, nil
+}
+
+func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdges []graphEdge, valid map[string]graphNode) []PreviewSpine {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make([]PreviewSpine, 0, len(raw))
+	for i, item := range raw {
+		nodeIDs := make([]string, 0, len(item.NodeIDs))
+		seenNodes := map[string]struct{}{}
+		for _, id := range item.NodeIDs {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if _, ok := valid[id]; !ok {
+				continue
+			}
+			if _, ok := seenNodes[id]; ok {
+				continue
+			}
+			seenNodes[id] = struct{}{}
+			nodeIDs = append(nodeIDs, id)
+		}
+		spineEdges := make([]PreviewEdge, 0, len(item.EdgeIndexes))
+		seenEdges := map[string]struct{}{}
+		for _, edgeIndex := range item.EdgeIndexes {
+			if edgeIndex < 0 || edgeIndex >= len(rawEdges) {
+				continue
+			}
+			edge := rawEdges[edgeIndex]
+			if _, ok := valid[edge.From]; !ok {
+				continue
+			}
+			if _, ok := valid[edge.To]; !ok {
+				continue
+			}
+			if !hasEdge(finalEdges, edge.From, edge.To) {
+				continue
+			}
+			key := edge.From + "->" + edge.To
+			if _, ok := seenEdges[key]; ok {
+				continue
+			}
+			seenEdges[key] = struct{}{}
+			spineEdges = append(spineEdges, previewEdgeFromGraphEdge(edge))
+		}
+		if len(spineEdges) == 0 {
+			for _, edge := range finalEdges {
+				if _, ok := seenNodes[edge.From]; !ok {
+					continue
+				}
+				if _, ok := seenNodes[edge.To]; !ok {
+					continue
+				}
+				key := edge.From + "->" + edge.To
+				if _, ok := seenEdges[key]; ok {
+					continue
+				}
+				seenEdges[key] = struct{}{}
+				spineEdges = append(spineEdges, previewEdgeFromGraphEdge(edge))
+			}
+		}
+		if len(nodeIDs) == 0 {
+			continue
+		}
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("s%d", len(out)+1)
+		}
+		level := normalizePreviewSpineLevel(item.Level)
+		priority := item.Priority
+		if priority <= 0 {
+			priority = i + 1
+		}
+		out = append(out, PreviewSpine{
+			ID:       id,
+			Level:    level,
+			Priority: priority,
+			Thesis:   strings.TrimSpace(item.Thesis),
+			NodeIDs:  nodeIDs,
+			Edges:    spineEdges,
+			Scope:    normalizePreviewSpineScope(item.Scope, level),
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Priority != out[j].Priority {
+			return out[i].Priority < out[j].Priority
+		}
+		return out[i].ID < out[j].ID
+	})
+	seenPrimary := false
+	for i := range out {
+		if out[i].Level != "primary" {
+			continue
+		}
+		if !seenPrimary {
+			seenPrimary = true
+			continue
+		}
+		out[i].Level = "branch"
+		if out[i].Scope == "article" {
+			out[i].Scope = "branch"
+		}
+	}
+	return compactSpines(out, valid)
+}
+
+func compactSpines(spines []PreviewSpine, valid map[string]graphNode) []PreviewSpine {
+	if len(spines) < 3 {
+		return spines
+	}
+	sellPressureIndexes := make([]int, 0)
+	for i, spine := range spines {
+		if spine.Level == "primary" {
+			continue
+		}
+		if isCryptoSellPressureSpine(spine, valid) {
+			sellPressureIndexes = append(sellPressureIndexes, i)
+		}
+	}
+	if len(sellPressureIndexes) < 2 {
+		return spines
+	}
+	return mergeSpineIndexes(spines, sellPressureIndexes, "Crypto liquidity / sell-pressure mechanics drive Bitcoin weakness")
+}
+
+func isCryptoSellPressureSpine(spine PreviewSpine, valid map[string]graphNode) bool {
+	text := strings.ToLower(spine.Thesis)
+	for _, id := range spine.NodeIDs {
+		if node, ok := valid[id]; ok {
+			text += " " + strings.ToLower(node.Text)
+		}
+	}
+	for _, edge := range spine.Edges {
+		text += " " + strings.ToLower(edge.SourceQuote) + " " + strings.ToLower(edge.Reason)
+	}
+	if !containsAnyText(text, []string{"bitcoin", "btc", "比特币", "crypto", "加密"}) {
+		return false
+	}
+	return containsAnyText(text, []string{
+		"etf outflow", "etf outflows", "outflow", "outflows",
+		"market maker", "market makers", "sell into", "selling pressure", "sell-pressure",
+		"stablecoin", "stable coin", "supply contraction", "liquidation", "long liquidation",
+		"卖压", "出流", "稳定币", "做市", "清算",
+	})
+}
+
+func mergeSpineIndexes(spines []PreviewSpine, indexes []int, thesis string) []PreviewSpine {
+	indexSet := map[int]struct{}{}
+	for _, index := range indexes {
+		indexSet[index] = struct{}{}
+	}
+	first := indexes[0]
+	merged := PreviewSpine{
+		ID:       spines[first].ID,
+		Level:    "branch",
+		Priority: spines[first].Priority,
+		Thesis:   thesis,
+		Scope:    "branch",
+	}
+	seenNodes := map[string]struct{}{}
+	seenEdges := map[string]struct{}{}
+	for _, index := range indexes {
+		for _, id := range spines[index].NodeIDs {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if _, ok := seenNodes[id]; ok {
+				continue
+			}
+			seenNodes[id] = struct{}{}
+			merged.NodeIDs = append(merged.NodeIDs, id)
+		}
+		for _, edge := range spines[index].Edges {
+			if strings.TrimSpace(edge.From) == "" || strings.TrimSpace(edge.To) == "" {
+				continue
+			}
+			key := edge.From + "->" + edge.To
+			if _, ok := seenEdges[key]; ok {
+				continue
+			}
+			seenEdges[key] = struct{}{}
+			merged.Edges = append(merged.Edges, edge)
+		}
+	}
+	out := make([]PreviewSpine, 0, len(spines)-len(indexes)+1)
+	for i, spine := range spines {
+		if i == first {
+			out = append(out, merged)
+			continue
+		}
+		if _, ok := indexSet[i]; ok {
+			continue
+		}
+		out = append(out, spine)
+	}
+	for i := range out {
+		out[i].Priority = i + 1
+	}
+	return out
+}
+
+func previewEdgeFromGraphEdge(edge graphEdge) PreviewEdge {
+	return PreviewEdge{
+		From:        edge.From,
+		To:          edge.To,
+		SourceQuote: edge.SourceQuote,
+		Reason:      edge.Reason,
+	}
+}
+
+func normalizePreviewSpineLevel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "primary", "branch", "local":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "branch"
+	}
+}
+
+func normalizePreviewSpineScope(value, level string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "article", "section", "paragraph", "branch", "local":
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+	switch level {
+	case "primary":
+		return "article"
+	case "local":
+		return "local"
+	default:
+		return "branch"
+	}
 }
 
 func stage4Validate(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState, maxRounds int) (graphState, error) {
@@ -1302,7 +1561,7 @@ func dedupeEdges(edges []graphEdge) []graphEdge {
 	return out
 }
 
-func pruneTransitiveMainlineEdges(edges []graphEdge) []graphEdge {
+func pruneTransitiveRelations(edges []graphEdge) []graphEdge {
 	edges = dedupeEdges(edges)
 	out := make([]graphEdge, 0, len(edges))
 	for i, edge := range edges {
@@ -2105,7 +2364,7 @@ func stageJSONSchema(stageName string) *llm.Schema {
 	case "supplement":
 		return linkListSchema("compile_supplement", "supplement_links", "a", "b")
 	case "mainline":
-		return linkListSchema("compile_mainline", "drives_edges", "from", "to")
+		return mainlineSchema()
 	case "validate":
 		return &llm.Schema{
 			Name:     "compile_validate",
@@ -2174,6 +2433,28 @@ func stageJSONSchema(stageName string) *llm.Schema {
 	default:
 		return nil
 	}
+}
+
+func mainlineSchema() *llm.Schema {
+	schema := linkListSchema("compile_relations", "relations", "from", "to")
+	schema.Properties["spines"] = map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type":     "object",
+			"required": []string{"id", "level", "priority", "thesis", "node_ids", "edge_indexes", "scope", "why"},
+			"properties": map[string]any{
+				"id":           map[string]any{"type": "string"},
+				"level":        map[string]any{"type": "string"},
+				"priority":     map[string]any{"type": "integer"},
+				"thesis":       map[string]any{"type": "string"},
+				"node_ids":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"edge_indexes": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}},
+				"scope":        map[string]any{"type": "string"},
+				"why":          map[string]any{"type": "string"},
+			},
+		},
+	}
+	return schema
 }
 
 func linkListSchema(name string, key string, fromKey string, toKey string) *llm.Schema {
@@ -2392,6 +2673,8 @@ func suggestArticleWindowMainlineCandidate(article string, from, to graphNode) (
 		return "", "", false
 	}
 	switch {
+	case isFinancialClaimsCycleBridge(fromText, toText, quote):
+		return quote, "article-window bridge for financial-claims cycle spine", true
 	case isPetrodollarAssetPressureBridge(fromText, toText, quote):
 		return quote, "article-window bridge from reduced US-asset buying to asset pressure", true
 	case isCrowdedTradeOutflowBridge(fromText, toText, quote):
@@ -2409,6 +2692,39 @@ func suggestArticleWindowMainlineCandidate(article string, from, to graphNode) (
 	default:
 		return "", "", false
 	}
+}
+
+func isFinancialClaimsCycleBridge(fromText, toText, quote string) bool {
+	fromLower := strings.ToLower(strings.TrimSpace(fromText))
+	toLower := strings.ToLower(strings.TrimSpace(toText))
+	quoteLower := strings.ToLower(strings.TrimSpace(quote))
+	markers := append(supportDriveMarkers(), "made", "allow", "allows", "allowed", "enable", "enables", "enabled", "became", "become", "后")
+	if !containsAnyText(quoteLower, markers) {
+		return false
+	}
+	fromFinancialPromise := containsAnyText(fromLower, []string{"金融财富", "承诺", "索取权", "financial wealth", "promise", "claim"})
+	toMoneyUnconstrained := containsAnyText(toLower, []string{"不再受金银约束", "金银约束", "硬通货", "gold", "silver", "hard money"})
+	if fromFinancialPromise && toMoneyUnconstrained && containsAnyText(quoteLower, []string{"金融财富", "financial wealth", "金银", "gold", "silver"}) {
+		return true
+	}
+	fromMoneyUnconstrained := containsAnyText(fromLower, []string{"不再受金银约束", "金银约束", "硬通货", "gold", "silver", "hard money"})
+	toFinancing := containsAnyText(toLower, []string{"借贷", "发行股票", "融资", "borrow", "borrowing", "stock", "finance", "financing", "credit"})
+	if fromMoneyUnconstrained && toFinancing && containsAnyText(quoteLower, []string{"借贷", "发行股票", "融资", "borrow", "stock", "finance", "credit"}) {
+		return true
+	}
+	fromFinancing := containsAnyText(fromLower, []string{"借贷", "发行股票", "融资", "borrow", "borrowing", "stock", "finance", "financing", "credit"})
+	toFinancialWealthIncrease := containsAnyText(toLower, []string{"金融财富增加", "金融财富增长", "financial wealth increase", "financial wealth growth"})
+	if fromFinancing && toFinancialWealthIncrease && containsAnyText(quoteLower, []string{"金融财富", "financial wealth"}) {
+		return true
+	}
+	fromFinancialWealthIncrease := containsAnyText(fromLower, []string{"金融财富增加", "金融财富增长", "financial wealth increase", "financial wealth growth"})
+	toPromiseCannotBeMet := containsAnyText(toLower, []string{"承诺无法兑现", "索取权", "义务", "有形财富", "无法兑现", "can't be met", "cannot be met", "claims", "obligations", "tangible wealth"})
+	if fromFinancialWealthIncrease && toPromiseCannotBeMet && containsAnyText(quoteLower, []string{"承诺", "义务", "有形财富", "promise", "obligation", "tangible wealth", "can't be met", "cannot be met"}) {
+		return true
+	}
+	fromPromiseCannotBeMet := containsAnyText(fromLower, []string{"承诺无法兑现", "索取权", "义务", "有形财富", "无法兑现", "can't be met", "cannot be met", "claims", "obligations", "tangible wealth"})
+	toRealWealthDecline := containsAnyText(toLower, []string{"金融财富相对于真实财富下降", "真实财富", "real wealth", "devaluation", "贬值"})
+	return fromPromiseCannotBeMet && toRealWealthDecline && containsAnyText(quoteLower, []string{"真实财富", "real wealth", "贬值", "devaluation", "印钞", "printing"})
 }
 
 func isPetrodollarAssetPressureBridge(fromText, toText, quote string) bool {

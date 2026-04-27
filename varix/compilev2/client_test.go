@@ -32,7 +32,7 @@ func TestClientCompileRecordsStageMetrics(t *testing.T) {
 		{Text: `{"replacements":[]}`, Model: "compilev2-model"},
 		{Text: `{"aggregates":[]}`, Model: "compilev2-model"},
 		{Text: `{"support_edges":[]}`, Model: "compilev2-model"},
-		{Text: `{"drives_edges":[{"from":"n1","to":"n2","source_quote":"Driver A drives Target B","reason":"The quote directly states the relation."},{"from":"n3","to":"n2","source_quote":"Driver C drives Target B","reason":"The quote directly states the relation."}]}`, Model: "compilev2-model"},
+		{Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"Driver A drives Target B","reason":"The quote directly states the relation."},{"from":"n3","to":"n2","source_quote":"Driver C drives Target B","reason":"The quote directly states the relation."}]}`, Model: "compilev2-model"},
 		{Text: `{"translations":[{"id":"n1","text":"驱动A"},{"id":"n2","text":"目标B"},{"id":"n3","text":"驱动C"}]}`, Model: "compilev2-model"},
 		{Text: `{"summary":"驱动A和驱动C推动目标B"}`, Model: "compilev2-model"},
 	}}
@@ -49,12 +49,12 @@ func TestClientCompileRecordsStageMetrics(t *testing.T) {
 	if record.Metrics.CompileElapsedMS <= 0 {
 		t.Fatalf("CompileElapsedMS = %d, want positive total metric", record.Metrics.CompileElapsedMS)
 	}
-	for _, stage := range []string{"extract", "refine", "aggregate", "support", "collapse", "mainline", "classify", "render"} {
+	for _, stage := range []string{"extract", "refine", "aggregate", "support", "collapse", "relations", "classify", "render"} {
 		if record.Metrics.CompileStageElapsedMS[stage] <= 0 {
 			t.Fatalf("CompileStageElapsedMS = %#v, want positive duration for %q", record.Metrics.CompileStageElapsedMS, stage)
 		}
 	}
-	for _, retired := range []string{"validate", "relations", "reclassify", "cluster", "evidence", "explanation", "supplement"} {
+	for _, retired := range []string{"validate", "mainline", "reclassify", "cluster", "evidence", "explanation", "supplement"} {
 		if _, ok := record.Metrics.CompileStageElapsedMS[retired]; ok {
 			t.Fatalf("CompileStageElapsedMS = %#v, want no retired metric %q", record.Metrics.CompileStageElapsedMS, retired)
 		}
@@ -70,7 +70,7 @@ func TestClientCompileNeverUsesValidateSearch(t *testing.T) {
 		{Text: `{"replacements":[]}`},
 		{Text: `{"aggregates":[]}`},
 		{Text: `{"support_edges":[]}`},
-		{Text: `{"drives_edges":[{"from":"n1","to":"n2","source_quote":"Driver A drives Target B","reason":"The quote directly states the relation."},{"from":"n3","to":"n2","source_quote":"Driver C drives Target B","reason":"The quote directly states the relation."}]}`},
+		{Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"Driver A drives Target B","reason":"The quote directly states the relation."},{"from":"n3","to":"n2","source_quote":"Driver C drives Target B","reason":"The quote directly states the relation."}]}`},
 		{Text: `{"translations":[{"id":"n1","text":"驱动A"},{"id":"n2","text":"目标B"},{"id":"n3","text":"驱动C"}]}`},
 		{Text: `{"summary":"驱动A和驱动C推动目标B"}`},
 	}}
@@ -103,7 +103,7 @@ func TestClientCompilePassesArticleContextToMainline(t *testing.T) {
 		{Text: `{"replacements":[]}`},
 		{Text: `{"aggregates":[]}`},
 		{Text: `{"support_edges":[]}`},
-		{Text: `{"drives_edges":[{"from":"n1","to":"n2","source_quote":"If they buy arms, less money buys US bonds and stocks","reason":"The article states the spending shift reduces capital for US assets."}]}`},
+		{Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"If they buy arms, less money buys US bonds and stocks","reason":"The article states the spending shift reduces capital for US assets."}]}`},
 		{Text: `{"translations":[{"id":"n1","text":"中东买军火"},{"id":"n2","text":"买美债美股的钱减少"}]}`},
 		{Text: `{"summary":"中东买军火导致买美债美股的钱减少。"}`},
 	}}
@@ -119,7 +119,7 @@ func TestClientCompilePassesArticleContextToMainline(t *testing.T) {
 	}
 	mainlinePrompt := ""
 	for _, req := range rt.requests {
-		if req.JSONSchema != nil && req.JSONSchema.Name == "compile_mainline" {
+		if req.JSONSchema != nil && req.JSONSchema.Name == "compile_relations" {
 			for _, part := range req.UserParts {
 				if part.Type == "text" {
 					mainlinePrompt += part.Text
@@ -141,7 +141,7 @@ func TestClientCompilePassesArticleContextToAggregate(t *testing.T) {
 		{Text: `{"replacements":[]}`},
 		{Text: `{"aggregates":[]}`},
 		{Text: `{"support_edges":[]}`},
-		{Text: `{"drives_edges":[{"from":"n1","to":"n2","source_quote":"高利率压低所有资产价格","reason":"The quote states the pressure."}]}`},
+		{Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"高利率压低所有资产价格","reason":"The quote states the pressure."}]}`},
 		{Text: `{"translations":[{"id":"n1","text":"高利率维持高位"},{"id":"n2","text":"股票价格被压低"}]}`},
 		{Text: `{"summary":"高利率压低股票价格。"}`},
 	}}
@@ -179,7 +179,7 @@ func TestPreviewFlowStopAfterMainlineDoesNotRender(t *testing.T) {
 		{Text: `{"replacements":[]}`},
 		{Text: `{"aggregates":[]}`},
 		{Text: `{"support_edges":[]}`},
-		{Text: `{"drives_edges":[{"from":"n1","to":"n2","source_quote":"高利率压低所有资产价格","reason":"The quote states the pressure."}]}`},
+		{Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"高利率压低所有资产价格","reason":"The quote states the pressure."}]}`},
 	}}
 	client := &Client{runtime: rt, model: "compilev2-model", projectRoot: ""}
 	result, err := client.PreviewFlow(context.Background(), compile.Bundle{
@@ -207,7 +207,7 @@ func TestPreviewFlowStopAfterMainlineDoesNotRender(t *testing.T) {
 
 func TestStage3MainlinePrunesShortcutWhenMechanismPathExists(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
-		Text: `{"drives_edges":[{"from":"n16","to":"n19","source_quote":"redemptions trigger caps","reason":"mechanism"},{"from":"n19","to":"n20","source_quote":"caps trigger suspension","reason":"mechanism"},{"from":"n20","to":"n23","source_quote":"suspension triggers run","reason":"mechanism"},{"from":"n16","to":"n23","source_quote":"redemptions trigger run","reason":"shortcut"}]}`,
+		Text: `{"relations":[{"from":"n16","to":"n19","source_quote":"redemptions trigger caps","reason":"mechanism"},{"from":"n19","to":"n20","source_quote":"caps trigger suspension","reason":"mechanism"},{"from":"n20","to":"n23","source_quote":"suspension triggers run","reason":"mechanism"},{"from":"n16","to":"n23","source_quote":"redemptions trigger run","reason":"shortcut"}]}`,
 	}}}
 	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
 		UnitID:  "web:v2-mainline-shortcut",
@@ -230,6 +230,177 @@ func TestStage3MainlinePrunesShortcutWhenMechanismPathExists(t *testing.T) {
 		if !hasEdge(state.Edges, want[0], want[1]) {
 			t.Fatalf("mechanism edge %s->%s missing: %#v", want[0], want[1], state.Edges)
 		}
+	}
+}
+
+func TestStage3MainlinePreservesLLMSpines(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"claims expand into stress","reason":"claims drive stress"},{"from":"n2","to":"n3","source_quote":"stress drives devaluation","reason":"stress drives devaluation"}],"spines":[{"id":"s_primary","level":"primary","priority":1,"thesis":"Claims expansion creates devaluation pressure","node_ids":["n1","n2","n3"],"edge_indexes":[0,1],"scope":"article","why":"This is the article-level causal spine."}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:v2-mainline-spines",
+		Content: "claims expand into stress; stress drives devaluation",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "Claims expand", SourceQuote: "claims expand"},
+			{ID: "n2", Text: "Promises cannot be met", SourceQuote: "stress"},
+			{ID: "n3", Text: "Currency devalues", SourceQuote: "devaluation"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	if len(state.Edges) != 2 {
+		t.Fatalf("Edges = %#v, want two drives edges", state.Edges)
+	}
+	if len(state.Spines) != 1 {
+		t.Fatalf("Spines = %#v, want one LLM spine", state.Spines)
+	}
+	got := state.Spines[0]
+	if got.ID != "s_primary" || got.Level != "primary" || got.Priority != 1 || got.Scope != "article" {
+		t.Fatalf("spine metadata = %#v", got)
+	}
+	if strings.Join(got.NodeIDs, ",") != "n1,n2,n3" {
+		t.Fatalf("spine NodeIDs = %#v", got.NodeIDs)
+	}
+	if len(got.Edges) != 2 || got.Edges[0].From != "n1" || got.Edges[1].To != "n3" {
+		t.Fatalf("spine Edges = %#v", got.Edges)
+	}
+}
+
+func TestStage3MainlinePreservesSingleNodeRiskFamilySpine(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n2","to":"n3","source_quote":"private credit stress drives selling","reason":"private credit stress drives selling"}],"spines":[{"id":"s_geopolitical","level":"branch","priority":1,"thesis":"Geopolitical tensions remain a major risk family","node_ids":["n1"],"edge_indexes":[],"scope":"section","why":"The article names this as a major risk family, but retains it as one causal proposition node."},{"id":"s_private_credit","level":"branch","priority":2,"thesis":"Private credit stress drives selling","node_ids":["n2","n3"],"edge_indexes":[0],"scope":"section","why":"This is a grounded two-node branch."}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:v2-mainline-single-node-risk-spine",
+		Content: "geopolitical tensions are a major risk; private credit stress drives selling",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "Geopolitical tensions remain JPMorgan's primary risk"},
+			{ID: "n2", Text: "Private credit stress rises"},
+			{ID: "n3", Text: "Investors sell private credit exposure"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	if len(state.Spines) != 2 {
+		t.Fatalf("Spines = %#v, want single-node risk spine plus private-credit spine", state.Spines)
+	}
+	got := state.Spines[0]
+	if got.ID != "s_geopolitical" || got.Level != "branch" || strings.Join(got.NodeIDs, ",") != "n1" {
+		t.Fatalf("single-node spine metadata = %#v", got)
+	}
+	if len(got.Edges) != 0 {
+		t.Fatalf("single-node spine edges = %#v, want none", got.Edges)
+	}
+}
+
+func TestStage3MainlineDemotesExtraPrimarySpines(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"a drives b","reason":"a drives b"},{"from":"n3","to":"n4","source_quote":"c drives d","reason":"c drives d"}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Article thesis","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"top thesis"},{"id":"s2","level":"primary","priority":2,"thesis":"Subargument mislabeled primary","node_ids":["n3","n4"],"edge_indexes":[1],"scope":"section","why":"branch mislabeled primary"}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:v2-mainline-extra-primary",
+		Content: "a drives b; c drives d",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "A"},
+			{ID: "n2", Text: "B"},
+			{ID: "n3", Text: "C"},
+			{ID: "n4", Text: "D"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	if len(state.Spines) != 2 {
+		t.Fatalf("Spines = %#v, want two spines", state.Spines)
+	}
+	if state.Spines[0].Level != "primary" {
+		t.Fatalf("first spine level = %q, want primary", state.Spines[0].Level)
+	}
+	if state.Spines[1].Level != "branch" {
+		t.Fatalf("extra primary spine level = %q, want demoted branch", state.Spines[1].Level)
+	}
+}
+
+func TestStage3MainlineMergesCryptoSellPressureSpines(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"tight reserves weaken Bitcoin","reason":"tight reserves weaken Bitcoin"},{"from":"n3","to":"n2","source_quote":"ETF outflows worsen Bitcoin selling pressure","reason":"ETF outflows worsen Bitcoin selling pressure"},{"from":"n4","to":"n2","source_quote":"market makers sell into thin liquidity","reason":"market makers add selling pressure"},{"from":"n5","to":"n2","source_quote":"stablecoin supply contraction caused Bitcoin to fall","reason":"stablecoin contraction caused Bitcoin weakness"},{"from":"n6","to":"n7","source_quote":"TGA drawdown restores reserves","reason":"TGA drawdown restores reserves"},{"from":"n7","to":"n8","source_quote":"reserve recovery triggers a new Bitcoin trend","reason":"reserve recovery supports Bitcoin"}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Tight dollar liquidity weakens Bitcoin","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"article thesis"},{"id":"s2","level":"branch","priority":2,"thesis":"ETF outflows worsen Bitcoin selling pressure","node_ids":["n3","n2"],"edge_indexes":[1],"scope":"section","why":"sell-pressure branch"},{"id":"s3","level":"branch","priority":3,"thesis":"Market makers sell into thin crypto liquidity","node_ids":["n4","n2"],"edge_indexes":[2],"scope":"section","why":"sell-pressure branch"},{"id":"s4","level":"branch","priority":4,"thesis":"Stablecoin supply contraction caused Bitcoin to fall","node_ids":["n5","n2"],"edge_indexes":[3],"scope":"section","why":"sell-pressure branch"},{"id":"s5","level":"branch","priority":5,"thesis":"Future reserve recovery supports Bitcoin","node_ids":["n6","n7","n8"],"edge_indexes":[4,5],"scope":"section","why":"recovery branch"}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:v2-mainline-crypto-sell-pressure",
+		Content: "tight reserves weaken Bitcoin; ETF outflows, market makers, and stablecoins add selling pressure; TGA drawdown can restore reserves",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "Dollar reserves remain tight"},
+			{ID: "n2", Text: "Bitcoin remains weak"},
+			{ID: "n3", Text: "ETF outflows continue"},
+			{ID: "n4", Text: "Market makers sell into thin liquidity"},
+			{ID: "n5", Text: "Stablecoin supply contracts"},
+			{ID: "n6", Text: "TGA drawdown begins"},
+			{ID: "n7", Text: "Bank reserves recover"},
+			{ID: "n8", Text: "Bitcoin trend resumes"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	if len(state.Spines) != 3 {
+		t.Fatalf("Spines = %#v, want primary, merged sell-pressure branch, and recovery branch", state.Spines)
+	}
+	var sellPressure PreviewSpine
+	for _, spine := range state.Spines {
+		if strings.Contains(strings.ToLower(spine.Thesis), "sell-pressure") {
+			sellPressure = spine
+			break
+		}
+	}
+	if sellPressure.ID == "" {
+		t.Fatalf("Spines = %#v, want merged crypto sell-pressure branch", state.Spines)
+	}
+	if sellPressure.Level != "branch" || len(sellPressure.Edges) != 3 {
+		t.Fatalf("sell-pressure spine = %#v, want branch with three sell-pressure edges", sellPressure)
+	}
+	for _, want := range []string{"n3", "n4", "n5", "n2"} {
+		if !containsString(sellPressure.NodeIDs, want) {
+			t.Fatalf("sell-pressure node_ids = %#v, missing %s", sellPressure.NodeIDs, want)
+		}
+	}
+}
+
+func TestStage3SpinesDoNotKeepPrunedShortcutIndexes(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"a to b","reason":"a to b"},{"from":"n2","to":"n3","source_quote":"b to c","reason":"b to c"},{"from":"n1","to":"n3","source_quote":"a to c shortcut","reason":"shortcut"}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Shortcut should not survive pruning","node_ids":["n1","n2","n3"],"edge_indexes":[2],"scope":"article","why":"tests pruned index handling"}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:v2-mainline-pruned-spine-index",
+		Content: "a to b, b to c, shortcut",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "A"},
+			{ID: "n2", Text: "B"},
+			{ID: "n3", Text: "C"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	if hasEdge(state.Edges, "n1", "n3") {
+		t.Fatalf("shortcut edge should be pruned: %#v", state.Edges)
+	}
+	if len(state.Spines) != 1 {
+		t.Fatalf("Spines = %#v, want one spine rebuilt from final edges", state.Spines)
+	}
+	for _, edge := range state.Spines[0].Edges {
+		if edge.From == "n1" && edge.To == "n3" {
+			t.Fatalf("spine retained pruned shortcut edge: %#v", state.Spines[0].Edges)
+		}
+	}
+	if len(state.Spines[0].Edges) != 2 {
+		t.Fatalf("spine edges = %#v, want final mechanism edges", state.Spines[0].Edges)
 	}
 }
 
