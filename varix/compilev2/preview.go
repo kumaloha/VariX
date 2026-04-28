@@ -72,13 +72,16 @@ type PreviewOffGraph struct {
 }
 
 type PreviewSpine struct {
-	ID       string        `json:"id"`
-	Level    string        `json:"level"`
-	Priority int           `json:"priority"`
-	Thesis   string        `json:"thesis"`
-	NodeIDs  []string      `json:"node_ids"`
-	Edges    []PreviewEdge `json:"edges"`
-	Scope    string        `json:"scope,omitempty"`
+	ID          string        `json:"id"`
+	Level       string        `json:"level"`
+	Priority    int           `json:"priority"`
+	Thesis      string        `json:"thesis"`
+	NodeIDs     []string      `json:"node_ids"`
+	Edges       []PreviewEdge `json:"edges"`
+	Scope       string        `json:"scope,omitempty"`
+	FamilyKey   string        `json:"family_key,omitempty"`
+	FamilyLabel string        `json:"family_label,omitempty"`
+	FamilyScope string        `json:"family_scope,omitempty"`
 }
 
 func (c *Client) PreviewFlow(ctx context.Context, bundle compile.Bundle, opts FlowPreviewOptions) (FlowPreviewResult, error) {
@@ -194,7 +197,11 @@ func BuildMainlineMarkdown(result FlowPreviewResult) string {
 	if len(result.Spines) > 0 {
 		b.WriteString("Spines:\n")
 		for _, spine := range result.Spines {
-			fmt.Fprintf(&b, "- Spine %s (%s, priority %d): %s\n", spine.ID, spine.Level, spine.Priority, spine.Thesis)
+			family := ""
+			if strings.TrimSpace(spine.FamilyKey) != "" {
+				family = fmt.Sprintf(" [%s/%s/%s]", spine.FamilyKey, spine.FamilyLabel, spine.FamilyScope)
+			}
+			fmt.Fprintf(&b, "- Spine %s (%s, priority %d)%s: %s\n", spine.ID, spine.Level, spine.Priority, family, spine.Thesis)
 		}
 		b.WriteString("\n")
 	}
@@ -454,7 +461,20 @@ func derivePreviewSpines(graph PreviewGraph) []PreviewSpine {
 			Scope:    scope,
 		})
 	}
-	return spines
+	return assignSpineFamilies(spines, graphNodeMapFromPreview(graph.Nodes))
+}
+
+func graphNodeMapFromPreview(nodes []PreviewNode) map[string]graphNode {
+	out := map[string]graphNode{}
+	for _, node := range nodes {
+		out[node.ID] = graphNode{
+			ID:       node.ID,
+			Text:     node.Text,
+			Ontology: node.Ontology,
+			IsTarget: node.IsTarget,
+		}
+	}
+	return out
 }
 
 func topologicalPreviewNodeOrder(componentIDs map[string]struct{}, edges []PreviewEdge) []string {

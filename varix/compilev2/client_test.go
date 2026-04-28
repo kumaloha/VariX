@@ -318,6 +318,7 @@ func TestStage3MainlinePrunesShortcutWhenMechanismPathExists(t *testing.T) {
 		UnitID:  "web:v2-mainline-shortcut",
 		Content: "redemptions trigger caps, caps trigger suspension, suspension triggers run",
 	}, graphState{
+		ArticleForm: "main_narrative_plus_investment_implication",
 		Nodes: []graphNode{
 			{ID: "n16", Text: "高净值客户集中要求赎回私募信贷基金", SourceQuote: "redemptions trigger caps"},
 			{ID: "n19", Text: "私募信贷基金设置季度赎回上限", SourceQuote: "caps trigger suspension"},
@@ -484,6 +485,93 @@ func TestStage3MainlineRiskListDoesNotPromotePrimary(t *testing.T) {
 	}
 	if len(state.Spines) != 2 {
 		t.Fatalf("Spines = %#v, want two branch risk families", state.Spines)
+	}
+}
+
+func TestStage3MainlineAssignsSpineFamilyMetadata(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"security doubts reduce petrodollar flows","reason":"petrodollar outflow"},{"from":"n3","to":"n4","source_quote":"private credit fears drive redemptions","reason":"private credit liquidity stress"},{"from":"n5","to":"n6","source_quote":"debt promises force money printing","reason":"macro debt cycle"},{"from":"n7","to":"n8","source_quote":"AI power shortage constrains data centers","reason":"AI bottleneck"}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Petrodollar outflows pressure US assets","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"petrodollar branch"},{"id":"s2","level":"branch","priority":2,"thesis":"Private credit redemption pressure creates liquidity risk","node_ids":["n3","n4"],"edge_indexes":[1],"scope":"section","why":"private credit branch"},{"id":"s3","level":"branch","priority":3,"thesis":"Debt promises trigger money printing and currency devaluation","node_ids":["n5","n6"],"edge_indexes":[2],"scope":"section","why":"debt cycle branch"},{"id":"s4","level":"branch","priority":4,"thesis":"AI power shortage becomes a data center bottleneck","node_ids":["n7","n8"],"edge_indexes":[3],"scope":"section","why":"AI bottleneck branch"}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:v2-mainline-family-metadata",
+		Content: "petrodollar private credit debt AI power",
+	}, graphState{
+		ArticleForm: "main_narrative_plus_investment_implication",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "US security credibility weakens"},
+			{ID: "n2", Text: "Petrodollar flows leave US assets"},
+			{ID: "n3", Text: "Private credit loan fears rise"},
+			{ID: "n4", Text: "Private credit redemption pressure rises"},
+			{ID: "n5", Text: "Debt promises cannot be met"},
+			{ID: "n6", Text: "Money printing devalues currency"},
+			{ID: "n7", Text: "AI data center power demand surges"},
+			{ID: "n8", Text: "Power shortage constrains data center growth"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	got := map[string]PreviewSpine{}
+	for _, spine := range state.Spines {
+		got[spine.ID] = spine
+	}
+	checks := map[string]struct {
+		key   string
+		label string
+		scope string
+	}{
+		"s1": {key: "petrodollar_outflow", label: "石油美元流出", scope: "geopolitics"},
+		"s2": {key: "private_credit_liquidity", label: "私募信贷流动性", scope: "credit"},
+		"s3": {key: "macro_debt_cycle", label: "宏观债务周期", scope: "macro"},
+		"s4": {key: "ai_power_bottleneck", label: "AI电力瓶颈", scope: "tech"},
+	}
+	for id, want := range checks {
+		spine, ok := got[id]
+		if !ok {
+			t.Fatalf("missing spine %s in %#v", id, state.Spines)
+		}
+		if spine.FamilyKey != want.key || spine.FamilyLabel != want.label || spine.FamilyScope != want.scope {
+			t.Fatalf("%s family = (%q,%q,%q), want (%q,%q,%q)", id, spine.FamilyKey, spine.FamilyLabel, spine.FamilyScope, want.key, want.label, want.scope)
+		}
+	}
+}
+
+func TestInferSpineFamilyDistinguishesRiskListFamilies(t *testing.T) {
+	valid := map[string]graphNode{
+		"reg": {ID: "reg", Text: "Post-2008 regulations fragmented the financial system and reduced productive lending"},
+		"geo": {ID: "geo", Text: "Wars in Ukraine and Iran affect commodities, markets, tariffs, and global trade arrangements"},
+		"ai":  {ID: "ai", Text: "AI adoption is unprecedented and will create second- and third-order societal impacts"},
+	}
+	checks := map[string]struct {
+		spine PreviewSpine
+		key   string
+		label string
+		scope string
+	}{
+		"regulation": {
+			spine: PreviewSpine{Thesis: "Post-2008 regulations fragmented the financial system and reduced productive lending", NodeIDs: []string{"reg"}, Scope: "article"},
+			key:   "bank_regulation_fragmentation",
+			label: "银行监管碎片化",
+			scope: "regulation",
+		},
+		"geopolitics": {
+			spine: PreviewSpine{Thesis: "Ongoing wars and U.S. tariff policy disrupt commodities, markets, and global trade arrangements", NodeIDs: []string{"geo"}, Scope: "article"},
+			key:   "geopolitical_trade_realignment",
+			label: "地缘贸易重组",
+			scope: "geopolitics",
+		},
+		"ai": {
+			spine: PreviewSpine{Thesis: "AI adoption is unprecedented and will create second- and third-order societal impacts", NodeIDs: []string{"ai"}, Scope: "article"},
+			key:   "ai_societal_shift",
+			label: "AI社会影响",
+			scope: "tech",
+		},
+	}
+	for name, want := range checks {
+		got := inferSpineFamily(want.spine, valid)
+		if got.Key != want.key || got.Label != want.label || got.Scope != want.scope {
+			t.Fatalf("%s family = (%q,%q,%q), want (%q,%q,%q)", name, got.Key, got.Label, got.Scope, want.key, want.label, want.scope)
+		}
 	}
 }
 

@@ -1434,7 +1434,8 @@ func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdg
 	policy := policyForArticleForm(articleForm)
 	out = applySpinePolicy(out, valid, policy)
 	out = compactSpines(out, valid)
-	return enforceSpineBudget(out, valid, policy)
+	out = enforceSpineBudget(out, valid, policy)
+	return assignSpineFamilies(out, valid)
 }
 
 func applySpinePolicy(spines []PreviewSpine, valid map[string]graphNode, policy spinePolicy) []PreviewSpine {
@@ -1485,6 +1486,116 @@ func renumberSpinePriorities(spines []PreviewSpine) []PreviewSpine {
 		spines[i].Priority = i + 1
 	}
 	return spines
+}
+
+func assignSpineFamilies(spines []PreviewSpine, valid map[string]graphNode) []PreviewSpine {
+	for i := range spines {
+		meta := inferSpineFamily(spines[i], valid)
+		spines[i].FamilyKey = meta.Key
+		spines[i].FamilyLabel = meta.Label
+		spines[i].FamilyScope = meta.Scope
+	}
+	return spines
+}
+
+type spineFamily struct {
+	Key   string
+	Label string
+	Scope string
+}
+
+func inferSpineFamily(spine PreviewSpine, valid map[string]graphNode) spineFamily {
+	text := spineTextForScoring(spine, valid)
+	rules := []struct {
+		meta    spineFamily
+		markers []string
+	}{
+		{spineFamily{Key: "bank_regulation_fragmentation", Label: "银行监管碎片化", Scope: "regulation"}, []string{"post-2008", "regulation", "regulations", "fragmented", "productive lending", "basel", "银行监管", "监管", "碎片化", "生产性信贷"}},
+		{spineFamily{Key: "geopolitical_trade_realignment", Label: "地缘贸易重组", Scope: "geopolitics"}, []string{"war", "wars", "geopolitical", "tariff", "tariffs", "trade policy", "trade arrangements", "commodities", "global markets", "地缘", "战争", "关税", "贸易", "大宗商品"}},
+		{spineFamily{Key: "private_credit_liquidity", Label: "私募信贷流动性", Scope: "credit"}, []string{"private credit", "私募信贷", "redemption", "赎回", "liquidity", "流动性", "markdown", "capital demand"}},
+		{spineFamily{Key: "petrodollar_outflow", Label: "石油美元流出", Scope: "geopolitics"}, []string{"petrodollar", "石油美元", "middle east capital", "中东资金", "security credibility", "安全可靠性", "us assets", "美债", "美股"}},
+		{spineFamily{Key: "macro_debt_cycle", Label: "宏观债务周期", Scope: "macro"}, []string{"debt", "债务", "promise", "承诺", "money printing", "印钱", "currency devaluation", "贬值", "financial wealth", "金融财富"}},
+		{spineFamily{Key: "ai_power_bottleneck", Label: "AI电力瓶颈", Scope: "tech"}, []string{"ai", "人工智能", "power", "电力", "data center", "数据中心", "cooling", "液冷", "grid", "电网"}},
+		{spineFamily{Key: "ai_societal_shift", Label: "AI社会影响", Scope: "tech"}, []string{"ai adoption", "ai", "artificial intelligence", "人工智能", "societal", "second-order", "third-order", "benefits", "winners", "losers", "社会影响"}},
+		{spineFamily{Key: "ai_infrastructure_bottleneck", Label: "AI基础设施瓶颈", Scope: "tech"}, []string{"ai", "人工智能", "bottleneck", "瓶颈", "hbm", "memory", "内存", "interconnect", "光模块", "capex"}},
+		{spineFamily{Key: "fed_liquidity_cycle", Label: "美联储流动性周期", Scope: "policy"}, []string{"fed", "美联储", "reserve", "准备金", "tga", "balance sheet", "资产负债表", "liquidity", "流动性"}},
+		{spineFamily{Key: "dollar_regime_shift", Label: "美元制度切换", Scope: "fx"}, []string{"dollar", "美元", "greenback", "real yield", "实际收益率", "regime change", "制度切换"}},
+		{spineFamily{Key: "gold_inflation_hedge", Label: "黄金通胀对冲", Scope: "asset"}, []string{"gold", "黄金", "inflation hedge", "通胀对冲", "real rate", "实际利率"}},
+		{spineFamily{Key: "demographic_fiscal_pressure", Label: "人口财政压力", Scope: "macro"}, []string{"demographic", "aging", "人口老龄化", "税基", "tax base", "fiscal", "财政"}},
+		{spineFamily{Key: "war_energy_inflation", Label: "战争能源通胀", Scope: "geopolitics"}, []string{"war", "战争", "oil", "原油", "energy", "能源", "inflation", "通胀"}},
+		{spineFamily{Key: "fed_regime_uncertainty", Label: "联储制度不确定性", Scope: "policy"}, []string{"warsh", "沃什", "fed", "联储", "mandate", "沟通", "guidance"}},
+	}
+	best := spineFamily{}
+	bestScore := 0
+	for _, rule := range rules {
+		score := countMarkers(text, rule.markers)
+		if score > bestScore {
+			best = rule.meta
+			bestScore = score
+		}
+	}
+	if bestScore <= 0 {
+		return fallbackSpineFamily(spine)
+	}
+	return best
+}
+
+func countMarkers(text string, markers []string) int {
+	count := 0
+	for _, marker := range markers {
+		if strings.Contains(text, strings.ToLower(marker)) {
+			count++
+		}
+	}
+	return count
+}
+
+func fallbackSpineFamily(spine PreviewSpine) spineFamily {
+	scope := strings.TrimSpace(spine.Scope)
+	if scope == "" {
+		scope = strings.TrimSpace(spine.Level)
+	}
+	if scope == "" {
+		scope = "general"
+	}
+	keySource := strings.TrimSpace(spine.Thesis)
+	if keySource == "" {
+		keySource = strings.TrimSpace(spine.ID)
+	}
+	key := "general_" + slugKey(keySource)
+	if key == "general_" {
+		key = "general_spine"
+	}
+	return spineFamily{
+		Key:   key,
+		Label: strings.TrimSpace(spine.Thesis),
+		Scope: scope,
+	}
+}
+
+func slugKey(text string) string {
+	text = strings.ToLower(strings.TrimSpace(text))
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range text {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+			lastUnderscore = false
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastUnderscore = false
+		default:
+			if !lastUnderscore && b.Len() > 0 {
+				b.WriteByte('_')
+				lastUnderscore = true
+			}
+		}
+		if b.Len() >= 48 {
+			break
+		}
+	}
+	return strings.Trim(b.String(), "_")
 }
 
 func enforceSpineBudget(spines []PreviewSpine, valid map[string]graphNode, policy spinePolicy) []PreviewSpine {

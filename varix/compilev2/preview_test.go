@@ -176,11 +176,14 @@ func TestFlowPreviewResultJSONUsesSpinesContract(t *testing.T) {
 		Platform:   "web",
 		ExternalID: "spines-contract",
 		Spines: []PreviewSpine{{
-			ID:       "s1",
-			Level:    "primary",
-			Priority: 1,
-			Thesis:   "Article thesis",
-			NodeIDs:  []string{"n1"},
+			ID:          "s1",
+			Level:       "primary",
+			Priority:    1,
+			Thesis:      "Article thesis",
+			NodeIDs:     []string{"n1"},
+			FamilyKey:   "macro_debt_cycle",
+			FamilyLabel: "宏观债务周期",
+			FamilyScope: "macro",
 		}},
 	})
 	if err != nil {
@@ -192,5 +195,10 @@ func TestFlowPreviewResultJSONUsesSpinesContract(t *testing.T) {
 	}
 	if strings.Contains(body, `"mainline_spines"`) {
 		t.Fatalf("preview payload still exposes legacy mainline_spines key: %s", body)
+	}
+	for _, want := range []string{`"family_key":"macro_debt_cycle"`, `"family_label":"宏观债务周期"`, `"family_scope":"macro"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("preview payload missing %s: %s", want, body)
+		}
 	}
 }
