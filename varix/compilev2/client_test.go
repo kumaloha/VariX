@@ -762,6 +762,139 @@ func TestStage5RenderProjectsDriverTargetPathsFromSpines(t *testing.T) {
 	}
 }
 
+func TestStage5RenderOmitsBridgeDriverTargetsFromDisplayTargets(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"沃什上任概率上升"},{"id":"n2","text":"大幅降息"},{"id":"n3","text":"金融抑制启动"},{"id":"n4","text":"现金购买力贬值"},{"id":"n5","text":"债券收益承压"}]}`},
+		{Text: `{"summary":"沃什上任概率上升通过降息触发金融抑制，并导致现金购买力贬值。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:     "youtube:bridge-target",
+		Source:     "youtube",
+		ExternalID: "bridge-target",
+		Content:    "Warsh appointment triggers financial repression, then cash purchasing power erodes.",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "沃什上任概率上升"},
+			{ID: "n2", Text: "大幅降息"},
+			{ID: "n3", Text: "金融抑制启动"},
+			{ID: "n4", Text: "现金购买力贬值"},
+			{ID: "n5", Text: "债券收益承压"},
+			{ID: "n6", Text: "金融抑制正式开启"},
+			{ID: "n7", Text: "金融抑制的核心机制是维持负实际利率"},
+			{ID: "n8", Text: "金融抑制通过存款利率上限与资本管制锁定资金购买国债"},
+		},
+		Edges: []graphEdge{
+			{From: "n1", To: "n2"},
+			{From: "n2", To: "n3"},
+			{From: "n3", To: "n4"},
+			{From: "n2", To: "n5"},
+			{From: "n1", To: "n6"},
+			{From: "n1", To: "n7"},
+			{From: "n7", To: "n8"},
+		},
+		Spines: []PreviewSpine{
+			{
+				ID:       "s1",
+				Level:    "primary",
+				Priority: 1,
+				Thesis:   "沃什触发金融抑制",
+				NodeIDs:  []string{"n1", "n2", "n3"},
+				Edges: []PreviewEdge{
+					{From: "n1", To: "n2"},
+					{From: "n2", To: "n3"},
+				},
+				Scope: "article",
+			},
+			{
+				ID:       "s2",
+				Level:    "branch",
+				Priority: 2,
+				Thesis:   "金融抑制侵蚀现金购买力",
+				NodeIDs:  []string{"n3", "n4"},
+				Edges: []PreviewEdge{
+					{From: "n3", To: "n4"},
+				},
+				Scope: "section",
+			},
+			{
+				ID:       "s3",
+				Level:    "branch",
+				Priority: 3,
+				Thesis:   "降息冲击债券收益",
+				NodeIDs:  []string{"n2", "n5"},
+				Edges: []PreviewEdge{
+					{From: "n2", To: "n5"},
+				},
+				Scope: "section",
+			},
+			{
+				ID:       "s4",
+				Level:    "branch",
+				Priority: 4,
+				Thesis:   "政策切换开启金融抑制",
+				NodeIDs:  []string{"n1", "n6"},
+				Edges: []PreviewEdge{
+					{From: "n1", To: "n6"},
+				},
+				Scope: "section",
+			},
+			{
+				ID:       "s5",
+				Level:    "branch",
+				Priority: 5,
+				Thesis:   "金融抑制机制说明",
+				NodeIDs:  []string{"n1", "n7", "n8"},
+				Edges: []PreviewEdge{
+					{From: "n1", To: "n7"},
+					{From: "n7", To: "n8"},
+				},
+				Scope: "section",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if containsString(out.Drivers, "金融抑制启动") {
+		t.Fatalf("Drivers = %#v, want bridge target-driver omitted from display drivers", out.Drivers)
+	}
+	if containsString(out.Drivers, "大幅降息") {
+		t.Fatalf("Drivers = %#v, want transmission-step driver omitted from display drivers", out.Drivers)
+	}
+	if !containsString(out.Drivers, "沃什上任概率上升") {
+		t.Fatalf("Drivers = %#v, want upstream source driver retained", out.Drivers)
+	}
+	if containsString(out.Targets, "金融抑制启动") {
+		t.Fatalf("Targets = %#v, want bridge driver-target omitted from display targets", out.Targets)
+	}
+	if containsString(out.Targets, "金融抑制正式开启") {
+		t.Fatalf("Targets = %#v, want process-state target omitted from display targets", out.Targets)
+	}
+	if containsString(out.Targets, "金融抑制的核心机制是维持负实际利率") || containsString(out.Targets, "金融抑制通过存款利率上限与资本管制锁定资金购买国债") {
+		t.Fatalf("Targets = %#v, want mechanism-definition targets omitted from display targets", out.Targets)
+	}
+	if !containsString(out.Targets, "现金购买力贬值") {
+		t.Fatalf("Targets = %#v, want downstream user-facing target retained", out.Targets)
+	}
+	if !containsString(out.Targets, "债券收益承压") {
+		t.Fatalf("Targets = %#v, want branch terminal target retained", out.Targets)
+	}
+	if len(out.TransmissionPaths) != 5 {
+		t.Fatalf("TransmissionPaths = %#v, want both spine paths retained", out.TransmissionPaths)
+	}
+}
+
+func TestInferSpineFamilyDoesNotTreatWarshAsWar(t *testing.T) {
+	got := inferSpineFamily(PreviewSpine{
+		ID:     "s1",
+		Thesis: "Warsh rate cuts interact with inflation expectations",
+		Scope:  "section",
+	}, nil)
+	if got.Key == "war_energy_inflation" {
+		t.Fatalf("Warsh was misclassified as war-energy family: %#v", got)
+	}
+}
+
 func TestStage3MainlineMergesCryptoSellPressureSpines(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
 		Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"tight reserves weaken Bitcoin","reason":"tight reserves weaken Bitcoin"},{"from":"n3","to":"n2","source_quote":"ETF outflows worsen Bitcoin selling pressure","reason":"ETF outflows worsen Bitcoin selling pressure"},{"from":"n4","to":"n2","source_quote":"market makers sell into thin liquidity","reason":"market makers add selling pressure"},{"from":"n5","to":"n2","source_quote":"stablecoin supply contraction caused Bitcoin to fall","reason":"stablecoin contraction caused Bitcoin weakness"},{"from":"n6","to":"n7","source_quote":"TGA drawdown restores reserves","reason":"TGA drawdown restores reserves"},{"from":"n7","to":"n8","source_quote":"reserve recovery triggers a new Bitcoin trend","reason":"reserve recovery supports Bitcoin"}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Tight dollar liquidity weakens Bitcoin","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"article thesis"},{"id":"s2","level":"branch","priority":2,"thesis":"ETF outflows worsen Bitcoin selling pressure","node_ids":["n3","n2"],"edge_indexes":[1],"scope":"section","why":"sell-pressure branch"},{"id":"s3","level":"branch","priority":3,"thesis":"Market makers sell into thin crypto liquidity","node_ids":["n4","n2"],"edge_indexes":[2],"scope":"section","why":"sell-pressure branch"},{"id":"s4","level":"branch","priority":4,"thesis":"Stablecoin supply contraction caused Bitcoin to fall","node_ids":["n5","n2"],"edge_indexes":[3],"scope":"section","why":"sell-pressure branch"},{"id":"s5","level":"branch","priority":5,"thesis":"Future reserve recovery supports Bitcoin","node_ids":["n6","n7","n8"],"edge_indexes":[4,5],"scope":"section","why":"recovery branch"}]}`,

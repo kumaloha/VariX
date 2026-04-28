@@ -1635,11 +1635,53 @@ func inferSpineFamily(spine PreviewSpine, valid map[string]graphNode) spineFamil
 func countMarkers(text string, markers []string) int {
 	count := 0
 	for _, marker := range markers {
-		if strings.Contains(text, strings.ToLower(marker)) {
+		if textContainsMarker(text, marker) {
 			count++
 		}
 	}
 	return count
+}
+
+func textContainsMarker(text, marker string) bool {
+	text = strings.ToLower(text)
+	marker = strings.ToLower(strings.TrimSpace(marker))
+	if marker == "" {
+		return false
+	}
+	if !isSingleASCIIWord(marker) {
+		return strings.Contains(text, marker)
+	}
+	start := 0
+	for {
+		index := strings.Index(text[start:], marker)
+		if index < 0 {
+			return false
+		}
+		pos := start + index
+		beforeOK := pos == 0 || !isASCIIWordChar(text[pos-1])
+		after := pos + len(marker)
+		afterOK := after >= len(text) || !isASCIIWordChar(text[after])
+		if beforeOK && afterOK {
+			return true
+		}
+		start = pos + len(marker)
+	}
+}
+
+func isSingleASCIIWord(text string) bool {
+	if text == "" {
+		return false
+	}
+	for i := 0; i < len(text); i++ {
+		if !isASCIIWordChar(text[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func isASCIIWordChar(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_'
 }
 
 func fallbackSpineFamily(spine PreviewSpine) spineFamily {
@@ -2088,6 +2130,8 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 	if len(paths) == 0 {
 		paths = extractPaths(state, drivers, targets)
 	}
+	drivers = filterRenderDrivers(drivers, paths)
+	targets = filterRenderTargets(targets, paths)
 	translated, err := translateAll(ctx, rt, model, uniqueTexts(drivers, targets, paths, state.OffGraph))
 	if err != nil {
 		return compile.Output{}, err
@@ -2177,6 +2221,87 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 		Topics:             nil,
 		Confidence:         confidenceFromState(driversOut, targetsOut, transmission),
 	}, nil
+}
+
+func filterRenderDrivers(drivers []graphNode, paths []renderedPath) []graphNode {
+	if len(drivers) == 0 || len(paths) == 0 {
+		return drivers
+	}
+	pathTargets := map[string]struct{}{}
+	pathSteps := map[string]struct{}{}
+	for _, path := range paths {
+		if strings.TrimSpace(path.target.ID) != "" {
+			pathTargets[path.target.ID] = struct{}{}
+		}
+		for _, step := range path.steps {
+			if strings.TrimSpace(step.ID) != "" {
+				pathSteps[step.ID] = struct{}{}
+			}
+		}
+	}
+	out := make([]graphNode, 0, len(drivers))
+	for _, driver := range drivers {
+		if _, ok := pathTargets[driver.ID]; ok {
+			continue
+		}
+		if _, ok := pathSteps[driver.ID]; ok {
+			continue
+		}
+		out = append(out, driver)
+	}
+	if len(out) == 0 {
+		return drivers
+	}
+	return out
+}
+
+func filterRenderTargets(targets []graphNode, paths []renderedPath) []graphNode {
+	if len(targets) == 0 || len(paths) == 0 {
+		return targets
+	}
+	pathDrivers := map[string]struct{}{}
+	for _, path := range paths {
+		if strings.TrimSpace(path.driver.ID) != "" {
+			pathDrivers[path.driver.ID] = struct{}{}
+		}
+	}
+	out := make([]graphNode, 0, len(targets))
+	for _, target := range targets {
+		if _, ok := pathDrivers[target.ID]; ok {
+			continue
+		}
+		if isRenderProcessStateTarget(target) {
+			continue
+		}
+		out = append(out, target)
+	}
+	if len(out) == 0 {
+		return targets
+	}
+	return out
+}
+
+func isRenderProcessStateTarget(node graphNode) bool {
+	text := strings.ToLower(strings.TrimSpace(node.Text))
+	if text == "" {
+		return false
+	}
+	if containsAnyText(text, []string{"核心机制", "core mechanism", "机制是", "mechanism is"}) {
+		return true
+	}
+	if containsAnyText(text, []string{"金融抑制", "financial repression"}) &&
+		containsAnyText(text, []string{"存款利率上限", "资本管制", "锁定资金", "购买国债", "capital control", "rate cap"}) {
+		return true
+	}
+	hasProcessSubject := containsAnyText(text, []string{
+		"金融抑制", "financial repression", "机制", "制度", "regime",
+	})
+	if !hasProcessSubject {
+		return false
+	}
+	return containsAnyText(text, []string{
+		"启动", "开启", "正式开启", "正式启动", "launch", "starts", "begins", "triggered",
+	})
 }
 
 func fallbackTargetNodesFromOffGraph(off []offGraphItem) []graphNode {
