@@ -1877,7 +1877,20 @@ func summarySpineScore(spine PreviewSpine, valid map[string]graphNode, primaryTe
 			score -= 18
 		}
 	}
+	if policy.ArticleForm == "evidence_backed_forecast" {
+		if forecastSpineLooksLikeLightSideCaveat(text) {
+			score -= 28
+		}
+		if containsAnyText(text, []string{"货币政策", "monetary policy", "利率", "实际利率", "降息", "美联储", "fed", "financial repression", "金融抑制", "金融压抑"}) {
+			score += 12
+		}
+	}
 	return score
+}
+
+func forecastSpineLooksLikeLightSideCaveat(text string) bool {
+	return containsAnyText(text, []string{"ai", "人工智能"}) &&
+		containsAnyText(text, []string{"通胀", "inflation", "反通胀", "disinflation", "deflation"})
 }
 
 func spineTextForScoring(spine PreviewSpine, valid map[string]graphNode) string {
@@ -2172,7 +2185,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 		paths = extractPaths(state, drivers, targets)
 	}
 	drivers = filterRenderDrivers(drivers, paths)
-	targets = filterRenderTargets(targets, paths)
+	targets = filterRenderTargets(targets, paths, state.ArticleForm)
 	translated, err := translateAll(ctx, rt, model, uniqueTexts(drivers, targets, paths, state.OffGraph))
 	if err != nil {
 		return compile.Output{}, err
@@ -2296,7 +2309,7 @@ func filterRenderDrivers(drivers []graphNode, paths []renderedPath) []graphNode 
 	return out
 }
 
-func filterRenderTargets(targets []graphNode, paths []renderedPath) []graphNode {
+func filterRenderTargets(targets []graphNode, paths []renderedPath, articleForm string) []graphNode {
 	if len(targets) == 0 || len(paths) == 0 {
 		return targets
 	}
@@ -2314,12 +2327,33 @@ func filterRenderTargets(targets []graphNode, paths []renderedPath) []graphNode 
 		if isRenderProcessStateTarget(target) {
 			continue
 		}
+		if isLowWeightForecastTarget(target, articleForm) {
+			continue
+		}
 		out = append(out, target)
 	}
 	if len(out) == 0 {
 		return targets
 	}
 	return out
+}
+
+func isLowWeightForecastTarget(node graphNode, articleForm string) bool {
+	if normalizeArticleForm(articleForm) != "evidence_backed_forecast" {
+		return false
+	}
+	text := strings.ToLower(strings.TrimSpace(node.Text))
+	if text == "" {
+		return false
+	}
+	if containsAnyText(text, []string{"ai", "人工智能"}) &&
+		containsAnyText(text, []string{"通胀", "inflation", "反通胀", "disinflation", "deflation"}) {
+		return true
+	}
+	if containsAnyText(text, []string{"跨境", "税务", "税负", "pfic", "tax", "jurisdiction"}) {
+		return true
+	}
+	return normalizeDiscourseRole(node.DiscourseRole) == "caveat"
 }
 
 func isRenderProcessStateTarget(node graphNode) bool {

@@ -955,6 +955,85 @@ func TestStage5RenderOmitsBridgeDriverTargetsFromDisplayTargets(t *testing.T) {
 	}
 }
 
+func TestStage5RenderOmitsLightForecastCaveatTargets(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"沃什主张大幅降低利率"},{"id":"n2","text":"降息政策旨在制造负实际利率"},{"id":"n3","text":"实际利率转负是金融抑制启动的关键监测指标"},{"id":"n4","text":"沃什认为AI将成为反通胀力量"},{"id":"n5","text":"AI技术发展预期将压制通胀"},{"id":"n6","text":"投资者需进行多元资产配置"}]}`},
+		{Text: `{"summary":"沃什主张大幅降息使实际利率转负成为金融抑制的关键监测指标，并推动多元资产配置需求。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "youtube:forecast-ai-caveat",
+		Source:  "youtube",
+		Content: "Warsh rate cuts matter; AI disinflation is a side tension.",
+	}, graphState{
+		ArticleForm: "evidence_backed_forecast",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "沃什主张大幅降低利率"},
+			{ID: "n2", Text: "降息政策旨在制造负实际利率"},
+			{ID: "n3", Text: "实际利率转负是金融抑制启动的关键监测指标", DiscourseRole: "implication"},
+			{ID: "n4", Text: "沃什认为AI将成为反通胀力量"},
+			{ID: "n5", Text: "AI技术发展预期将压制通胀", DiscourseRole: "mechanism"},
+			{ID: "n6", Text: "投资者需进行多元资产配置", DiscourseRole: "implication"},
+			{ID: "n7", Text: "跨境税务结构可能大幅侵蚀资产实际收益", DiscourseRole: "implication"},
+		},
+		Edges: []graphEdge{
+			{From: "n1", To: "n2"},
+			{From: "n2", To: "n3"},
+			{From: "n4", To: "n5"},
+			{From: "n3", To: "n6"},
+			{From: "n3", To: "n7"},
+		},
+		Spines: []PreviewSpine{
+			{
+				ID:       "s1",
+				Level:    "primary",
+				Priority: 1,
+				Thesis:   "沃什降息推动金融抑制判断",
+				NodeIDs:  []string{"n1", "n2", "n3", "n6"},
+				Edges: []PreviewEdge{
+					{From: "n1", To: "n2"},
+					{From: "n2", To: "n3"},
+					{From: "n3", To: "n6"},
+				},
+				Scope: "article",
+			},
+			{
+				ID:       "s2",
+				Level:    "branch",
+				Priority: 2,
+				Thesis:   "AI反通胀是沃什叙事旁支",
+				NodeIDs:  []string{"n4", "n5"},
+				Edges: []PreviewEdge{
+					{From: "n4", To: "n5"},
+				},
+				Scope: "section",
+			},
+			{
+				ID:       "s3",
+				Level:    "branch",
+				Priority: 3,
+				Thesis:   "跨境税务是配置执行旁支",
+				NodeIDs:  []string{"n3", "n7"},
+				Edges: []PreviewEdge{
+					{From: "n3", To: "n7"},
+				},
+				Scope: "section",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if containsString(out.Targets, "AI技术发展预期将压制通胀") {
+		t.Fatalf("Targets = %#v, want light AI disinflation caveat omitted", out.Targets)
+	}
+	if containsString(out.Targets, "跨境税务结构可能大幅侵蚀资产实际收益") {
+		t.Fatalf("Targets = %#v, want cross-border tax side note omitted", out.Targets)
+	}
+	if !containsString(out.Targets, "投资者需进行多元资产配置") {
+		t.Fatalf("Targets = %#v, want downstream policy implication retained", out.Targets)
+	}
+}
+
 func hasTransmissionPath(paths []compile.TransmissionPath, driver, target string) bool {
 	for _, path := range paths {
 		if path.Driver == driver && path.Target == target {
