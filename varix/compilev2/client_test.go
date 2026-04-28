@@ -575,6 +575,32 @@ func TestInferSpineFamilyDistinguishesRiskListFamilies(t *testing.T) {
 	}
 }
 
+func TestInferSpineFamilyRequiresSpecificAnchors(t *testing.T) {
+	got := inferSpineFamily(PreviewSpine{
+		ID:     "s1",
+		Thesis: "AI will change how companies compete",
+		Scope:  "article",
+	}, nil)
+	if got.Key != "general_ai_will_change_how_companies_compete" || got.Label != "AI will change how companies compete" || got.Scope != "article" {
+		t.Fatalf("generic AI family = (%q,%q,%q), want fallback family", got.Key, got.Label, got.Scope)
+	}
+}
+
+func TestInferSpineFamilySeparatesAICreditContagionFromPowerBottleneck(t *testing.T) {
+	got := inferSpineFamily(PreviewSpine{
+		ID:     "s1",
+		Thesis: "AI SaaS revenue disruption and off-balance-sheet data center financing impair private credit loans",
+		Scope:  "article",
+		Edges: []PreviewEdge{{
+			SourceQuote: "software cash flows weaken, data center leases sit outside balance sheets, private credit financed the projects",
+			Reason:      "AI-driven software defaults and data center financing impair private credit asset values",
+		}},
+	}, nil)
+	if got.Key != "ai_credit_contagion" || got.Label != "AI信贷传染" || got.Scope != "credit" {
+		t.Fatalf("AI credit family = (%q,%q,%q), want AI credit contagion", got.Key, got.Label, got.Scope)
+	}
+}
+
 func TestStage3MainlineCompressesMacroFrameworkToSummarySpines(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
 		Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"debt promises break","reason":"debt promises break"},{"from":"n3","to":"n4","source_quote":"money creation raises growth","reason":"money creation raises growth"},{"from":"n4","to":"n5","source_quote":"growth later raises inflation","reason":"growth later raises inflation"},{"from":"n6","to":"n7","source_quote":"rates fall and asset prices rise","reason":"rates affect asset pricing"},{"from":"n7","to":"n8","source_quote":"money supply raises asset demand","reason":"money supply raises asset demand"},{"from":"n9","to":"n10","source_quote":"credit creation causes unpayable promises","reason":"credit repeats the debt promise cycle"},{"from":"n10","to":"n11","source_quote":"unpayable promises trigger stock crashes","reason":"promise failures trigger crashes"},{"from":"n12","to":"n13","source_quote":"real returns turn negative so hard assets outperform","reason":"negative real returns drive hard asset preference"},{"from":"n13","to":"n14","source_quote":"hard money and hard assets outperform cash","reason":"hard assets outperform cash"},{"from":"n15","to":"n16","source_quote":"emotional trading causes underperformance","reason":"emotional trading hurts returns"}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Debt promises break and trigger currency devaluation","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"framework thesis"},{"id":"s2","level":"branch","priority":2,"thesis":"Central bank money and credit creation raises growth and later inflation","node_ids":["n3","n4","n5"],"edge_indexes":[1,2],"scope":"section","why":"core mechanism"},{"id":"s3","level":"branch","priority":3,"thesis":"Rates and money supply drive asset pricing and risk premiums","node_ids":["n6","n7","n8"],"edge_indexes":[3,4],"scope":"section","why":"asset pricing family"},{"id":"s4","level":"branch","priority":4,"thesis":"Credit creation repeats the debt-promise crash cycle","node_ids":["n9","n10","n11"],"edge_indexes":[5,6],"scope":"section","why":"duplicate debt cycle"},{"id":"s5","level":"branch","priority":5,"thesis":"Negative real returns make hard money and hard assets outperform cash","node_ids":["n12","n13","n14"],"edge_indexes":[7,8],"scope":"section","why":"portfolio implication"},{"id":"s6","level":"branch","priority":6,"thesis":"Emotional trading causes investors to underperform market returns","node_ids":["n15","n16"],"edge_indexes":[9],"scope":"section","why":"local behavior"}]}`,
