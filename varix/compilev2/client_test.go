@@ -119,6 +119,23 @@ func TestStage1ExtractPreservesArticleFormAndNodeRoles(t *testing.T) {
 	}
 }
 
+func TestStage1ExtractPromotesMacroFrameworkFromLongFormMacroMarkers(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"article_form":"main_narrative_plus_investment_implication","nodes":[{"id":"n1","text":"法币是劳动财富的载体","source_quote":"法币是劳动财富的载体","role":"mechanism"},{"id":"n2","text":"信用承诺积累推高债务风险","source_quote":"信用承诺积累推高债务风险","role":"thesis"},{"id":"n3","text":"人口老龄化导致税基净减少","source_quote":"人口老龄化导致税基净减少","role":"mechanism"},{"id":"n4","text":"主权债务压力迫使内部金融压抑","source_quote":"主权债务压力迫使内部金融压抑","role":"implication"},{"id":"n5","text":"美元信用需要外部信任支撑","source_quote":"美元信用需要外部信任支撑","role":"mechanism"}],"off_graph":[]}`,
+	}}}
+	state, err := stage1Extract(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "youtube:v2-form-macro-framework",
+		Source:  "youtube",
+		Content: "法币、信用、债务、人口老龄化、税基、主权债务、美元信用。",
+	})
+	if err != nil {
+		t.Fatalf("stage1Extract() error = %v", err)
+	}
+	if state.ArticleForm != "macro_framework" {
+		t.Fatalf("ArticleForm = %q, want macro_framework", state.ArticleForm)
+	}
+}
+
 func TestSerializeRelationNodesIncludesDiscourseRole(t *testing.T) {
 	body := serializeRelationNodes([]graphNode{{
 		ID:            "n1",
@@ -467,6 +484,49 @@ func TestStage3MainlineRiskListDoesNotPromotePrimary(t *testing.T) {
 	}
 	if len(state.Spines) != 2 {
 		t.Fatalf("Spines = %#v, want two branch risk families", state.Spines)
+	}
+}
+
+func TestStage3MainlineCompressesMacroFrameworkToSummarySpines(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"debt promises break","reason":"debt promises break"},{"from":"n3","to":"n4","source_quote":"money creation raises growth","reason":"money creation raises growth"},{"from":"n4","to":"n5","source_quote":"growth later raises inflation","reason":"growth later raises inflation"},{"from":"n6","to":"n7","source_quote":"rates fall and asset prices rise","reason":"rates affect asset pricing"},{"from":"n7","to":"n8","source_quote":"money supply raises asset demand","reason":"money supply raises asset demand"},{"from":"n9","to":"n10","source_quote":"credit creation causes unpayable promises","reason":"credit repeats the debt promise cycle"},{"from":"n10","to":"n11","source_quote":"unpayable promises trigger stock crashes","reason":"promise failures trigger crashes"},{"from":"n12","to":"n13","source_quote":"real returns turn negative so hard assets outperform","reason":"negative real returns drive hard asset preference"},{"from":"n13","to":"n14","source_quote":"hard money and hard assets outperform cash","reason":"hard assets outperform cash"},{"from":"n15","to":"n16","source_quote":"emotional trading causes underperformance","reason":"emotional trading hurts returns"}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Debt promises break and trigger currency devaluation","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"framework thesis"},{"id":"s2","level":"branch","priority":2,"thesis":"Central bank money and credit creation raises growth and later inflation","node_ids":["n3","n4","n5"],"edge_indexes":[1,2],"scope":"section","why":"core mechanism"},{"id":"s3","level":"branch","priority":3,"thesis":"Rates and money supply drive asset pricing and risk premiums","node_ids":["n6","n7","n8"],"edge_indexes":[3,4],"scope":"section","why":"asset pricing family"},{"id":"s4","level":"branch","priority":4,"thesis":"Credit creation repeats the debt-promise crash cycle","node_ids":["n9","n10","n11"],"edge_indexes":[5,6],"scope":"section","why":"duplicate debt cycle"},{"id":"s5","level":"branch","priority":5,"thesis":"Negative real returns make hard money and hard assets outperform cash","node_ids":["n12","n13","n14"],"edge_indexes":[7,8],"scope":"section","why":"portfolio implication"},{"id":"s6","level":"branch","priority":6,"thesis":"Emotional trading causes investors to underperform market returns","node_ids":["n15","n16"],"edge_indexes":[9],"scope":"section","why":"local behavior"}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:v2-mainline-macro-summary-budget",
+		Content: "macro framework",
+	}, graphState{
+		ArticleForm: "macro_framework",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "Debt promises cannot be met", DiscourseRole: "thesis"},
+			{ID: "n2", Text: "Currency devaluation occurs", DiscourseRole: "mechanism"},
+			{ID: "n3", Text: "Central banks create money and credit", DiscourseRole: "mechanism"},
+			{ID: "n4", Text: "Growth rises", DiscourseRole: "mechanism"},
+			{ID: "n5", Text: "Inflation rises", DiscourseRole: "mechanism"},
+			{ID: "n6", Text: "Interest rates fall", DiscourseRole: "mechanism"},
+			{ID: "n7", Text: "Asset prices rise", DiscourseRole: "market_move"},
+			{ID: "n8", Text: "Risk premiums compress", DiscourseRole: "market_move"},
+			{ID: "n9", Text: "Credit creation expands", DiscourseRole: "mechanism"},
+			{ID: "n10", Text: "Unpayable promises increase", DiscourseRole: "mechanism"},
+			{ID: "n11", Text: "Stock market crashes occur", DiscourseRole: "market_move"},
+			{ID: "n12", Text: "Real returns turn negative", DiscourseRole: "mechanism"},
+			{ID: "n13", Text: "Hard money outperforms cash", DiscourseRole: "market_move"},
+			{ID: "n14", Text: "Hard assets outperform cash", DiscourseRole: "market_move"},
+			{ID: "n15", Text: "Investors trade emotionally", DiscourseRole: "market_move"},
+			{ID: "n16", Text: "Investor returns underperform market returns", DiscourseRole: "mechanism"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	if len(state.Spines) != 4 {
+		t.Fatalf("Spines = %#v, want summary-level budget of four", state.Spines)
+	}
+	gotIDs := make([]string, 0, len(state.Spines))
+	for _, spine := range state.Spines {
+		gotIDs = append(gotIDs, spine.ID)
+	}
+	if strings.Join(gotIDs, ",") != "s1,s2,s3,s5" {
+		t.Fatalf("Spines IDs = %v, want primary, core mechanism, asset pricing, hard-asset implication", gotIDs)
 	}
 }
 

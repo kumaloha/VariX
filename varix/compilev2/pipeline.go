@@ -112,6 +112,7 @@ func stage1Extract(ctx context.Context, rt runtimeChat, model string, bundle com
 	state.Edges = nil
 	state.OffGraph = decodeStage1OffGraph(payload["off_graph"])
 	state = fillMissingStage1IDs(state)
+	state.ArticleForm = refineArticleFormFromExtract(bundle, state)
 	return state, nil
 }
 
@@ -550,6 +551,58 @@ func normalizeArticleForm(value string) string {
 	}
 }
 
+func refineArticleFormFromExtract(bundle compile.Bundle, state graphState) string {
+	form := normalizeArticleForm(state.ArticleForm)
+	if form != "" && form != "main_narrative_plus_investment_implication" {
+		return form
+	}
+	if !isLongFormMacroSource(bundle) {
+		return form
+	}
+	if longFormMacroFrameworkScore(bundle.TextContext(), state.Nodes) < 4 {
+		return form
+	}
+	return "macro_framework"
+}
+
+func isLongFormMacroSource(bundle compile.Bundle) bool {
+	switch strings.ToLower(strings.TrimSpace(bundle.Source)) {
+	case "youtube":
+		return true
+	default:
+		return false
+	}
+}
+
+func longFormMacroFrameworkScore(article string, nodes []graphNode) int {
+	textParts := []string{article}
+	for _, node := range nodes {
+		textParts = append(textParts, node.Text, node.SourceQuote)
+	}
+	text := strings.ToLower(strings.Join(textParts, " "))
+	score := 0
+	for _, family := range longFormMacroFrameworkFamilies() {
+		if containsAnyText(text, family) {
+			score++
+		}
+	}
+	return score
+}
+
+func longFormMacroFrameworkFamilies() [][]string {
+	return [][]string{
+		{"法币", "fiat"},
+		{"信用", "credit"},
+		{"债务", "debt"},
+		{"人口老龄化", "老龄化", "demographic", "aging"},
+		{"税基", "tax base"},
+		{"主权债", "主权债务", "sovereign debt"},
+		{"金融压抑", "financial repression"},
+		{"美元信用", "美元单核", "dollar hegemony"},
+		{"outside money", "外部货币", "实物商品"},
+	}
+}
+
 func normalizeDiscourseRole(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "thesis", "mechanism", "evidence", "example", "implication", "caveat", "market_move":
@@ -833,7 +886,7 @@ func policyForArticleForm(articleForm string) spinePolicy {
 			ArticleForm:             form,
 			PrimaryMode:             "required",
 			MinSpines:               2,
-			MaxSpines:               6,
+			MaxSpines:               4,
 			MaxLocal:                1,
 			MergeSameFamilyBranches: true,
 		}
@@ -1378,7 +1431,10 @@ func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdg
 		}
 		return out[i].ID < out[j].ID
 	})
-	return compactSpines(applySpinePolicy(out, valid, policyForArticleForm(articleForm)), valid)
+	policy := policyForArticleForm(articleForm)
+	out = applySpinePolicy(out, valid, policy)
+	out = compactSpines(out, valid)
+	return enforceSpineBudget(out, valid, policy)
 }
 
 func applySpinePolicy(spines []PreviewSpine, valid map[string]graphNode, policy spinePolicy) []PreviewSpine {
@@ -1429,6 +1485,142 @@ func renumberSpinePriorities(spines []PreviewSpine) []PreviewSpine {
 		spines[i].Priority = i + 1
 	}
 	return spines
+}
+
+func enforceSpineBudget(spines []PreviewSpine, valid map[string]graphNode, policy spinePolicy) []PreviewSpine {
+	if policy.MaxSpines <= 0 || len(spines) <= policy.MaxSpines || policy.PreserveRiskFamilies {
+		return renumberSpinePriorities(spines)
+	}
+	primary := make([]int, 0, 1)
+	candidates := make([]int, 0, len(spines))
+	for i, spine := range spines {
+		if spine.Level == "primary" {
+			primary = append(primary, i)
+			continue
+		}
+		candidates = append(candidates, i)
+	}
+	keep := map[int]struct{}{}
+	for _, index := range primary {
+		keep[index] = struct{}{}
+	}
+	remaining := policy.MaxSpines - len(keep)
+	if remaining < 0 {
+		remaining = 0
+	}
+	type scoredSpine struct {
+		index int
+		score float64
+	}
+	primaryText := spineTextForScoring(primarySpine(spines), valid)
+	scored := make([]scoredSpine, 0, len(candidates))
+	for _, index := range candidates {
+		scored = append(scored, scoredSpine{
+			index: index,
+			score: summarySpineScore(spines[index], valid, primaryText, policy),
+		})
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score > scored[j].score
+		}
+		return spines[scored[i].index].Priority < spines[scored[j].index].Priority
+	})
+	for i := 0; i < remaining && i < len(scored); i++ {
+		keep[scored[i].index] = struct{}{}
+	}
+	out := make([]PreviewSpine, 0, len(keep))
+	for i, spine := range spines {
+		if _, ok := keep[i]; ok {
+			out = append(out, spine)
+		}
+	}
+	return renumberSpinePriorities(out)
+}
+
+func primarySpine(spines []PreviewSpine) PreviewSpine {
+	for _, spine := range spines {
+		if spine.Level == "primary" {
+			return spine
+		}
+	}
+	return PreviewSpine{}
+}
+
+func summarySpineScore(spine PreviewSpine, valid map[string]graphNode, primaryText string, policy spinePolicy) float64 {
+	score := 100.0 - float64(spine.Priority)*2.5
+	score += float64(len(spine.Edges)) * 4
+	score += float64(len(spine.NodeIDs)) * 1.25
+	switch spine.Level {
+	case "branch":
+		score += 4
+	case "local":
+		score -= 8
+	}
+	if spineHasDiscourseRole(spine, valid, "thesis") {
+		score += 8
+	}
+	if spineHasDiscourseRole(spine, valid, "market_move", "implication") {
+		score += 6
+	}
+	if spineHasDiscourseRole(spine, valid, "mechanism") {
+		score += 3
+	}
+	text := spineTextForScoring(spine, valid)
+	if policy.ArticleForm == "macro_framework" {
+		if summaryTextLooksLocalBehavior(text) {
+			score -= 24
+		}
+		if summaryTextRepeatsPrimaryFamily(text, primaryText) && spine.Priority > 2 {
+			score -= 18
+		}
+	}
+	return score
+}
+
+func spineTextForScoring(spine PreviewSpine, valid map[string]graphNode) string {
+	parts := []string{spine.Thesis}
+	for _, id := range spine.NodeIDs {
+		if node, ok := valid[id]; ok {
+			parts = append(parts, node.Text)
+		}
+	}
+	for _, edge := range spine.Edges {
+		parts = append(parts, edge.SourceQuote, edge.Reason)
+	}
+	return strings.ToLower(strings.Join(parts, " "))
+}
+
+func summaryTextLooksLocalBehavior(text string) bool {
+	return containsAnyText(text, []string{
+		"emotional trading", "underperform", "investor behavior", "sentiment", "心理", "情绪", "行为",
+	})
+}
+
+func summaryTextRepeatsPrimaryFamily(text, primaryText string) bool {
+	if strings.TrimSpace(text) == "" || strings.TrimSpace(primaryText) == "" {
+		return false
+	}
+	overlap := 0
+	for _, family := range macroSummaryAnchorFamilies() {
+		if containsAnyText(primaryText, family) && containsAnyText(text, family) {
+			overlap++
+		}
+	}
+	return overlap >= 2
+}
+
+func macroSummaryAnchorFamilies() [][]string {
+	return [][]string{
+		{"debt", "债务"},
+		{"credit", "信贷", "信用"},
+		{"promise", "promises", "承诺", "欠条"},
+		{"crisis", "default", "crash", "depression", "危机", "违约", "崩盘"},
+		{"money printing", "printed", "货币印刷", "印钱"},
+		{"currency devaluation", "devaluation", "贬值"},
+		{"financial wealth", "金融财富"},
+		{"real wealth", "tangible wealth", "实际财富", "有形财富"},
+	}
 }
 
 func enforceSinglePrimarySpine(spines []PreviewSpine) []PreviewSpine {
