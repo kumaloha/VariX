@@ -224,6 +224,7 @@ func TestMainlineUpstreamUserPromptsIncludeArticleContext(t *testing.T) {
 			data: map[string]any{
 				"Article":        "article context sentinel",
 				"ArticleForm":    "risk_list",
+				"SpinePolicy":    "risk_list policy sentinel",
 				"Nodes":          "n1 | node | role= | ontology= | quote=q",
 				"BranchHeads":    "n1 | node",
 				"CandidateEdges": "- (none)",

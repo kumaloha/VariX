@@ -192,6 +192,7 @@ func renderStage3MainlineUserPrompt(article string, articleForm string, nodes st
 	return defaultPromptLoader.render("mainline_user.tmpl", map[string]any{
 		"Article":        article,
 		"ArticleForm":    articleForm,
+		"SpinePolicy":    renderSpinePolicyPrompt(articleForm),
 		"Nodes":          nodes,
 		"BranchHeads":    branchHeads,
 		"CandidateEdges": candidateEdges,

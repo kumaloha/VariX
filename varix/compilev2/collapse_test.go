@@ -29,3 +29,25 @@ func TestCollapseDoesNotChooseAuxSourceAsHead(t *testing.T) {
 		}
 	}
 }
+
+func TestCollapsePreservesRiskListCaveatsAsMainlineCandidates(t *testing.T) {
+	state := graphState{
+		ArticleForm: "risk_list",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "地缘冲突是主要风险", DiscourseRole: "caveat"},
+			{ID: "n2", Text: "私募信贷赎回压力上升", DiscourseRole: "thesis"},
+		},
+	}
+
+	collapsed := collapseClusters(state)
+
+	if len(collapsed.Nodes) != 2 {
+		t.Fatalf("Nodes = %#v, want risk caveat preserved with thesis", collapsed.Nodes)
+	}
+	for _, node := range collapsed.Nodes {
+		if node.ID == "n1" {
+			return
+		}
+	}
+	t.Fatalf("Nodes = %#v, want caveat node n1 preserved for risk_list", collapsed.Nodes)
+}

@@ -625,6 +625,9 @@ func fillMissingStage1Text(field *string, fallback string) {
 }
 
 func stage3Classify(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState) (graphState, error) {
+	if projected, ok := projectRolesFromSpines(state); ok {
+		return pruneDanglingEdges(projected), nil
+	}
 	inDegree := map[string]int{}
 	outDegree := map[string]int{}
 	for _, n := range state.Nodes {
@@ -654,6 +657,130 @@ func stage3Classify(ctx context.Context, rt runtimeChat, model string, bundle co
 	return state, nil
 }
 
+func projectRolesFromSpines(state graphState) (graphState, bool) {
+	if len(state.Spines) == 0 {
+		return state, false
+	}
+	valid := map[string]struct{}{}
+	for _, node := range state.Nodes {
+		valid[node.ID] = struct{}{}
+	}
+	driverIDs := map[string]struct{}{}
+	targetIDs := map[string]struct{}{}
+	spineNodeIDs := map[string]struct{}{}
+	for _, spine := range state.Spines {
+		nodes := validSpineNodeIDs(spine, valid)
+		if len(nodes) == 0 {
+			continue
+		}
+		for _, id := range nodes {
+			spineNodeIDs[id] = struct{}{}
+		}
+		sources, terminals := spineSourceAndTerminalIDs(spine, nodes, valid)
+		for _, id := range sources {
+			driverIDs[id] = struct{}{}
+		}
+		for _, id := range terminals {
+			targetIDs[id] = struct{}{}
+		}
+	}
+	if len(spineNodeIDs) == 0 {
+		return state, false
+	}
+	for i := range state.Nodes {
+		n := &state.Nodes[i]
+		n.IsTarget = false
+		n.Ontology = ""
+		switch {
+		case hasID(driverIDs, n.ID):
+			n.Role = roleDriver
+		case hasID(spineNodeIDs, n.ID):
+			n.Role = roleTransmission
+		default:
+			n.Role = roleOrphan
+		}
+		n.IsTarget = hasID(targetIDs, n.ID)
+		n.Ontology = inferTargetKind(n.Text, n.IsTarget)
+	}
+	return state, true
+}
+
+func validSpineNodeIDs(spine PreviewSpine, valid map[string]struct{}) []string {
+	out := make([]string, 0, len(spine.NodeIDs))
+	seen := map[string]struct{}{}
+	for _, id := range spine.NodeIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := valid[id]; !ok {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func spineSourceAndTerminalIDs(spine PreviewSpine, nodeIDs []string, valid map[string]struct{}) ([]string, []string) {
+	if len(nodeIDs) == 0 {
+		return nil, nil
+	}
+	inDegree := map[string]int{}
+	outDegree := map[string]int{}
+	nodeSet := map[string]struct{}{}
+	for _, id := range nodeIDs {
+		nodeSet[id] = struct{}{}
+	}
+	for _, edge := range spine.Edges {
+		if _, ok := valid[edge.From]; !ok {
+			continue
+		}
+		if _, ok := valid[edge.To]; !ok {
+			continue
+		}
+		if _, ok := nodeSet[edge.From]; !ok {
+			continue
+		}
+		if _, ok := nodeSet[edge.To]; !ok {
+			continue
+		}
+		if edge.From == edge.To {
+			continue
+		}
+		outDegree[edge.From]++
+		inDegree[edge.To]++
+	}
+	if len(inDegree) == 0 && len(outDegree) == 0 {
+		return []string{nodeIDs[0]}, []string{nodeIDs[len(nodeIDs)-1]}
+	}
+	sources := make([]string, 0)
+	terminals := make([]string, 0)
+	for _, id := range nodeIDs {
+		if outDegree[id] > 0 && inDegree[id] == 0 {
+			sources = append(sources, id)
+		}
+		if inDegree[id] > 0 && outDegree[id] == 0 {
+			terminals = append(terminals, id)
+		}
+	}
+	if len(sources) == 0 {
+		sources = append(sources, nodeIDs[0])
+	}
+	if len(terminals) == 0 {
+		terminals = append(terminals, nodeIDs[len(nodeIDs)-1])
+	}
+	return sources, terminals
+}
+
+func hasID(values map[string]struct{}, id string) bool {
+	_, ok := values[id]
+	return ok
+}
+
 type mainlineSpinePatch struct {
 	ID          string   `json:"id"`
 	Level       string   `json:"level"`
@@ -663,6 +790,89 @@ type mainlineSpinePatch struct {
 	EdgeIndexes []int    `json:"edge_indexes"`
 	Scope       string   `json:"scope"`
 	Why         string   `json:"why"`
+}
+
+type spinePolicy struct {
+	ArticleForm                    string
+	PrimaryMode                    string
+	MinSpines                      int
+	MaxSpines                      int
+	MaxLocal                       int
+	PreserveInvestmentImplications bool
+	PreserveRiskFamilies           bool
+	MergeSameFamilyBranches        bool
+	AllowSingleNodeFamilySpines    bool
+}
+
+func policyForArticleForm(articleForm string) spinePolicy {
+	form := normalizeArticleForm(articleForm)
+	switch form {
+	case "risk_list":
+		return spinePolicy{
+			ArticleForm:                 form,
+			PrimaryMode:                 "none",
+			MinSpines:                   3,
+			MaxSpines:                   7,
+			MaxLocal:                    1,
+			PreserveRiskFamilies:        true,
+			MergeSameFamilyBranches:     true,
+			AllowSingleNodeFamilySpines: true,
+		}
+	case "main_narrative_plus_investment_implication":
+		return spinePolicy{
+			ArticleForm:                    form,
+			PrimaryMode:                    "required",
+			MinSpines:                      2,
+			MaxSpines:                      5,
+			MaxLocal:                       1,
+			PreserveInvestmentImplications: true,
+			MergeSameFamilyBranches:        true,
+		}
+	case "macro_framework":
+		return spinePolicy{
+			ArticleForm:             form,
+			PrimaryMode:             "required",
+			MinSpines:               2,
+			MaxSpines:               6,
+			MaxLocal:                1,
+			MergeSameFamilyBranches: true,
+		}
+	case "market_update":
+		return spinePolicy{
+			ArticleForm:                    form,
+			PrimaryMode:                    "required",
+			MinSpines:                      2,
+			MaxSpines:                      5,
+			MaxLocal:                       1,
+			PreserveInvestmentImplications: true,
+			MergeSameFamilyBranches:        true,
+		}
+	default:
+		return spinePolicy{
+			ArticleForm:             form,
+			PrimaryMode:             "required",
+			MinSpines:               1,
+			MaxSpines:               3,
+			MaxLocal:                1,
+			MergeSameFamilyBranches: true,
+		}
+	}
+}
+
+func renderSpinePolicyPrompt(articleForm string) string {
+	policy := policyForArticleForm(articleForm)
+	switch policy.ArticleForm {
+	case "risk_list":
+		return "risk_list: preserve each major risk family as a branch spine; do not force or promote a primary spine; priority 1 is only the lead display branch; allow single-node risk-family spines when no grounded downstream endpoint exists; merge within a risk family, not across unrelated families."
+	case "main_narrative_plus_investment_implication":
+		return "main_narrative_plus_investment_implication: keep one primary narrative spine plus branch spines for derived investment implications; do not collapse investment advice into the primary spine when it is a distinct author conclusion; merge same-function local market implications."
+	case "macro_framework":
+		return "macro_framework: keep one framework primary plus summary-level mechanism branches; do not turn section order or historical examples into causal order; preserve mechanism families and demote mere examples."
+	case "market_update":
+		return "market_update: keep one lead market spine plus parallel asset/factor branches; do not force stocks, bonds, consumer confidence, and policy uncertainty into one chain unless the article directly links them."
+	default:
+		return "single_thesis/default: keep the shortest sufficient primary causal spine, with only major derived branch spines."
+	}
 }
 
 func stage2Supplement(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState) (graphState, error) {
@@ -917,7 +1127,7 @@ func demoteSupportingRoleNodes(state graphState) graphState {
 	branchHeads := make([]string, 0, len(state.BranchHeads))
 	demoted := map[string]struct{}{}
 	for _, node := range state.Nodes {
-		if !isSupportingDiscourseRole(node.DiscourseRole) {
+		if !isSupportingDiscourseRole(node.DiscourseRole) || preserveSupportingDiscourseRole(state.ArticleForm, node.DiscourseRole) {
 			nodes = append(nodes, node)
 			continue
 		}
@@ -946,6 +1156,15 @@ func demoteSupportingRoleNodes(state graphState) graphState {
 	state.Nodes = nodes
 	state.BranchHeads = dedupeStrings(branchHeads)
 	return state
+}
+
+func preserveSupportingDiscourseRole(articleForm, role string) bool {
+	switch normalizeArticleForm(articleForm) {
+	case "risk_list":
+		return normalizeDiscourseRole(role) == "caveat"
+	default:
+		return false
+	}
 }
 
 func hasMainlineDiscourseNode(nodes []graphNode) bool {
@@ -1037,7 +1256,7 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle co
 	}
 	oldEdges := state.Edges
 	state.Edges = pruneTransitiveRelations(dedupeEdges(append(append([]graphEdge(nil), oldEdges...), newEdges...)))
-	state.Spines = buildSpinesFromLLM(result.Spines, newEdges, state.Edges, valid)
+	state.Spines = buildSpinesFromLLM(result.Spines, newEdges, state.Edges, valid, state.ArticleForm)
 	if len(state.BranchHeads) > 0 {
 		keep := collectBranchMainlineNodes(state.Edges, state.BranchHeads)
 		demoted := map[string]struct{}{}
@@ -1070,7 +1289,7 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle co
 	return state, nil
 }
 
-func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdges []graphEdge, valid map[string]graphNode) []PreviewSpine {
+func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdges []graphEdge, valid map[string]graphNode, articleForm string) []PreviewSpine {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -1159,7 +1378,57 @@ func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdg
 		}
 		return out[i].ID < out[j].ID
 	})
-	return compactSpines(enforceSinglePrimarySpine(out), valid)
+	return compactSpines(applySpinePolicy(out, valid, policyForArticleForm(articleForm)), valid)
+}
+
+func applySpinePolicy(spines []PreviewSpine, valid map[string]graphNode, policy spinePolicy) []PreviewSpine {
+	for i := range spines {
+		if policy.PreserveInvestmentImplications && spineHasDiscourseRole(spines[i], valid, "implication", "market_move") && spines[i].Level == "local" {
+			spines[i].Level = "branch"
+			if spines[i].Scope == "local" {
+				spines[i].Scope = "branch"
+			}
+		}
+	}
+	switch policy.PrimaryMode {
+	case "none":
+		for i := range spines {
+			if spines[i].Level != "primary" {
+				continue
+			}
+			spines[i].Level = "branch"
+			if spines[i].Scope == "article" {
+				spines[i].Scope = "branch"
+			}
+		}
+		return renumberSpinePriorities(spines)
+	default:
+		return enforceSinglePrimarySpine(spines)
+	}
+}
+
+func spineHasDiscourseRole(spine PreviewSpine, valid map[string]graphNode, roles ...string) bool {
+	wanted := map[string]struct{}{}
+	for _, role := range roles {
+		wanted[normalizeDiscourseRole(role)] = struct{}{}
+	}
+	for _, id := range spine.NodeIDs {
+		node, ok := valid[id]
+		if !ok {
+			continue
+		}
+		if _, ok := wanted[normalizeDiscourseRole(node.DiscourseRole)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func renumberSpinePriorities(spines []PreviewSpine) []PreviewSpine {
+	for i := range spines {
+		spines[i].Priority = i + 1
+	}
+	return spines
 }
 
 func enforceSinglePrimarySpine(spines []PreviewSpine) []PreviewSpine {
@@ -1181,7 +1450,7 @@ func enforceSinglePrimarySpine(spines []PreviewSpine) []PreviewSpine {
 		}
 	}
 	if primaryIndex != -1 {
-		return spines
+		return renumberSpinePriorities(spines)
 	}
 	promoteIndex := 0
 	for i := range spines {
@@ -1192,7 +1461,7 @@ func enforceSinglePrimarySpine(spines []PreviewSpine) []PreviewSpine {
 	}
 	spines[promoteIndex].Level = "primary"
 	spines[promoteIndex].Scope = "article"
-	return spines
+	return renumberSpinePriorities(spines)
 }
 
 func compactSpines(spines []PreviewSpine, valid map[string]graphNode) []PreviewSpine {
@@ -1395,12 +1664,18 @@ func stage4Validate(ctx context.Context, rt runtimeChat, model string, bundle co
 }
 
 func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState) (compile.Output, error) {
+	if projected, ok := projectRolesFromSpines(state); ok {
+		state = projected
+	}
 	drivers := filterNodesByRole(state.Nodes, roleDriver)
 	targets := filterTargetNodes(state.Nodes)
 	if len(targets) == 0 && len(drivers) > 0 {
 		targets = fallbackTargetNodesFromOffGraph(state.OffGraph)
 	}
-	paths := extractPaths(state, drivers, targets)
+	paths := extractSpinePaths(state)
+	if len(paths) == 0 {
+		paths = extractPaths(state, drivers, targets)
+	}
 	translated, err := translateAll(ctx, rt, model, uniqueTexts(drivers, targets, paths, state.OffGraph))
 	if err != nil {
 		return compile.Output{}, err
@@ -1623,6 +1898,77 @@ type renderedPath struct {
 	driver graphNode
 	target graphNode
 	steps  []graphNode
+}
+
+func extractSpinePaths(state graphState) []renderedPath {
+	if len(state.Spines) == 0 {
+		return nil
+	}
+	valid := map[string]struct{}{}
+	for _, node := range state.Nodes {
+		valid[node.ID] = struct{}{}
+	}
+	out := make([]renderedPath, 0)
+	seen := map[string]struct{}{}
+	for _, spine := range state.Spines {
+		nodeIDs := validSpineNodeIDs(spine, valid)
+		if len(nodeIDs) < 2 {
+			continue
+		}
+		sources, terminals := spineSourceAndTerminalIDs(spine, nodeIDs, valid)
+		adj := spineAdjacency(spine, valid)
+		if len(adj) == 0 && len(nodeIDs) >= 2 {
+			for i := 0; i+1 < len(nodeIDs); i++ {
+				adj[nodeIDs[i]] = append(adj[nodeIDs[i]], nodeIDs[i+1])
+			}
+		}
+		for _, source := range sources {
+			for _, terminal := range terminals {
+				pathIDs := shortestPath(adj, source, terminal)
+				if len(pathIDs) < 2 {
+					continue
+				}
+				key := strings.Join(pathIDs, "->")
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				driver, ok := nodeByID(state.Nodes, source)
+				if !ok {
+					continue
+				}
+				target, ok := nodeByID(state.Nodes, terminal)
+				if !ok {
+					continue
+				}
+				steps := make([]graphNode, 0, max(0, len(pathIDs)-2))
+				for _, id := range pathIDs[1 : len(pathIDs)-1] {
+					if node, ok := nodeByID(state.Nodes, id); ok {
+						steps = append(steps, node)
+					}
+				}
+				seen[key] = struct{}{}
+				out = append(out, renderedPath{driver: driver, target: target, steps: steps})
+			}
+		}
+	}
+	return out
+}
+
+func spineAdjacency(spine PreviewSpine, valid map[string]struct{}) map[string][]string {
+	adj := map[string][]string{}
+	for _, edge := range spine.Edges {
+		if _, ok := valid[edge.From]; !ok {
+			continue
+		}
+		if _, ok := valid[edge.To]; !ok {
+			continue
+		}
+		if edge.From == edge.To {
+			continue
+		}
+		adj[edge.From] = append(adj[edge.From], edge.To)
+	}
+	return adj
 }
 
 func extractPaths(state graphState, drivers, targets []graphNode) []renderedPath {

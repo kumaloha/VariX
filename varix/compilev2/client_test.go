@@ -442,6 +442,125 @@ func TestStage3MainlinePromotesBestSpineWhenPrimaryMissing(t *testing.T) {
 	}
 }
 
+func TestStage3MainlineRiskListDoesNotPromotePrimary(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n2","to":"n3","source_quote":"private credit stress drives selling","reason":"private credit stress drives selling"}],"spines":[{"id":"s_geopolitical","level":"branch","priority":1,"thesis":"Geopolitical tensions remain a major risk family","node_ids":["n1"],"edge_indexes":[],"scope":"section","why":"The article names this as a major risk family."},{"id":"s_private_credit","level":"branch","priority":2,"thesis":"Private credit stress drives selling","node_ids":["n2","n3"],"edge_indexes":[0],"scope":"section","why":"This is a grounded risk branch."}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:v2-mainline-risk-list-policy",
+		Content: "Geopolitical tensions are a major risk. Private credit stress drives selling.",
+	}, graphState{
+		ArticleForm: "risk_list",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "Geopolitical tensions remain a major risk family"},
+			{ID: "n2", Text: "Private credit stress intensifies"},
+			{ID: "n3", Text: "Private credit selling risk rises"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	for _, spine := range state.Spines {
+		if spine.Level == "primary" {
+			t.Fatalf("risk_list spine promoted to primary: %#v", state.Spines)
+		}
+	}
+	if len(state.Spines) != 2 {
+		t.Fatalf("Spines = %#v, want two branch risk families", state.Spines)
+	}
+}
+
+func TestStage3ClassifyProjectsRolesFromSpines(t *testing.T) {
+	state, err := stage3Classify(context.Background(), nil, "", compile.Bundle{}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "政策冲击"},
+			{ID: "n2", Text: "流动性收缩"},
+			{ID: "n3", Text: "美股价格下跌"},
+			{ID: "n4", Text: "孤立市场压力上升"},
+		},
+		Edges: []graphEdge{
+			{From: "n1", To: "n2"},
+			{From: "n2", To: "n3"},
+			{From: "n2", To: "n4"},
+		},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Thesis:   "政策冲击压低美股",
+			NodeIDs:  []string{"n1", "n2", "n3"},
+			Edges: []PreviewEdge{
+				{From: "n1", To: "n2"},
+				{From: "n2", To: "n3"},
+			},
+			Scope: "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage3Classify() error = %v", err)
+	}
+	byID := map[string]graphNode{}
+	for _, node := range state.Nodes {
+		byID[node.ID] = node
+	}
+	if byID["n1"].Role != roleDriver {
+		t.Fatalf("n1 role = %s, want driver", byID["n1"].Role)
+	}
+	if byID["n3"].IsTarget != true {
+		t.Fatalf("n3 IsTarget = false, want spine terminal target")
+	}
+	if byID["n4"].IsTarget {
+		t.Fatalf("n4 IsTarget = true, want non-spine terminal ignored")
+	}
+}
+
+func TestStage5RenderProjectsDriverTargetPathsFromSpines(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"政策冲击"},{"id":"n2","text":"流动性收缩"},{"id":"n3","text":"美股价格下跌"}]}`},
+		{Text: `{"summary":"政策冲击通过流动性收缩压低美股。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:     "web:spine-render",
+		Source:     "web",
+		ExternalID: "spine-render",
+		Content:    "Policy shock tightens liquidity and lowers equities.",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "政策冲击"},
+			{ID: "n2", Text: "流动性收缩"},
+			{ID: "n3", Text: "美股价格下跌"},
+		},
+		Edges: []graphEdge{
+			{From: "n1", To: "n2"},
+			{From: "n2", To: "n3"},
+		},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Thesis:   "政策冲击压低美股",
+			NodeIDs:  []string{"n1", "n2", "n3"},
+			Edges: []PreviewEdge{
+				{From: "n1", To: "n2"},
+				{From: "n2", To: "n3"},
+			},
+			Scope: "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if len(out.Drivers) != 1 || out.Drivers[0] != "政策冲击" {
+		t.Fatalf("Drivers = %#v, want projected spine source", out.Drivers)
+	}
+	if len(out.Targets) != 1 || out.Targets[0] != "美股价格下跌" {
+		t.Fatalf("Targets = %#v, want projected spine terminal", out.Targets)
+	}
+	if len(out.TransmissionPaths) != 1 {
+		t.Fatalf("TransmissionPaths = %#v, want one spine path", out.TransmissionPaths)
+	}
+}
+
 func TestStage3MainlineMergesCryptoSellPressureSpines(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
 		Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"tight reserves weaken Bitcoin","reason":"tight reserves weaken Bitcoin"},{"from":"n3","to":"n2","source_quote":"ETF outflows worsen Bitcoin selling pressure","reason":"ETF outflows worsen Bitcoin selling pressure"},{"from":"n4","to":"n2","source_quote":"market makers sell into thin liquidity","reason":"market makers add selling pressure"},{"from":"n5","to":"n2","source_quote":"stablecoin supply contraction caused Bitcoin to fall","reason":"stablecoin contraction caused Bitcoin weakness"},{"from":"n6","to":"n7","source_quote":"TGA drawdown restores reserves","reason":"TGA drawdown restores reserves"},{"from":"n7","to":"n8","source_quote":"reserve recovery triggers a new Bitcoin trend","reason":"reserve recovery supports Bitcoin"}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Tight dollar liquidity weakens Bitcoin","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"article thesis"},{"id":"s2","level":"branch","priority":2,"thesis":"ETF outflows worsen Bitcoin selling pressure","node_ids":["n3","n2"],"edge_indexes":[1],"scope":"section","why":"sell-pressure branch"},{"id":"s3","level":"branch","priority":3,"thesis":"Market makers sell into thin crypto liquidity","node_ids":["n4","n2"],"edge_indexes":[2],"scope":"section","why":"sell-pressure branch"},{"id":"s4","level":"branch","priority":4,"thesis":"Stablecoin supply contraction caused Bitcoin to fall","node_ids":["n5","n2"],"edge_indexes":[3],"scope":"section","why":"sell-pressure branch"},{"id":"s5","level":"branch","priority":5,"thesis":"Future reserve recovery supports Bitcoin","node_ids":["n6","n7","n8"],"edge_indexes":[4,5],"scope":"section","why":"recovery branch"}]}`,
