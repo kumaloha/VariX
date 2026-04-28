@@ -586,6 +586,33 @@ func TestInferSpineFamilyRequiresSpecificAnchors(t *testing.T) {
 	}
 }
 
+func TestFallbackSpineFamilyUsesStableKeysForNonASCIIFallbacks(t *testing.T) {
+	first := inferSpineFamily(PreviewSpine{ID: "s1", Thesis: "盈利脱钩推动美股创新高", Scope: "article"}, nil)
+	second := inferSpineFamily(PreviewSpine{ID: "s2", Thesis: "消费信心走弱引发债市下跌", Scope: "article"}, nil)
+	if first.Key == "general_spine" || second.Key == "general_spine" {
+		t.Fatalf("non-ASCII fallback key should not collapse to general_spine: first=%q second=%q", first.Key, second.Key)
+	}
+	if first.Key == second.Key {
+		t.Fatalf("distinct non-ASCII fallback theses collided: %q", first.Key)
+	}
+}
+
+func TestFallbackSpineFamilyAvoidsTruncatedSlugCollisions(t *testing.T) {
+	first := inferSpineFamily(PreviewSpine{
+		ID:     "s1",
+		Thesis: "This unusually long fallback spine starts with identical wording but ends with alpha conclusion",
+		Scope:  "article",
+	}, nil)
+	second := inferSpineFamily(PreviewSpine{
+		ID:     "s2",
+		Thesis: "This unusually long fallback spine starts with identical wording but ends with beta conclusion",
+		Scope:  "article",
+	}, nil)
+	if first.Key == second.Key {
+		t.Fatalf("distinct long fallback theses collided after slug truncation: %q", first.Key)
+	}
+}
+
 func TestInferSpineFamilySeparatesAICreditContagionFromPowerBottleneck(t *testing.T) {
 	got := inferSpineFamily(PreviewSpine{
 		ID:     "s1",

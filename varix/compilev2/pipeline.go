@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"sort"
 	"strings"
 
@@ -1653,10 +1654,7 @@ func fallbackSpineFamily(spine PreviewSpine) spineFamily {
 	if keySource == "" {
 		keySource = strings.TrimSpace(spine.ID)
 	}
-	key := "general_" + slugKey(keySource)
-	if key == "general_" {
-		key = "general_spine"
-	}
+	key := fallbackFamilyKey(keySource)
 	return spineFamily{
 		Key:   key,
 		Label: strings.TrimSpace(spine.Thesis),
@@ -1664,11 +1662,28 @@ func fallbackSpineFamily(spine PreviewSpine) spineFamily {
 	}
 }
 
-func slugKey(text string) string {
+func fallbackFamilyKey(text string) string {
+	slug, truncated := slugKey(text)
+	digest := shortStableDigest(text)
+	if slug == "" {
+		return "general_u" + digest
+	}
+	if truncated {
+		return "general_" + slug + "_" + digest
+	}
+	return "general_" + slug
+}
+
+func slugKey(text string) (string, bool) {
 	text = strings.ToLower(strings.TrimSpace(text))
 	var b strings.Builder
 	lastUnderscore := false
+	truncated := false
 	for _, r := range text {
+		if b.Len() >= 48 {
+			truncated = true
+			break
+		}
 		switch {
 		case r >= 'a' && r <= 'z':
 			b.WriteRune(r)
@@ -1682,11 +1697,14 @@ func slugKey(text string) string {
 				lastUnderscore = true
 			}
 		}
-		if b.Len() >= 48 {
-			break
-		}
 	}
-	return strings.Trim(b.String(), "_")
+	return strings.Trim(b.String(), "_"), truncated
+}
+
+func shortStableDigest(text string) string {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(strings.ToLower(strings.TrimSpace(text))))
+	return fmt.Sprintf("%08x", hash.Sum32())
 }
 
 func enforceSpineBudget(spines []PreviewSpine, valid map[string]graphNode, policy spinePolicy) []PreviewSpine {
