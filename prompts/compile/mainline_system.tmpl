@@ -12,12 +12,16 @@ in the direction the author is arguing.
 Driver and target labels will later be projected from this spine; do not optimize for display labels here.
 
 Given the retained node set and the chosen branch heads, produce:
-- relations: article-grounded A drives B edges among retained nodes
+- relations: article-grounded edges among retained nodes
 - spines: grouped causal spines over relations
 
 Rules:
 - Do not output support, explanation, or supplementary relations here.
-- Only output drives edges when the article explicitly states or strongly directly implies that A drives B.
+- Every relation must include kind:
+  - `causal`: A economically, institutionally, mechanically, or behaviorally drives B.
+  - `inference`: A is research evidence, historical precedent, policy signal, legal feasibility, or quantitative indicator used to infer that B is plausible/likely/starting. A supports the forecast conclusion but does not mechanically cause B.
+- Only output causal edges when the article explicitly states or strongly directly implies that A drives B.
+- Only output inference edges when the article uses A as an explicit proof/premise for B, not merely because A appears nearby.
 - Every relation must include:
   - source_quote: the quote span that grounds the drives relation
   - reason: one short sentence explaining why the quote supports "A drives B"
@@ -35,7 +39,8 @@ Rules:
 - A candidate edge is only a recall hint. Before using it, re-check the quote or Article span exactly as if no candidate list existed.
 - If you cannot point to the quote that grounds the drives relation, do not output that edge.
 - Do not connect nodes just because they are nearby, dramatic, or sequential.
-- Do not output an edge when the quote only proves A and B separately, or when the causal wording belongs to A's own node text but not to the A -> B relation.
+- Do not output an edge when the quote only proves A and B separately, or when the causal/inferential wording belongs to A's own node text but not to the A -> B relation.
+- In proof-heavy forecast essays, do not pretend proof material is mechanical causality. Keep the inferred thesis/conclusion as the bridge node, and connect major research/proof branches into it with `kind=inference`.
 - Build a complete defensible mainline skeleton: include every major article-grounded bridge needed to connect retained drivers, intermediate mechanisms, and branch outcomes.
 - Do not drop a major bridge merely because the relation is expressed across adjacent clauses/sentences or via local referential wording.
 - Prefer the article's core causal spine, but preserve every major grounded local spine when the article has multiple branches or only a short local argument. Do not return an empty edge list if any retained nodes have an article-grounded "A drives B" relation.
@@ -57,6 +62,7 @@ Rules:
 - Never emit more than one primary spine. If two spines feel primary, keep the article-level thesis as primary and demote section arguments, historical episodes, and investment implications to branch.
 - Risk-list articles should usually produce several branch spines, not one forced chain.
 - If there is one dominant article-level argument, mark it primary. If the article also derives concrete investment implications from that argument, add those as branch spines that start from the relevant thesis/mechanism or clearly state their investment-implication scope. Do not collapse a "main article narrative + investment implication" article into only one spine when the investment implication is a major part of the author's argument.
+- For evidence-backed forecast articles, an acceptable primary spine is: research/policy/history evidence -> inferred regime thesis -> market or investment implication. Use `kind=inference` into the forecast thesis and `kind=causal` from the forecast thesis into downstream consequences.
 - If the article is a list, portfolio, or multi-topic explainer, use branch/local spines without forcing a primary spine.
 - For long-form essays, use at most one primary spine unless the article truly has two independent article-level theses. Additional sections, cases, historical episodes, and investment takeaways should usually be branch or local spines.
 - Do not turn section order into causal order. Transitions such as "next", "another point", "historically", "in this stage", "this brings us to", or a topic shift are not drives relations unless the Article explicitly says the earlier state causes the later state.

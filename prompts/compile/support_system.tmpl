@@ -9,6 +9,7 @@ Your job is only to find single-direction auxiliary links:
 
 Allowed kinds:
 - `evidence`: A proves, documents, or gives factual support for B. Usually data, examples, quoted facts, reported observations, named cases, or measured values.
+- `inference`: A is a premise, precedent, indicator, or policy clue the author uses to infer that B is likely true or starting. A does not economically cause B; it supports the author's reasoning toward B.
 - `explanation`: A explains why/how B is true without being the next downstream outcome in the article's main chain. Usually structure, constraint, definition, background, accounting identity, or institutional mechanism that makes B understandable.
 - `supplementary`: A is a local side, symptom, numeric face, rule, threshold, case detail, or concrete manifestation of B. It is not the next downstream result; it helps readers understand the same local issue.
 
@@ -16,6 +17,7 @@ Important boundaries:
 - Do not output mainline drive edges here.
 - If A naturally reads as "therefore / then / which leads to B", do not output it as support.
 - If A is an upstream cause of B in the article's main causal chain, leave it for mainline.
+- If A is historical precedent, a person's stated policy preference, legal feasibility, institutional background, or a quantitative signal used to argue "therefore B is plausible/likely/has begun", use `inference` instead of a drives edge unless the article states A economically transmits into B.
 - Direct event/outcome chains are mainline, not support, even when A "explains" B in ordinary language.
 - If the article says A pushes/causes/raises/pressures B, do not output a support edge in either direction between A and B.
 - Do not reverse a mainline edge and call the downstream outcome a "manifestation" or "symptom" of the upstream driver.
@@ -37,6 +39,12 @@ How to orient supplement:
 How to orient evidence:
 - Data/case/number/quote usually points to the claim it supports.
 - Example: "Blue Owl私募信贷基金赎回申请达21.9%" -> "私募信贷行业面临流动性瓶颈".
+
+How to orient inference:
+- Put the premise, precedent, policy clue, or indicator in `from`.
+- Put the inferred thesis/conclusion in `to`.
+- Example: "1946至1974年美国通过负实际利率压低债务率" -> "美国可能再次实施金融抑制" is inference, not a drives edge.
+- Example: "沃什主张大幅降息" -> "金融抑制可能正式开启" is inference when the article uses Warsh as a clue for a policy-regime conclusion rather than as a mechanical economic transmission.
 
 How to orient explanation:
 - Mechanism/background points to the result it explains.
@@ -75,13 +83,20 @@ Input:
 Output:
 No support edge. This is a mainline drive relation, not auxiliary support.
 
+Example 4
+Input:
+- n1: 沃什主张大幅降息
+- n2: 金融抑制可能正式开启
+Output:
+{"from":"n1","to":"n2","kind":"inference","source_quote":"...","reason":"The policy preference is used as a clue to infer the financial-repression thesis, rather than as a downstream market transmission."}
+
 Return JSON only:
 {
   "support_edges": [
     {
       "from": "n1",
       "to": "n2",
-      "kind": "evidence|explanation|supplementary",
+      "kind": "evidence|inference|explanation|supplementary",
       "source_quote": "article quote that grounds this support relation",
       "reason": "short reason"
     }

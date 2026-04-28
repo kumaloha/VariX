@@ -123,12 +123,16 @@ func TestStage2SupportPromptFindsSingleDirectionAuxiliaryLinks(t *testing.T) {
 		"`to` = the node being served",
 		"Allowed kinds:",
 		"`evidence`: A proves, documents, or gives factual support for B.",
+		"`inference`: A is a premise, precedent, indicator, or policy clue",
 		"`explanation`: A explains why/how B is true without being the next downstream outcome",
 		"`supplementary`: A is a local side, symptom, numeric face, rule, threshold, case detail, or concrete manifestation of B.",
 		"Do not output mainline drive edges here.",
 		"Do not choose branch heads here.",
 		"Do not merge nodes here.",
 		"If A naturally reads as \"therefore / then / which leads to B\", do not output it as support.",
+		"How to orient inference:",
+		"1946至1974年美国通过负实际利率压低债务率",
+		"沃什主张大幅降息",
 		"Return JSON only:",
 		"support_edges",
 	} {
@@ -149,9 +153,11 @@ func TestStage3MainlinePromptRequiresGroundedRelations(t *testing.T) {
 		"Each retained node may include a `discourse_role` hint",
 		"Treat `evidence` and `example` nodes as supporting material",
 		"Your job now is only to draw the retained relations and spines",
+		"Every relation must include kind:",
+		"`inference`: A is research evidence, historical precedent, policy signal, legal feasibility, or quantitative indicator",
 		"Every relation must include:",
 		"source_quote: the quote span that grounds the drives relation",
-		"relations: article-grounded A drives B edges among retained nodes",
+		"relations: article-grounded edges among retained nodes",
 		"spines: grouped causal spines over relations",
 		"level: primary, branch, or local",
 		"edge_indexes: zero-based indexes into relations",
@@ -177,7 +183,10 @@ func TestStage3MainlinePromptRequiresGroundedRelations(t *testing.T) {
 		"AI bottleneck and long-form macro/video outputs exceed 6 spines",
 		"main article narrative + investment implication",
 		"use at most one primary spine unless the article truly has two independent article-level theses",
+		"For evidence-backed forecast articles",
+		"kind=inference",
 		"Do not turn section order into causal order.",
+		"do not pretend proof material is mechanical causality",
 		"2-8 nodes",
 		"Primary means the article-level thesis; branch means a major sub-argument",
 		"The `source_quote` may be a local span across adjacent clauses or sentences from the Article",
@@ -422,6 +431,7 @@ func TestStage1PromptAllowsNormalizationButRejectsSemanticUpgrade(t *testing.T) 
 		"Do classify the article form and each node's discourse role",
 		"Article form:",
 		"`main_narrative_plus_investment_implication`",
+		"`evidence_backed_forecast`",
 		"Node discourse roles:",
 		"Every node must include a `role`",
 		"U.S. trade policy is causing a realignment of global economic relations",
@@ -512,6 +522,12 @@ func TestMainlineSchemaIncludesOptionalSpines(t *testing.T) {
 	}
 	if !containsString(schema.Required, "relations") {
 		t.Fatalf("mainline schema required = %#v, want relations", schema.Required)
+	}
+	relations := schema.Properties["relations"].(map[string]any)
+	items := relations["items"].(map[string]any)
+	props := items["properties"].(map[string]any)
+	if _, ok := props["kind"]; !ok {
+		t.Fatalf("mainline relation schema missing kind: %#v", props)
 	}
 }
 

@@ -20,10 +20,11 @@ Article form:
 - Output exactly one `article_form`:
   - `single_thesis`: one dominant argument or conclusion.
   - `main_narrative_plus_investment_implication`: article first builds a narrative/conclusion, then derives market or investment implications from it.
+  - `evidence_backed_forecast`: article uses research clues, historical precedent, policy signals, legal feasibility, or quantitative indicators to infer a future regime/outcome, then explains likely market or investment consequences.
   - `risk_list`: several major risk families or topic branches are intentionally listed side by side.
   - `macro_framework`: long-form framework/cycle essay where the article explains a general mechanism across examples.
   - `market_update`: market moves/news items are updated with limited deeper thesis.
-- Use article form to preserve the right grain: risk-list articles may keep several branch families; single-thesis articles should keep fewer thesis/mechanism nodes; investment-implication articles must preserve the bridge from narrative conclusion to investment implication.
+- Use article form to preserve the right grain: risk-list articles may keep several branch families; single-thesis articles should keep fewer thesis/mechanism nodes; investment-implication articles must preserve the bridge from narrative conclusion to investment implication; evidence-backed forecasts must preserve both the proof/inference branches and the forecast-to-implication branches.
 
 Node discourse roles:
 - Every node must include a `role` from: `thesis`, `mechanism`, `evidence`, `example`, `implication`, `caveat`, `market_move`.
@@ -235,7 +236,7 @@ Why:
 
 Return JSON only with keys:
 {
-  "article_form": "single_thesis|main_narrative_plus_investment_implication|risk_list|macro_framework|market_update",
+  "article_form": "single_thesis|main_narrative_plus_investment_implication|evidence_backed_forecast|risk_list|macro_framework|market_update",
   "nodes": [{"id":"n1","text":"...","source_quote":"...","role":"thesis|mechanism|evidence|example|implication|caveat|market_move"}],
   "off_graph": [{"id":"o1","text":"...","role":"evidence|explanation|supplementary","attaches_to":"n1","source_quote":"..."}]
 }

@@ -33,6 +33,7 @@ type graphNode struct {
 type graphEdge struct {
 	From        string
 	To          string
+	Kind        string
 	SourceQuote string
 	Reason      string
 }
@@ -545,7 +546,7 @@ func decodeStage1Nodes(raw any) []graphNode {
 
 func normalizeArticleForm(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "single_thesis", "main_narrative_plus_investment_implication", "risk_list", "macro_framework", "market_update":
+	case "single_thesis", "main_narrative_plus_investment_implication", "evidence_backed_forecast", "risk_list", "macro_framework", "market_update":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""
@@ -560,10 +561,34 @@ func refineArticleFormFromExtract(bundle compile.Bundle, state graphState) strin
 	if !isLongFormMacroSource(bundle) {
 		return form
 	}
+	if evidenceBackedForecastScore(bundle.TextContext(), state.Nodes) >= 4 {
+		return "evidence_backed_forecast"
+	}
 	if longFormMacroFrameworkScore(bundle.TextContext(), state.Nodes) < 4 {
 		return form
 	}
 	return "macro_framework"
+}
+
+func evidenceBackedForecastScore(article string, nodes []graphNode) int {
+	textParts := []string{article}
+	for _, node := range nodes {
+		textParts = append(textParts, node.Text, node.SourceQuote)
+	}
+	text := strings.ToLower(strings.Join(textParts, " "))
+	score := 0
+	for _, family := range [][]string{
+		{"推断", "推导", "可能", "如果", "would", "could", "likely", "probability", "forecast"},
+		{"调研", "研究", "证据", "历史", "precedent", "evidence", "research"},
+		{"沃什", "warsh"},
+		{"美联储", "fed", "federal reserve"},
+		{"金融抑制", "金融压抑", "financial repression"},
+	} {
+		if containsAnyText(text, family) {
+			score++
+		}
+	}
+	return score
 }
 
 func isLongFormMacroSource(bundle compile.Bundle) bool {
@@ -882,6 +907,16 @@ func policyForArticleForm(articleForm string) spinePolicy {
 			PreserveInvestmentImplications: true,
 			MergeSameFamilyBranches:        true,
 		}
+	case "evidence_backed_forecast":
+		return spinePolicy{
+			ArticleForm:                    form,
+			PrimaryMode:                    "required",
+			MinSpines:                      2,
+			MaxSpines:                      5,
+			MaxLocal:                       1,
+			PreserveInvestmentImplications: true,
+			MergeSameFamilyBranches:        true,
+		}
 	case "macro_framework":
 		return spinePolicy{
 			ArticleForm:             form,
@@ -920,6 +955,8 @@ func renderSpinePolicyPrompt(articleForm string) string {
 		return "risk_list: preserve each major risk family as a branch spine; do not force or promote a primary spine; priority 1 is only the lead display branch; allow single-node risk-family spines when no grounded downstream endpoint exists; merge within a risk family, not across unrelated families."
 	case "main_narrative_plus_investment_implication":
 		return "main_narrative_plus_investment_implication: keep one primary narrative spine plus branch spines for derived investment implications; do not collapse investment advice into the primary spine when it is a distinct author conclusion; merge same-function local market implications."
+	case "evidence_backed_forecast":
+		return "evidence_backed_forecast: the article uses research clues, historical precedent, policy signals, legal feasibility, or quantitative indicators to infer a future regime/outcome. Keep proof branches as inference relations into the forecast thesis, then keep causal branches from that forecast thesis into market or investment implications. The primary spine may be research/policy evidence -> inferred thesis -> implications; mark proof edges as kind=inference."
 	case "macro_framework":
 		return "macro_framework: keep one framework primary plus summary-level mechanism branches; do not turn section order or historical examples into causal order; preserve mechanism families and demote mere examples."
 	case "market_update":
@@ -1268,12 +1305,14 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle co
 		Relations []struct {
 			From        string `json:"from"`
 			To          string `json:"to"`
+			Kind        string `json:"kind"`
 			SourceQuote string `json:"source_quote"`
 			Reason      string `json:"reason"`
 		} `json:"relations"`
 		LegacyDrivesEdges []struct {
 			From        string `json:"from"`
 			To          string `json:"to"`
+			Kind        string `json:"kind"`
 			SourceQuote string `json:"source_quote"`
 			Reason      string `json:"reason"`
 		} `json:"drives_edges"`
@@ -1304,6 +1343,7 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle co
 		newEdges = append(newEdges, graphEdge{
 			From:        e.From,
 			To:          e.To,
+			Kind:        normalizeMainlineRelationKind(e.Kind),
 			SourceQuote: strings.TrimSpace(e.SourceQuote),
 			Reason:      strings.TrimSpace(e.Reason),
 		})
@@ -2018,6 +2058,7 @@ func previewEdgeFromGraphEdge(edge graphEdge) PreviewEdge {
 	return PreviewEdge{
 		From:        edge.From,
 		To:          edge.To,
+		Kind:        edge.Kind,
 		SourceQuote: edge.SourceQuote,
 		Reason:      edge.Reason,
 	}
@@ -2793,6 +2834,8 @@ func normalizeSupportKind(kind string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "evidence":
 		return "evidence", true
+	case "inference", "inferential", "proof":
+		return "inference", true
 	case "explanation":
 		return "explanation", true
 	case "supplement", "supplementary":
@@ -2802,11 +2845,20 @@ func normalizeSupportKind(kind string) (string, bool) {
 	}
 }
 
+func normalizeMainlineRelationKind(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "inference", "inferential", "proof":
+		return "inference"
+	default:
+		return "causal"
+	}
+}
+
 func auxNodeRole(edge auxEdge, nodeID string) (string, bool) {
 	switch edge.Kind {
-	case "evidence":
+	case "evidence", "inference":
 		if edge.From == nodeID {
-			return "evidence", true
+			return edge.Kind, true
 		}
 	case "explanation":
 		if edge.From == nodeID {
@@ -2901,6 +2953,8 @@ func auxEdgeWeight(kind string) float64 {
 	switch strings.TrimSpace(kind) {
 	case "evidence":
 		return 3.0
+	case "inference":
+		return 3.25
 	case "explanation":
 		return 2.0
 	case "supplementary":
@@ -3506,6 +3560,13 @@ func stageJSONSchema(stageName string) *llm.Schema {
 
 func mainlineSchema() *llm.Schema {
 	schema := linkListSchema("compile_relations", "relations", "from", "to")
+	if relations, ok := schema.Properties["relations"].(map[string]any); ok {
+		if items, ok := relations["items"].(map[string]any); ok {
+			if props, ok := items["properties"].(map[string]any); ok {
+				props["kind"] = map[string]any{"type": "string"}
+			}
+		}
+	}
 	schema.Properties["spines"] = map[string]any{
 		"type": "array",
 		"items": map[string]any{
@@ -3572,7 +3633,7 @@ func stageSearch(stageName string) bool {
 func renderOffGraph(items []offGraphItem, cn func(id, fallback string) string) (evidence, explanation, supplementary []string) {
 	for _, item := range items {
 		switch item.Role {
-		case "evidence":
+		case "evidence", "inference":
 			evidence = append(evidence, cn(item.ID, item.Text))
 		case "explanation":
 			explanation = append(explanation, cn(item.ID, item.Text))

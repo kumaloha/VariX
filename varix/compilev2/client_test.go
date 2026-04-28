@@ -202,6 +202,35 @@ func TestCollapseDemotesSupportingRolesWithoutAuxEdges(t *testing.T) {
 	}
 }
 
+func TestCollapseKeepsInferentialConclusionAsHead(t *testing.T) {
+	state := collapseClusters(graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "沃什主张大幅降息", SourceQuote: "沃什反复说利率应该大幅度下降", DiscourseRole: "evidence"},
+			{ID: "n2", Text: "金融抑制可能正式开启", SourceQuote: "到那个时候金融抑制就是实打实开启新时代", DiscourseRole: "thesis"},
+		},
+		AuxEdges: []auxEdge{{
+			From:        "n1",
+			To:          "n2",
+			Kind:        "inference",
+			SourceQuote: "沃什反复说利率应该大幅度下降... 到那个时候金融抑制就是实打实开启新时代",
+			Reason:      "The policy clue supports the inferred financial-repression conclusion.",
+		}},
+	})
+	if len(state.Nodes) != 1 || state.Nodes[0].ID != "n2" {
+		t.Fatalf("Nodes = %#v, want inferred conclusion retained as graph head", state.Nodes)
+	}
+	if len(state.OffGraph) != 1 || state.OffGraph[0].Role != "inference" || state.OffGraph[0].AttachesTo != "n2" {
+		t.Fatalf("OffGraph = %#v, want inference premise attached to conclusion", state.OffGraph)
+	}
+	evidence, _, supplementary := renderOffGraph(state.OffGraph, func(_ string, fallback string) string { return fallback })
+	if !containsString(evidence, "沃什主张大幅降息") {
+		t.Fatalf("Evidence = %#v, want inference premise displayed as evidence", evidence)
+	}
+	if len(supplementary) != 0 {
+		t.Fatalf("Supplementary = %#v, want inference excluded from supplementary", supplementary)
+	}
+}
+
 func TestClientCompilePassesArticleContextToMainline(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{
 		{Text: `{"nodes":[{"id":"n1","text":"Middle East buys arms","source_quote":"they buy arms"},{"id":"n2","text":"Less money buys US bonds and stocks","source_quote":"less money buys US bonds and stocks"}],"off_graph":[]}`},
@@ -237,6 +266,40 @@ func TestClientCompilePassesArticleContextToMainline(t *testing.T) {
 	}
 	if !strings.Contains(mainlinePrompt, "This context is the edge signal") {
 		t.Fatalf("mainline prompt missing article context:\n%s", mainlinePrompt)
+	}
+}
+
+func TestStage3MainlinePreservesInferenceRelationKind(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n1","to":"n2","kind":"inference","source_quote":"沃什主张大幅降息，因此金融抑制可能开启","reason":"The Warsh research clue is used to infer the financial repression forecast."},{"from":"n2","to":"n3","kind":"causal","source_quote":"金融抑制开启后现金购买力会贬值","reason":"The forecast regime drives the cash purchasing-power implication."}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"调研证据推导金融抑制并影响现金","node_ids":["n1","n2","n3"],"edge_indexes":[0,1],"scope":"article","why":"This is the proof-backed forecast spine."}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:inference-mainline",
+		Source:  "web",
+		Content: "沃什主张大幅降息，因此金融抑制可能开启。金融抑制开启后现金购买力会贬值。",
+	}, graphState{
+		ArticleForm: "evidence_backed_forecast",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "沃什主张大幅降息", DiscourseRole: "evidence"},
+			{ID: "n2", Text: "金融抑制可能开启", DiscourseRole: "thesis"},
+			{ID: "n3", Text: "现金购买力会贬值", DiscourseRole: "implication"},
+		},
+		BranchHeads: []string{"n2", "n3"},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	if len(state.Edges) != 2 {
+		t.Fatalf("Edges = %#v, want two edges", state.Edges)
+	}
+	if state.Edges[0].Kind != "inference" {
+		t.Fatalf("Edges[0].Kind = %q, want inference", state.Edges[0].Kind)
+	}
+	if state.Edges[1].Kind != "causal" {
+		t.Fatalf("Edges[1].Kind = %q, want causal", state.Edges[1].Kind)
+	}
+	if len(state.Spines) != 1 || len(state.Spines[0].Edges) != 2 || state.Spines[0].Edges[0].Kind != "inference" {
+		t.Fatalf("Spines = %#v, want inference edge preserved in spine", state.Spines)
 	}
 }
 
@@ -789,6 +852,7 @@ func TestStage5RenderOmitsBridgeDriverTargetsFromDisplayTargets(t *testing.T) {
 			{From: "n3", To: "n4"},
 			{From: "n2", To: "n5"},
 			{From: "n1", To: "n6"},
+			{From: "n2", To: "n6"},
 			{From: "n1", To: "n7"},
 			{From: "n7", To: "n8"},
 		},
@@ -832,9 +896,10 @@ func TestStage5RenderOmitsBridgeDriverTargetsFromDisplayTargets(t *testing.T) {
 				Level:    "branch",
 				Priority: 4,
 				Thesis:   "政策切换开启金融抑制",
-				NodeIDs:  []string{"n1", "n6"},
+				NodeIDs:  []string{"n1", "n2", "n6"},
 				Edges: []PreviewEdge{
-					{From: "n1", To: "n6"},
+					{From: "n1", To: "n2"},
+					{From: "n2", To: "n6"},
 				},
 				Scope: "section",
 			},
@@ -864,12 +929,6 @@ func TestStage5RenderOmitsBridgeDriverTargetsFromDisplayTargets(t *testing.T) {
 	if !containsString(out.Drivers, "沃什上任概率上升") {
 		t.Fatalf("Drivers = %#v, want upstream source driver retained", out.Drivers)
 	}
-	if containsString(out.Targets, "金融抑制启动") {
-		t.Fatalf("Targets = %#v, want bridge driver-target omitted from display targets", out.Targets)
-	}
-	if containsString(out.Targets, "金融抑制正式开启") {
-		t.Fatalf("Targets = %#v, want process-state target omitted from display targets", out.Targets)
-	}
 	if containsString(out.Targets, "金融抑制的核心机制是维持负实际利率") || containsString(out.Targets, "金融抑制通过存款利率上限与资本管制锁定资金购买国债") {
 		t.Fatalf("Targets = %#v, want mechanism-definition targets omitted from display targets", out.Targets)
 	}
@@ -879,9 +938,30 @@ func TestStage5RenderOmitsBridgeDriverTargetsFromDisplayTargets(t *testing.T) {
 	if !containsString(out.Targets, "债券收益承压") {
 		t.Fatalf("Targets = %#v, want branch terminal target retained", out.Targets)
 	}
+	if containsString(out.Targets, "金融抑制启动") {
+		t.Fatalf("Targets = %#v, want bridge financial repression conclusion omitted from display targets", out.Targets)
+	}
+	if containsString(out.Targets, "金融抑制正式开启") {
+		t.Fatalf("Targets = %#v, want process-state financial repression conclusion omitted from display targets", out.Targets)
+	}
+	if !hasTransmissionPath(out.TransmissionPaths, "沃什上任概率上升", "金融抑制启动") {
+		t.Fatalf("TransmissionPaths = %#v, want evidence path into financial repression bridge conclusion", out.TransmissionPaths)
+	}
+	if !hasTransmissionPath(out.TransmissionPaths, "沃什上任概率上升", "金融抑制正式开启") {
+		t.Fatalf("TransmissionPaths = %#v, want evidence path into financial repression launch conclusion", out.TransmissionPaths)
+	}
 	if len(out.TransmissionPaths) != 5 {
 		t.Fatalf("TransmissionPaths = %#v, want both spine paths retained", out.TransmissionPaths)
 	}
+}
+
+func hasTransmissionPath(paths []compile.TransmissionPath, driver, target string) bool {
+	for _, path := range paths {
+		if path.Driver == driver && path.Target == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestInferSpineFamilyDoesNotTreatWarshAsWar(t *testing.T) {

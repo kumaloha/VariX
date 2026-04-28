@@ -598,6 +598,7 @@ func toPreviewGraph(state graphState) PreviewGraph {
 		out.Edges = append(out.Edges, PreviewEdge{
 			From:        edge.From,
 			To:          edge.To,
+			Kind:        edge.Kind,
 			SourceQuote: edge.SourceQuote,
 			Reason:      edge.Reason,
 		})
