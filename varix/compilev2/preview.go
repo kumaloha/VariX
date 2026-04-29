@@ -16,25 +16,26 @@ type FlowPreviewOptions struct {
 }
 
 type FlowPreviewResult struct {
-	Platform    string           `json:"platform"`
-	ExternalID  string           `json:"external_id"`
-	URL         string           `json:"url"`
-	ArticleForm string           `json:"article_form,omitempty"`
-	Extract     PreviewGraph     `json:"extract"`
-	Refine      PreviewGraph     `json:"refine"`
-	Aggregate   PreviewGraph     `json:"aggregate"`
-	Support     PreviewGraph     `json:"support"`
-	Cluster     PreviewGraph     `json:"cluster"`
-	Supplement  PreviewGraph     `json:"supplement"`
-	Collapse    PreviewGraph     `json:"collapse"`
-	Evidence    PreviewGraph     `json:"evidence"`
-	Explanation PreviewGraph     `json:"explanation"`
-	Relations   PreviewGraph     `json:"relations"`
-	Spines      []PreviewSpine   `json:"spines,omitempty"`
-	Classify    PreviewGraph     `json:"classify"`
-	Validate    PreviewGraph     `json:"validate,omitempty"`
-	Render      compile.Output   `json:"render"`
-	Metrics     map[string]int64 `json:"metrics"`
+	Platform         string                    `json:"platform"`
+	ExternalID       string                    `json:"external_id"`
+	URL              string                    `json:"url"`
+	ArticleForm      string                    `json:"article_form,omitempty"`
+	Extract          PreviewGraph              `json:"extract"`
+	Refine           PreviewGraph              `json:"refine"`
+	Aggregate        PreviewGraph              `json:"aggregate"`
+	Support          PreviewGraph              `json:"support"`
+	Cluster          PreviewGraph              `json:"cluster"`
+	Supplement       PreviewGraph              `json:"supplement"`
+	Collapse         PreviewGraph              `json:"collapse"`
+	Evidence         PreviewGraph              `json:"evidence"`
+	Explanation      PreviewGraph              `json:"explanation"`
+	Relations        PreviewGraph              `json:"relations"`
+	Spines           []PreviewSpine            `json:"spines,omitempty"`
+	Classify         PreviewGraph              `json:"classify"`
+	Validate         PreviewGraph              `json:"validate,omitempty"`
+	Render           compile.Output            `json:"render"`
+	AuthorValidation *compile.AuthorValidation `json:"author_validation,omitempty"`
+	Metrics          map[string]int64          `json:"metrics"`
 }
 
 type PreviewGraph struct {

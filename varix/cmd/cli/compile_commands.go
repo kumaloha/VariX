@@ -316,8 +316,8 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 	fs.SetOutput(stderr)
 	sourceRunIDsRaw := fs.String("source-run-ids", "", "comma-separated compile preview run ids to validate")
 	workers := fs.Int("workers", 5, "parallel workers")
-	rounds := fs.Int("rounds", 1, "validate rounds")
-	paragraphLimit := fs.Int("paragraph-limit", 0, "paragraphs to validate per item; 0 means all")
+	rounds := fs.Int("rounds", 1, "deprecated graph-audit rounds; ignored by author validation")
+	paragraphLimit := fs.Int("paragraph-limit", 0, "deprecated graph-audit paragraph limit; ignored by author validation")
 	itemTimeout := fs.Duration("item-timeout", 30*time.Minute, "per-sample validate timeout")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -363,9 +363,12 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 		return 1
 	}
 
-	scope := "validate:" + joinInt64s(sourceRunIDs)
+	_ = rounds
+	_ = paragraphLimit
+
+	scope := "author-validate:" + joinInt64s(sourceRunIDs)
 	runID, err := store.CreateCompilePreviewRun(ctx, contentstore.CompilePreviewRun{
-		Pipeline:               "v2-validate",
+		Pipeline:               "v2-author-validate",
 		SampleScope:            scope,
 		SampleCount:            len(sourceItems),
 		WorkerCount:            *workers,
@@ -435,7 +438,7 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 			}
 			itemCtx, cancel := context.WithTimeout(context.Background(), *itemTimeout)
 			defer cancel()
-			result, err := client.ValidatePreviewResult(itemCtx, c.BuildBundle(raw), sourceResult, *rounds, *paragraphLimit)
+			result, err := client.AuthorValidatePreviewResult(itemCtx, c.BuildBundle(raw), sourceResult)
 			item.FinishedAt = currentUTC().Format(time.RFC3339)
 			if err != nil {
 				item.Status = "failed"
@@ -465,7 +468,7 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 			item.RelationsNodes = len(result.Relations.Nodes)
 			item.RelationsEdges = len(result.Relations.Edges)
 			item.ClassifyTargets = len(previewTargetNodesForCLI(result.Classify.Nodes))
-			item.ValidateTargets = len(previewTargetNodesForCLI(result.Validate.Nodes))
+			item.ValidateTargets = len(result.Render.AuthorValidation.ClaimChecks)
 			item.RenderDrivers = len(result.Render.Drivers)
 			item.RenderTargets = len(result.Render.Targets)
 			item.RenderPaths = len(result.Render.TransmissionPaths)
@@ -494,7 +497,7 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 	sort.Strings(failedSamples)
 	return writeJSON(stdout, stderr, compileBatchRunSummary{
 		RunID:         runID,
-		Pipeline:      "v2-validate",
+		Pipeline:      "v2-author-validate",
 		SampleScope:   scope,
 		SampleCount:   len(sourceItems),
 		WorkerCount:   *workers,
@@ -1013,19 +1016,21 @@ type compileCardProjection struct {
 	Explanations        []string
 	LogicChains         []string
 	VerificationSummary []string
+	AuthorValidation    []string
 }
 
 func buildCompileCardProjection(record c.Record, subgraph *graphmodel.ContentSubgraph) compileCardProjection {
 	projection := compileCardProjection{
-		Summary:      record.Output.Summary,
-		Topics:       cloneStringSlice(record.Output.Topics),
-		Confidence:   record.Output.Confidence,
-		Drivers:      cloneStringSlice(record.Output.Drivers),
-		Targets:      cloneStringSlice(record.Output.Targets),
-		Branches:     cloneBranches(record.Output.Branches),
-		Evidence:     cloneStringSlice(record.Output.EvidenceNodes),
-		Explanations: cloneStringSlice(record.Output.ExplanationNodes),
-		LogicChains:  legacyLogicChains(record),
+		Summary:          record.Output.Summary,
+		Topics:           cloneStringSlice(record.Output.Topics),
+		Confidence:       record.Output.Confidence,
+		Drivers:          cloneStringSlice(record.Output.Drivers),
+		Targets:          cloneStringSlice(record.Output.Targets),
+		Branches:         cloneBranches(record.Output.Branches),
+		Evidence:         cloneStringSlice(record.Output.EvidenceNodes),
+		Explanations:     cloneStringSlice(record.Output.ExplanationNodes),
+		LogicChains:      legacyLogicChains(record),
+		AuthorValidation: authorValidationSummaryLines(record.Output.AuthorValidation),
 	}
 	if subgraph == nil {
 		return projection
@@ -1080,6 +1085,13 @@ func formatCompileCard(projection compileCardProjection) string {
 		}
 		b.WriteString("\n")
 	}
+	if len(projection.AuthorValidation) > 0 {
+		fmt.Fprintf(&b, "Author validation\n")
+		for _, line := range projection.AuthorValidation {
+			fmt.Fprintf(&b, "- %s\n", line)
+		}
+		b.WriteString("\n")
+	}
 	fmt.Fprintf(&b, "Confidence\n%s\n", projection.Confidence)
 	return b.String()
 }
@@ -1095,8 +1107,58 @@ func formatCompactCompileCard(projection compileCardProjection) string {
 	if len(projection.LogicChains) > 0 {
 		fmt.Fprintf(&b, "Main logic\n- %s\n\n", projection.LogicChains[0])
 	}
+	if len(projection.AuthorValidation) > 0 {
+		fmt.Fprintf(&b, "Author validation\n")
+		for _, line := range truncateList(projection.AuthorValidation, 3) {
+			fmt.Fprintf(&b, "- %s\n", line)
+		}
+		b.WriteString("\n")
+	}
 	fmt.Fprintf(&b, "Confidence\n%s\n", projection.Confidence)
 	return b.String()
+}
+
+func authorValidationSummaryLines(validation c.AuthorValidation) []string {
+	if validation.IsZero() {
+		return nil
+	}
+	summary := validation.Summary
+	lines := []string{
+		"Verdict: " + firstNonEmpty(summary.Verdict, "insufficient_evidence"),
+		fmt.Sprintf("Claims: supported %d, contradicted %d, unverified %d, interpretive %d", summary.SupportedClaims, summary.ContradictedClaims, summary.UnverifiedClaims, summary.InterpretiveClaims),
+		fmt.Sprintf("Inferences: sound %d, weak %d, unsupported %d", summary.SoundInferences, summary.WeakInferences, summary.UnsupportedInferences),
+	}
+	if summary.NotAuthorClaims > 0 || summary.NotAuthorInferences > 0 {
+		lines = append(lines, fmt.Sprintf("Not author claims/inferences: %d/%d", summary.NotAuthorClaims, summary.NotAuthorInferences))
+	}
+	for _, check := range validation.ClaimChecks {
+		if check.Status != c.AuthorClaimContradicted && check.Status != c.AuthorClaimUnverified && check.Status != c.AuthorClaimNotAuthorClaim {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("Claim %s: %s", truncate(check.Text, 42), check.Status))
+		if len(lines) >= 6 {
+			break
+		}
+	}
+	for _, check := range validation.InferenceChecks {
+		if check.Status != c.AuthorInferenceWeak && check.Status != c.AuthorInferenceUnsupportedJump && check.Status != c.AuthorInferenceNotAuthorInference {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("Path %s -> %s: %s", truncate(check.From, 24), truncate(check.To, 24), check.Status))
+		if len(lines) >= 6 {
+			break
+		}
+	}
+	return lines
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func writeBranchSection(b *strings.Builder, branches []c.Branch, limit int) {

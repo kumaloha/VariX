@@ -106,6 +106,7 @@ func marshalStoredCompileRecord(record compile.Record) ([]byte, error) {
 		Details            compile.HiddenDetails      `json:"details,omitempty"`
 		Topics             []string                   `json:"topics,omitempty"`
 		Confidence         string                     `json:"confidence,omitempty"`
+		AuthorValidation   compile.AuthorValidation   `json:"author_validation,omitempty"`
 	}
 	type storedRecord struct {
 		UnitID         string                `json:"unit_id"`
@@ -137,6 +138,7 @@ func marshalStoredCompileRecord(record compile.Record) ([]byte, error) {
 			Details:            record.Output.Details,
 			Topics:             record.Output.Topics,
 			Confidence:         record.Output.Confidence,
+			AuthorValidation:   record.Output.AuthorValidation,
 		},
 		CompiledAt: record.CompiledAt,
 	})

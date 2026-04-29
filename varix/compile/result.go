@@ -317,6 +317,76 @@ type Branch struct {
 	TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
 }
 
+type AuthorClaimStatus string
+
+const (
+	AuthorClaimSupported      AuthorClaimStatus = "supported"
+	AuthorClaimContradicted   AuthorClaimStatus = "contradicted"
+	AuthorClaimUnverified     AuthorClaimStatus = "unverified"
+	AuthorClaimInterpretive   AuthorClaimStatus = "interpretive"
+	AuthorClaimNotAuthorClaim AuthorClaimStatus = "not_author_claim"
+)
+
+type AuthorClaimCheck struct {
+	ClaimID   string            `json:"claim_id"`
+	Text      string            `json:"text"`
+	ClaimType string            `json:"claim_type,omitempty"`
+	Status    AuthorClaimStatus `json:"status"`
+	Evidence  []string          `json:"evidence,omitempty"`
+	Reason    string            `json:"reason,omitempty"`
+}
+
+type AuthorInferenceStatus string
+
+const (
+	AuthorInferenceSound              AuthorInferenceStatus = "sound"
+	AuthorInferenceWeak               AuthorInferenceStatus = "weak"
+	AuthorInferenceUnsupportedJump    AuthorInferenceStatus = "unsupported_jump"
+	AuthorInferenceNotAuthorInference AuthorInferenceStatus = "not_author_inference"
+)
+
+type AuthorInferenceCheck struct {
+	InferenceID  string                `json:"inference_id"`
+	From         string                `json:"from"`
+	To           string                `json:"to"`
+	Steps        []string              `json:"steps,omitempty"`
+	Status       AuthorInferenceStatus `json:"status"`
+	Evidence     []string              `json:"evidence,omitempty"`
+	Reason       string                `json:"reason,omitempty"`
+	MissingLinks []string              `json:"missing_links,omitempty"`
+}
+
+type AuthorValidationSummary struct {
+	Verdict               string `json:"verdict,omitempty"`
+	SupportedClaims       int    `json:"supported_claims,omitempty"`
+	ContradictedClaims    int    `json:"contradicted_claims,omitempty"`
+	UnverifiedClaims      int    `json:"unverified_claims,omitempty"`
+	InterpretiveClaims    int    `json:"interpretive_claims,omitempty"`
+	NotAuthorClaims       int    `json:"not_author_claims,omitempty"`
+	SoundInferences       int    `json:"sound_inferences,omitempty"`
+	WeakInferences        int    `json:"weak_inferences,omitempty"`
+	UnsupportedInferences int    `json:"unsupported_inferences,omitempty"`
+	NotAuthorInferences   int    `json:"not_author_inferences,omitempty"`
+}
+
+type AuthorValidation struct {
+	ValidatedAt     time.Time               `json:"validated_at,omitempty"`
+	Model           string                  `json:"model,omitempty"`
+	Version         string                  `json:"version,omitempty"`
+	Summary         AuthorValidationSummary `json:"summary,omitempty"`
+	ClaimChecks     []AuthorClaimCheck      `json:"claim_checks,omitempty"`
+	InferenceChecks []AuthorInferenceCheck  `json:"inference_checks,omitempty"`
+}
+
+func (v AuthorValidation) IsZero() bool {
+	return v.ValidatedAt.IsZero() &&
+		v.Model == "" &&
+		v.Version == "" &&
+		v.Summary == (AuthorValidationSummary{}) &&
+		len(v.ClaimChecks) == 0 &&
+		len(v.InferenceChecks) == 0
+}
+
 type HiddenDetails struct {
 	QuoteHighlights     []string         `json:"quote_highlights,omitempty"`
 	ReferenceHighlights []string         `json:"reference_highlights,omitempty"`
@@ -533,6 +603,7 @@ type Output struct {
 	Topics             []string           `json:"topics,omitempty"`
 	Confidence         string             `json:"confidence,omitempty"`
 	Verification       Verification       `json:"verification,omitempty"`
+	AuthorValidation   AuthorValidation   `json:"author_validation,omitempty"`
 }
 
 func (o Output) MarshalJSON() ([]byte, error) {
@@ -549,10 +620,15 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		Topics             []string           `json:"topics,omitempty"`
 		Confidence         string             `json:"confidence,omitempty"`
 		Verification       *Verification      `json:"verification,omitempty"`
+		AuthorValidation   *AuthorValidation  `json:"author_validation,omitempty"`
 	}
 	var verification *Verification
 	if !o.Verification.IsZero() {
 		verification = &o.Verification
+	}
+	var authorValidation *AuthorValidation
+	if !o.AuthorValidation.IsZero() {
+		authorValidation = &o.AuthorValidation
 	}
 	return json.Marshal(publicOutput{
 		Summary:            o.Summary,
@@ -567,6 +643,7 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		Topics:             o.Topics,
 		Confidence:         o.Confidence,
 		Verification:       verification,
+		AuthorValidation:   authorValidation,
 	})
 }
 

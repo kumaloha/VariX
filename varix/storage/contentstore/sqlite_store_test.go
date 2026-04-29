@@ -241,6 +241,18 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 			Details:    compile.HiddenDetails{Caveats: []string{"detail"}},
 			Topics:     []string{"topic-a"},
 			Confidence: "medium",
+			AuthorValidation: compile.AuthorValidation{
+				Version: "author_validate_v1",
+				Summary: compile.AuthorValidationSummary{
+					Verdict:         "mixed",
+					SupportedClaims: 1,
+				},
+				ClaimChecks: []compile.AuthorClaimCheck{{
+					ClaimID: "claim-001",
+					Text:    "driver",
+					Status:  compile.AuthorClaimSupported,
+				}},
+			},
 		},
 		CompiledAt: time.Now().UTC(),
 	}
@@ -275,6 +287,9 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 	}
 	if len(got.Output.Branches[0].TransmissionPaths) != 1 || got.Output.Branches[0].TransmissionPaths[0].Target != "target" {
 		t.Fatalf("Branch transmission paths = %#v", got.Output.Branches[0].TransmissionPaths)
+	}
+	if got.Output.AuthorValidation.Summary.Verdict != "mixed" || len(got.Output.AuthorValidation.ClaimChecks) != 1 {
+		t.Fatalf("AuthorValidation = %#v, want persisted author validation", got.Output.AuthorValidation)
 	}
 }
 
