@@ -67,7 +67,7 @@ Rules:
 - Risk-list articles should usually produce several branch spines, not one forced chain.
 - If there is one dominant article-level argument, mark it primary. If the article also derives concrete investment implications from that argument, add those as branch spines that start from the relevant thesis/mechanism or clearly state their investment-implication scope. Do not collapse a "main article narrative + investment implication" article into only one spine when the investment implication is a major part of the author's argument.
 - For evidence-backed forecast articles, an acceptable primary spine is: research/policy/history evidence -> inferred regime thesis -> market or investment implication. Use `kind=inference` into the forecast thesis and `kind=causal` from the forecast thesis into downstream consequences.
-- For satirical analogy articles, an acceptable primary spine is: compressed satire vehicle/allegory -> mapped institutional mechanism -> implied critique or real-world implication. Use `kind=illustration` from the vehicle into the real mechanism, then `kind=causal` or `kind=inference` from the real mechanism into consequences. The economic driver is the mapped mechanism, not the fictional actor. Do not emit a long chain of game/accounting setup steps when a normal reader would need the compressed critique.
+- For satirical analogy articles, an acceptable primary spine is: compressed satire vehicle/allegory -> mapped institutional mechanism -> implied critique or real-world implication. Use `kind=illustration` from the vehicle into the real mechanism, then `kind=causal` or `kind=inference` from the real mechanism into consequences. The economic driver is the mapped mechanism, not the fictional actor. Do not emit a long chain of game/accounting setup steps when a normal reader would need the compressed critique; preserve the benefit/loss allocation when the satire explains who benefits and who bears costs.
 - Mixed articles may contain multiple spine policies at once. Preserve the dominant article-level spine as primary, but allow causal_mechanism, forecast_inference, investment_implication, concept_explanation, risk_family, and satirical_analogy branch spines side by side when the article truly uses those structures.
 - If the article is a list, portfolio, or multi-topic explainer, use branch/local spines without forcing a primary spine.
 - For long-form essays, use at most one primary spine unless the article truly has two independent article-level theses. Additional sections, cases, historical episodes, and investment takeaways should usually be branch or local spines.
@@ -180,7 +180,7 @@ Input:
 - Article section: "A lucky game collects money, uses insiders as early winners, creates a buying frenzy, and then says real scams test risk recognition rather than IQ."
 Expected:
 - Do not output a spine like game rule -> bank loan -> fund receives principal -> insiders win -> frenzy -> real scam.
-- Use one compressed satire spine such as: lucky-game allegory -> unfair mechanism packaged as fair and promoted by insiders -> real scams test risk recognition.
+- Use one compressed satire spine such as: lucky-game allegory -> insiders/organizers benefit while later participants bear costs -> real scams test risk recognition.
 - Keep loan, interest, and lottery arithmetic as source_quote/evidence for the illustration edge, not as separate mainline nodes unless the article explicitly maps each detail to a distinct real-world mechanism.
 
 Return JSON only:

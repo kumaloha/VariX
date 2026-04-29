@@ -411,6 +411,9 @@ func satiricalVehicleLabel(labels map[string]string, spine PreviewSpine) (string
 }
 
 func satiricalMechanismLabel(labels map[string]string, spine PreviewSpine) string {
+	if label := satiricalBenefitLossLabel(labels, spine); label != "" {
+		return "映射机制：" + compactPreviewLabel(label, 42)
+	}
 	for _, markerSet := range [][]string{
 		{"包装", "公平"},
 		{"内部", "赢家"},
@@ -424,6 +427,41 @@ func satiricalMechanismLabel(labels map[string]string, spine PreviewSpine) strin
 		}
 	}
 	return ""
+}
+
+func satiricalBenefitLossLabel(labels map[string]string, spine PreviewSpine) string {
+	best := ""
+	bestScore := -1
+	for _, id := range spine.NodeIDs {
+		label := strings.TrimSpace(labels[id])
+		if label == "" {
+			continue
+		}
+		if containsAnyText(label, []string{"受益", "赚", "收益", "赢家"}) &&
+			containsAnyText(label, []string{"后75", "75%", "净亏", "承担", "损失", "成本", "买单"}) {
+			score := satiricalBenefitLossScore(label)
+			if score > bestScore {
+				best = label
+				bestScore = score
+			}
+		}
+	}
+	return best
+}
+
+func satiricalBenefitLossScore(label string) int {
+	score := 0
+	for _, marker := range []string{"受益", "净亏", "损失", "承担", "成本", "买单", "管理费", "手续费", "本金", "转移"} {
+		if strings.Contains(label, marker) {
+			score += 3
+		}
+	}
+	for _, marker := range []string{"前25", "25%", "后75", "75%", "赢家"} {
+		if strings.Contains(label, marker) {
+			score++
+		}
+	}
+	return score
 }
 
 func satiricalConclusionLabel(labels map[string]string, spine PreviewSpine) string {
