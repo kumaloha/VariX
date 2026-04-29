@@ -2358,6 +2358,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 	}
 	branches := renderBranchesFromSpines(state.Spines, paths, cn)
 	evidence, explanation, supplementary := renderOffGraph(state.OffGraph, cn)
+	detailItems := renderOffGraphDetails(state.OffGraph, cn)
 	evidence = dedupeStrings(append(evidence, renderSpineIllustrations(state, cn)...))
 	summary, err := summarizeChinese(ctx, rt, model, state.ArticleForm, driversOut, targetsOut, transmission, bundle)
 	if err != nil {
@@ -2411,7 +2412,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 		ExplanationNodes:   explanation,
 		SupplementaryNodes: supplementary,
 		Graph:              graph,
-		Details:            compile.HiddenDetails{Caveats: []string{"compile v2 mvp"}},
+		Details:            compile.HiddenDetails{Caveats: []string{"compile v2 mvp"}, Items: detailItems},
 		Topics:             nil,
 		Confidence:         confidenceFromState(driversOut, targetsOut, transmission),
 	}, nil
@@ -4333,6 +4334,47 @@ func renderOffGraph(items []offGraphItem, cn func(id, fallback string) string) (
 		}
 	}
 	return
+}
+
+func renderOffGraphDetails(items []offGraphItem, cn func(id, fallback string) string) []map[string]any {
+	details := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		text := strings.TrimSpace(cn(item.ID, item.Text))
+		if text == "" {
+			continue
+		}
+		entry := map[string]any{
+			"kind":        authorClaimKindForOffGraphRole(item.Role),
+			"text":        text,
+			"source":      "off_graph",
+			"source_text": strings.TrimSpace(item.Text),
+		}
+		if id := strings.TrimSpace(item.ID); id != "" {
+			entry["source_id"] = id
+		}
+		if role := strings.TrimSpace(item.Role); role != "" {
+			entry["role"] = role
+		}
+		if attach := strings.TrimSpace(item.AttachesTo); attach != "" {
+			entry["attaches_to"] = attach
+		}
+		if quote := strings.TrimSpace(item.SourceQuote); quote != "" {
+			entry["source_quote"] = quote
+		}
+		details = append(details, entry)
+	}
+	return details
+}
+
+func authorClaimKindForOffGraphRole(role string) string {
+	switch strings.TrimSpace(role) {
+	case "evidence", "inference":
+		return "proof_point"
+	case "explanation":
+		return "explanation"
+	default:
+		return "supplementary_proof"
+	}
 }
 
 func pruneDanglingEdges(state graphState) graphState {

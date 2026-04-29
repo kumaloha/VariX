@@ -13,10 +13,15 @@ import (
 const authorValidationVersion = "author_validate_v1"
 
 type authorClaimCandidate struct {
-	ClaimID string `json:"claim_id"`
-	Kind    string `json:"kind"`
-	Text    string `json:"text"`
-	Branch  string `json:"branch,omitempty"`
+	ClaimID     string `json:"claim_id"`
+	Kind        string `json:"kind"`
+	Text        string `json:"text"`
+	Branch      string `json:"branch,omitempty"`
+	SourceText  string `json:"source_text,omitempty"`
+	SourceQuote string `json:"source_quote,omitempty"`
+	Role        string `json:"role,omitempty"`
+	AttachesTo  string `json:"attaches_to,omitempty"`
+	Context     string `json:"context,omitempty"`
 }
 
 type authorInferenceCandidate struct {
@@ -115,6 +120,7 @@ Validate ONLY what the author claims, uses as proof, or implies. Do not critique
 
 For each claim candidate:
 - If the source text does not show the author making the claim, use status "not_author_claim". This is not an author fault.
+- When source_text/source_quote/context is present, use it as provenance for the candidate. If it contradicts the compressed candidate wording, flag the candidate or subclaim as contradicted/not_author_claim rather than repairing it into a different supported claim.
 - If it is an objective factual/numeric claim and available evidence supports it, use "supported".
 - If available evidence contradicts it, use "contradicted".
 - If it is objective but cannot be verified from the source/search context, use "unverified".
@@ -123,6 +129,7 @@ For each claim candidate:
 - Split compound proof points into subclaims before judging. Example: "NVL72 has 5000+ copper cables and weighs 1.36 tons" must become separate subclaims for cable count and rack/cable weight.
 - For every numeric subclaim, normalize units and compare against evidence ranges. Example: 100 weeks is about 23 months; evidence of 18-36 months supports it.
 - Check attribution/object scope. Example: if 1.36 tons is rack weight, do not treat it as copper-cable weight.
+- Preserve the candidate's subject when validating. If the evidence supports "rack weight" but the candidate says "copper-cable weight", set attribution_ok=false and do not silently rewrite the subject.
 - If a precise number is not public but the direction is supported, mark the subclaim "unverified" and say it may require a paid or specialist source; do not call it false unless contradicted.
 
 For each inference candidate:
@@ -182,10 +189,14 @@ Return strict JSON only:
 func collectAuthorClaimCandidates(out compile.Output) []authorClaimCandidate {
 	candidates := make([]authorClaimCandidate, 0)
 	seen := map[string]struct{}{}
-	add := func(kind, text, branch string) {
+	provenance := authorClaimProvenanceByKey(out.Details.Items)
+	add := func(kind, text, branch string, item map[string]any) {
 		text = strings.TrimSpace(text)
 		if text == "" {
 			return
+		}
+		if item == nil {
+			item = provenance[authorClaimProvenanceKey(kind, text)]
 		}
 		key := kind + "\x00" + branch + "\x00" + text
 		if _, ok := seen[key]; ok {
@@ -199,42 +210,108 @@ func collectAuthorClaimCandidates(out compile.Output) []authorClaimCandidate {
 			Text:    text,
 			Branch:  strings.TrimSpace(branch),
 		})
+		applyAuthorClaimProvenance(&candidates[len(candidates)-1], item)
 	}
 	for _, value := range out.Drivers {
-		add("driver", value, "")
+		add("driver", value, "", nil)
 	}
 	for _, value := range out.Targets {
-		add("target", value, "")
+		add("target", value, "", nil)
 	}
 	for _, value := range out.EvidenceNodes {
-		add("proof_point", value, "")
+		add("proof_point", value, "", nil)
 	}
 	for _, value := range out.ExplanationNodes {
-		add("explanation", value, "")
+		add("explanation", value, "", nil)
 	}
 	for _, value := range out.SupplementaryNodes {
-		add("supplementary_proof", value, "")
+		add("supplementary_proof", value, "", nil)
 	}
 	for _, value := range out.Details.QuoteHighlights {
-		add("source_quote", value, "")
+		add("source_quote", value, "", nil)
 	}
 	for _, value := range out.Details.ReferenceHighlights {
-		add("reference_proof", value, "")
+		add("reference_proof", value, "", nil)
+	}
+	for _, item := range out.Details.Items {
+		kind := hiddenDetailString(item, "kind")
+		if !isAuthorClaimDetailKind(kind) {
+			continue
+		}
+		add(kind, hiddenDetailString(item, "text"), hiddenDetailString(item, "branch"), item)
 	}
 	for _, branch := range out.Branches {
 		branchID := firstTrimmed(branch.ID, branch.Thesis)
-		add("branch_thesis", branch.Thesis, branchID)
+		add("branch_thesis", branch.Thesis, branchID, nil)
 		for _, value := range branch.Anchors {
-			add("branch_anchor", value, branchID)
+			add("branch_anchor", value, branchID, nil)
 		}
 		for _, value := range branch.BranchDrivers {
-			add("branch_driver", value, branchID)
+			add("branch_driver", value, branchID, nil)
 		}
 		for _, value := range branch.Targets {
-			add("branch_target", value, branchID)
+			add("branch_target", value, branchID, nil)
 		}
 	}
 	return candidates
+}
+
+func authorClaimProvenanceByKey(items []map[string]any) map[string]map[string]any {
+	out := make(map[string]map[string]any, len(items))
+	for _, item := range items {
+		kind := hiddenDetailString(item, "kind")
+		if !isAuthorClaimDetailKind(kind) {
+			continue
+		}
+		text := hiddenDetailString(item, "text")
+		if text == "" {
+			continue
+		}
+		out[authorClaimProvenanceKey(kind, text)] = item
+	}
+	return out
+}
+
+func authorClaimProvenanceKey(kind, text string) string {
+	return strings.TrimSpace(kind) + "\x00" + strings.TrimSpace(text)
+}
+
+func isAuthorClaimDetailKind(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "proof_point", "explanation", "supplementary_proof", "source_quote", "reference_proof":
+		return true
+	default:
+		return false
+	}
+}
+
+func applyAuthorClaimProvenance(candidate *authorClaimCandidate, item map[string]any) {
+	if candidate == nil || item == nil {
+		return
+	}
+	candidate.SourceText = hiddenDetailString(item, "source_text")
+	candidate.SourceQuote = hiddenDetailString(item, "source_quote")
+	candidate.Role = hiddenDetailString(item, "role")
+	candidate.AttachesTo = hiddenDetailString(item, "attaches_to")
+	candidate.Context = hiddenDetailString(item, "context")
+}
+
+func hiddenDetailString(item map[string]any, key string) string {
+	if item == nil {
+		return ""
+	}
+	value, ok := item[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case fmt.Stringer:
+		return strings.TrimSpace(typed.String())
+	default:
+		return ""
+	}
 }
 
 func collectAuthorInferenceCandidates(out compile.Output) []authorInferenceCandidate {

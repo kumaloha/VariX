@@ -40,6 +40,13 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 			Details: compile.HiddenDetails{
 				QuoteHighlights:     []string{"The bank cut rates by 25 bps"},
 				ReferenceHighlights: []string{"Central bank release"},
+				Items: []map[string]any{{
+					"kind":         "proof_point",
+					"text":         "Policy rate declined by 25 bps",
+					"source_text":  "Policy rate declined by 25 bps",
+					"source_quote": "The bank cut rates by 25 bps",
+					"role":         "evidence",
+				}},
 			},
 			TransmissionPaths: []compile.TransmissionPath{{Driver: "Rates fall", Steps: []string{"Liquidity improves"}, Target: "Stocks will rise"}},
 		},
@@ -84,10 +91,65 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 			t.Fatalf("user prompt missing proof candidate kind %q: %s", want, userPrompt)
 		}
 	}
-	for _, want := range []string{"Split compound proof points", "normalize units", "range_covered", "attribution_ok"} {
+	if !strings.Contains(userPrompt, `"source_quote": "The bank cut rates by 25 bps"`) {
+		t.Fatalf("user prompt missing proof provenance source_quote: %s", userPrompt)
+	}
+	for _, want := range []string{"Split compound proof points", "normalize units", "range_covered", "attribution_ok", "do not silently rewrite the subject"} {
 		if !strings.Contains(req.System, want) {
 			t.Fatalf("system prompt missing %q: %s", want, req.System)
 		}
+	}
+}
+
+func TestCollectAuthorClaimCandidatesCarriesProofProvenance(t *testing.T) {
+	claims := collectAuthorClaimCandidates(compile.Output{
+		EvidenceNodes: []string{"NVL72机柜铜缆总重1.36吨"},
+		Details: compile.HiddenDetails{Items: []map[string]any{{
+			"kind":         "proof_point",
+			"text":         "NVL72机柜铜缆总重1.36吨",
+			"source_text":  "NVL72机柜铜缆总重1.36吨",
+			"source_quote": "The GB200 NVL72 rack weighs 1.36 metric tons and uses more than 5000 copper cables.",
+			"role":         "evidence",
+			"attaches_to":  "nvl72",
+		}}},
+	})
+	if len(claims) != 1 {
+		t.Fatalf("claims = %#v, want one proof candidate", claims)
+	}
+	claim := claims[0]
+	if claim.Kind != "proof_point" || claim.Text != "NVL72机柜铜缆总重1.36吨" {
+		t.Fatalf("claim = %#v, want proof point text preserved", claim)
+	}
+	if !strings.Contains(claim.SourceQuote, "rack weighs 1.36 metric tons") {
+		t.Fatalf("source_quote = %q, want rack-weight provenance", claim.SourceQuote)
+	}
+	if claim.Role != "evidence" || claim.AttachesTo != "nvl72" {
+		t.Fatalf("claim provenance = %#v, want role and attaches_to", claim)
+	}
+}
+
+func TestRenderOffGraphDetailsPreservesSourceQuote(t *testing.T) {
+	details := renderOffGraphDetails([]offGraphItem{{
+		ID:          "off1",
+		Text:        "NVL72 copper-cable total weight is 1.36 tons",
+		Role:        "evidence",
+		AttachesTo:  "n1",
+		SourceQuote: "The GB200 NVL72 rack weighs 1.36 metric tons.",
+	}}, func(id, fallback string) string {
+		if id == "off1" {
+			return "NVL72机柜铜缆总重1.36吨"
+		}
+		return fallback
+	})
+	if len(details) != 1 {
+		t.Fatalf("details = %#v, want one item", details)
+	}
+	item := details[0]
+	if item["kind"] != "proof_point" || item["text"] != "NVL72机柜铜缆总重1.36吨" {
+		t.Fatalf("item = %#v, want rendered proof detail", item)
+	}
+	if item["source_quote"] != "The GB200 NVL72 rack weighs 1.36 metric tons." {
+		t.Fatalf("source_quote = %#v, want preserved source quote", item["source_quote"])
 	}
 }
 
