@@ -305,6 +305,16 @@ type TransmissionPath struct {
 	Steps  []string `json:"steps,omitempty"`
 }
 
+type Branch struct {
+	ID                string             `json:"id,omitempty"`
+	Level             string             `json:"level,omitempty"`
+	Policy            string             `json:"policy,omitempty"`
+	Thesis            string             `json:"thesis,omitempty"`
+	Drivers           []string           `json:"drivers,omitempty"`
+	Targets           []string           `json:"targets,omitempty"`
+	TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
+}
+
 type HiddenDetails struct {
 	QuoteHighlights     []string         `json:"quote_highlights,omitempty"`
 	ReferenceHighlights []string         `json:"reference_highlights,omitempty"`
@@ -512,6 +522,7 @@ type Output struct {
 	Drivers            []string           `json:"drivers,omitempty"`
 	Targets            []string           `json:"targets,omitempty"`
 	TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
+	Branches           []Branch           `json:"branches,omitempty"`
 	EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
 	ExplanationNodes   []string           `json:"explanation_nodes,omitempty"`
 	SupplementaryNodes []string           `json:"supplementary_nodes,omitempty"`
@@ -528,6 +539,7 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		Drivers            []string           `json:"drivers,omitempty"`
 		Targets            []string           `json:"targets,omitempty"`
 		TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
+		Branches           []Branch           `json:"branches,omitempty"`
 		EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
 		ExplanationNodes   []string           `json:"explanation_nodes,omitempty"`
 		SupplementaryNodes []string           `json:"supplementary_nodes,omitempty"`
@@ -545,6 +557,7 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		Drivers:            o.Drivers,
 		Targets:            o.Targets,
 		TransmissionPaths:  o.TransmissionPaths,
+		Branches:           o.Branches,
 		EvidenceNodes:      o.EvidenceNodes,
 		ExplanationNodes:   o.ExplanationNodes,
 		SupplementaryNodes: o.SupplementaryNodes,

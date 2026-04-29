@@ -2354,19 +2354,9 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 	}
 	transmission := make([]compile.TransmissionPath, 0, len(paths))
 	for _, p := range paths {
-		steps := make([]string, 0, len(p.steps))
-		for _, s := range p.steps {
-			steps = append(steps, cn(s.ID, s.Text))
-		}
-		if len(steps) == 0 {
-			steps = append(steps, cn(p.driver.ID, p.driver.Text))
-		}
-		transmission = append(transmission, compile.TransmissionPath{
-			Driver: cn(p.driver.ID, p.driver.Text),
-			Target: cn(p.target.ID, p.target.Text),
-			Steps:  steps,
-		})
+		transmission = append(transmission, renderPathToTransmission(p, cn))
 	}
+	branches := renderBranchesFromSpines(state.Spines, paths, cn)
 	evidence, explanation, supplementary := renderOffGraph(state.OffGraph, cn)
 	evidence = dedupeStrings(append(evidence, renderSpineIllustrations(state, cn)...))
 	summary, err := summarizeChinese(ctx, rt, model, state.ArticleForm, driversOut, targetsOut, transmission, bundle)
@@ -2416,6 +2406,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 		Drivers:            driversOut,
 		Targets:            targetsOut,
 		TransmissionPaths:  transmission,
+		Branches:           branches,
 		EvidenceNodes:      evidence,
 		ExplanationNodes:   explanation,
 		SupplementaryNodes: supplementary,
@@ -2424,6 +2415,77 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 		Topics:             nil,
 		Confidence:         confidenceFromState(driversOut, targetsOut, transmission),
 	}, nil
+}
+
+func renderPathToTransmission(path renderedPath, cn func(string, string) string) compile.TransmissionPath {
+	steps := make([]string, 0, len(path.steps))
+	for _, step := range path.steps {
+		steps = append(steps, cn(step.ID, step.Text))
+	}
+	if len(steps) == 0 {
+		steps = append(steps, cn(path.driver.ID, path.driver.Text))
+	}
+	return compile.TransmissionPath{
+		Driver: cn(path.driver.ID, path.driver.Text),
+		Target: cn(path.target.ID, path.target.Text),
+		Steps:  steps,
+	}
+}
+
+func renderBranchesFromSpines(spines []PreviewSpine, paths []renderedPath, cn func(string, string) string) []compile.Branch {
+	if len(spines) == 0 || len(paths) == 0 {
+		return nil
+	}
+	pathsByBranch := map[string][]renderedPath{}
+	for _, path := range paths {
+		branchID := strings.TrimSpace(path.branchID)
+		if branchID == "" {
+			continue
+		}
+		pathsByBranch[branchID] = append(pathsByBranch[branchID], path)
+	}
+	if len(pathsByBranch) == 0 {
+		return nil
+	}
+	out := make([]compile.Branch, 0, len(spines))
+	for _, spine := range spines {
+		branchID := strings.TrimSpace(spine.ID)
+		if branchID == "" {
+			continue
+		}
+		branchPaths := pathsByBranch[branchID]
+		if len(branchPaths) == 0 {
+			continue
+		}
+		branch := compile.Branch{
+			ID:     branchID,
+			Level:  strings.TrimSpace(spine.Level),
+			Policy: normalizePreviewSpinePolicy(spine.Policy),
+			Thesis: strings.TrimSpace(spine.Thesis),
+		}
+		for _, path := range branchPaths {
+			driver := cn(path.driver.ID, path.driver.Text)
+			target := cn(path.target.ID, path.target.Text)
+			branch.Drivers = appendUniqueString(branch.Drivers, driver)
+			branch.Targets = appendUniqueString(branch.Targets, target)
+			branch.TransmissionPaths = append(branch.TransmissionPaths, renderPathToTransmission(path, cn))
+		}
+		out = append(out, branch)
+	}
+	return out
+}
+
+func appendUniqueString(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func filterCyclicRenderPaths(paths []renderedPath) []renderedPath {
@@ -2544,6 +2606,7 @@ func applySatiricalRenderProjection(state graphState, paths []renderedPath) ([]r
 		if !ok {
 			continue
 		}
+		path.branchID = spine.ID
 		projections = append(projections, satiricalProjection{path: path, nodeSet: nodeSet})
 	}
 	if len(projections) == 0 {
@@ -3043,9 +3106,10 @@ func applyValidatePatch(state graphState, patch struct {
 }
 
 type renderedPath struct {
-	driver graphNode
-	target graphNode
-	steps  []graphNode
+	branchID string
+	driver   graphNode
+	target   graphNode
+	steps    []graphNode
 }
 
 func extractSpinePaths(state graphState) []renderedPath {
@@ -3097,7 +3161,7 @@ func extractSpinePaths(state graphState) []renderedPath {
 					}
 				}
 				seen[key] = struct{}{}
-				out = append(out, renderedPath{driver: driver, target: target, steps: steps})
+				out = append(out, renderedPath{branchID: spine.ID, driver: driver, target: target, steps: steps})
 			}
 		}
 	}

@@ -4170,8 +4170,16 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 				Drivers:           []string{"驱动A"},
 				Targets:           []string{"目标B"},
 				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
-				EvidenceNodes:     []string{"证据A"},
-				ExplanationNodes:  []string{"解释B"},
+				Branches: []c.Branch{{
+					ID:                "s1",
+					Level:             "primary",
+					Thesis:            "分支论点",
+					Drivers:           []string{"驱动A"},
+					Targets:           []string{"目标B"},
+					TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
+				}},
+				EvidenceNodes:    []string{"证据A"},
+				ExplanationNodes: []string{"解释B"},
 				Graph: c.ReasoningGraph{
 					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeMechanism, "驱动A"), testGraphNode("n2", c.NodeConclusion, "目标B")},
 					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgePositive}},
@@ -4194,7 +4202,7 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Logic chain", "驱动A -> 中间步骤 -> 目标B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Branches", "分支论点", "驱动A -> 中间步骤 -> 目标B", "Logic chain", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}

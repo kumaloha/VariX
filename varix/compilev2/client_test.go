@@ -961,6 +961,69 @@ func TestStage5RenderProjectsDriverTargetPathsFromSpines(t *testing.T) {
 	}
 }
 
+func TestStage5RenderBuildsBranchLocalRolesFromSpines(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"战争前兆指标"},{"id":"n2","text":"长期世界大战"},{"id":"n3","text":"阵营对立"},{"id":"n4","text":"中俄相对赢家"}]}`},
+		{Text: `{"summary":"战争前兆指标指向长期世界大战，阵营对立使中俄成为相对赢家。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "twitter:branch-render",
+		Source:  "twitter",
+		Content: "Long-form forecast with two branches.",
+	}, graphState{
+		ArticleForm: "evidence_backed_forecast",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "战争前兆指标"},
+			{ID: "n2", Text: "长期世界大战"},
+			{ID: "n3", Text: "阵营对立"},
+			{ID: "n4", Text: "中俄相对赢家"},
+		},
+		Spines: []PreviewSpine{
+			{
+				ID:       "s1",
+				Level:    "primary",
+				Priority: 1,
+				Policy:   "forecast_inference",
+				Thesis:   "战争前兆指标显示长期世界大战",
+				NodeIDs:  []string{"n1", "n2"},
+				Edges:    []PreviewEdge{{From: "n1", To: "n2", Kind: "inference"}},
+				Scope:    "article",
+			},
+			{
+				ID:       "s2",
+				Level:    "branch",
+				Priority: 2,
+				Policy:   "geopolitical_trade_realignment",
+				Thesis:   "阵营对立使中俄相对受益",
+				NodeIDs:  []string{"n3", "n4"},
+				Edges:    []PreviewEdge{{From: "n3", To: "n4", Kind: "causal"}},
+				Scope:    "section",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if len(out.Branches) != 2 {
+		t.Fatalf("Branches = %#v, want two branch-local views", out.Branches)
+	}
+	if len(out.Branches[0].Drivers) != 1 || out.Branches[0].Drivers[0] != "战争前兆指标" {
+		t.Fatalf("primary branch drivers = %#v, want branch-local driver", out.Branches[0].Drivers)
+	}
+	if len(out.Branches[0].Targets) != 1 || out.Branches[0].Targets[0] != "长期世界大战" {
+		t.Fatalf("primary branch targets = %#v, want branch-local target", out.Branches[0].Targets)
+	}
+	if len(out.Branches[0].TransmissionPaths) != 1 || out.Branches[0].TransmissionPaths[0].Driver != "战争前兆指标" || out.Branches[0].TransmissionPaths[0].Target != "长期世界大战" {
+		t.Fatalf("primary branch paths = %#v, want local transmission path", out.Branches[0].TransmissionPaths)
+	}
+	if len(out.Branches[1].Drivers) != 1 || out.Branches[1].Drivers[0] != "阵营对立" {
+		t.Fatalf("second branch drivers = %#v, want branch-local driver", out.Branches[1].Drivers)
+	}
+	if len(out.Branches[1].Targets) != 1 || out.Branches[1].Targets[0] != "中俄相对赢家" {
+		t.Fatalf("second branch targets = %#v, want branch-local target", out.Branches[1].Targets)
+	}
+}
+
 func TestStage5RenderProjectsSatiricalAnalogyFromRealMechanism(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{
 		{Text: `{"translations":[{"id":"n1","text":"村长与新富设计幸运游戏"},{"id":"n2","text":"牌照化金融游戏把资金转移包装成公平规则"},{"id":"n3","text":"多数后续参与者承担机会成本与管理费"}]}`},

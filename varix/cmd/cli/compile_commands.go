@@ -758,6 +758,7 @@ type compileCardProjection struct {
 	Confidence          string
 	Drivers             []string
 	Targets             []string
+	Branches            []c.Branch
 	Evidence            []string
 	Explanations        []string
 	LogicChains         []string
@@ -771,6 +772,7 @@ func buildCompileCardProjection(record c.Record, subgraph *graphmodel.ContentSub
 		Confidence:   record.Output.Confidence,
 		Drivers:      cloneStringSlice(record.Output.Drivers),
 		Targets:      cloneStringSlice(record.Output.Targets),
+		Branches:     cloneBranches(record.Output.Branches),
 		Evidence:     cloneStringSlice(record.Output.EvidenceNodes),
 		Explanations: cloneStringSlice(record.Output.ExplanationNodes),
 		LogicChains:  legacyLogicChains(record),
@@ -813,6 +815,7 @@ func formatCompileCard(projection compileCardProjection) string {
 	writeCompactNodeSection(&b, "Targets", truncateList(projection.Targets, 5))
 	writeCompactNodeSection(&b, "Evidence", truncateList(projection.Evidence, 5))
 	writeCompactNodeSection(&b, "Explanations", truncateList(projection.Explanations, 5))
+	writeBranchSection(&b, projection.Branches, 5)
 	if len(projection.LogicChains) > 0 {
 		fmt.Fprintf(&b, "Logic chain\n")
 		for _, chain := range projection.LogicChains {
@@ -838,11 +841,59 @@ func formatCompactCompileCard(projection compileCardProjection) string {
 	writeCompactNodeSection(&b, "Targets", truncateList(projection.Targets, 3))
 	writeCompactNodeSection(&b, "Evidence", truncateList(projection.Evidence, 3))
 	writeCompactNodeSection(&b, "Explanations", truncateList(projection.Explanations, 2))
+	writeBranchSection(&b, projection.Branches, 2)
 	if len(projection.LogicChains) > 0 {
 		fmt.Fprintf(&b, "Main logic\n- %s\n\n", projection.LogicChains[0])
 	}
 	fmt.Fprintf(&b, "Confidence\n%s\n", projection.Confidence)
 	return b.String()
+}
+
+func writeBranchSection(b *strings.Builder, branches []c.Branch, limit int) {
+	if len(branches) == 0 || limit <= 0 {
+		return
+	}
+	if len(branches) < limit {
+		limit = len(branches)
+	}
+	fmt.Fprintf(b, "Branches\n")
+	for _, branch := range branches[:limit] {
+		label := strings.TrimSpace(branch.Thesis)
+		if label == "" {
+			label = strings.TrimSpace(branch.ID)
+		}
+		if label == "" {
+			label = "branch"
+		}
+		fmt.Fprintf(b, "- %s\n", label)
+		for _, chain := range branchLogicChains(branch) {
+			fmt.Fprintf(b, "  - %s\n", chain)
+		}
+	}
+	b.WriteString("\n")
+}
+
+func branchLogicChains(branch c.Branch) []string {
+	if len(branch.TransmissionPaths) == 0 {
+		return nil
+	}
+	chains := make([]string, 0, len(branch.TransmissionPaths))
+	for _, path := range branch.TransmissionPaths {
+		parts := []string{}
+		if strings.TrimSpace(path.Driver) != "" {
+			parts = append(parts, truncate(path.Driver, 50))
+		}
+		for _, step := range path.Steps {
+			parts = append(parts, truncate(step, 50))
+		}
+		if strings.TrimSpace(path.Target) != "" {
+			parts = append(parts, truncate(path.Target, 50))
+		}
+		if len(parts) > 0 {
+			chains = append(chains, strings.Join(parts, " -> "))
+		}
+	}
+	return chains
 }
 
 func writeCompactNodeSection(b *strings.Builder, title string, items []string) {
@@ -854,6 +905,26 @@ func writeCompactNodeSection(b *strings.Builder, title string, items []string) {
 		fmt.Fprintf(b, "- %s\n", item)
 	}
 	b.WriteString("\n")
+}
+
+func cloneBranches(values []c.Branch) []c.Branch {
+	out := make([]c.Branch, 0, len(values))
+	for _, branch := range values {
+		branch.Drivers = cloneStringSlice(branch.Drivers)
+		branch.Targets = cloneStringSlice(branch.Targets)
+		branch.TransmissionPaths = cloneTransmissionPaths(branch.TransmissionPaths)
+		out = append(out, branch)
+	}
+	return out
+}
+
+func cloneTransmissionPaths(values []c.TransmissionPath) []c.TransmissionPath {
+	out := make([]c.TransmissionPath, 0, len(values))
+	for _, path := range values {
+		path.Steps = cloneStringSlice(path.Steps)
+		out = append(out, path)
+	}
+	return out
 }
 
 func legacyLogicChains(record c.Record) []string {

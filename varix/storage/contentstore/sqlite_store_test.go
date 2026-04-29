@@ -214,7 +214,19 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 		RootExternalID: "100",
 		Model:          "qwen3.6-plus",
 		Output: compile.Output{
-			Summary: "summary text",
+			Summary:           "summary text",
+			Drivers:           []string{"driver"},
+			Targets:           []string{"target"},
+			TransmissionPaths: []compile.TransmissionPath{{Driver: "driver", Target: "target", Steps: []string{"step"}}},
+			Branches: []compile.Branch{{
+				ID:                "s1",
+				Level:             "primary",
+				Policy:            "forecast_inference",
+				Thesis:            "branch thesis",
+				Drivers:           []string{"driver"},
+				Targets:           []string{"target"},
+				TransmissionPaths: []compile.TransmissionPath{{Driver: "driver", Target: "target", Steps: []string{"step"}}},
+			}},
 			Graph: compile.ReasoningGraph{
 				Nodes: []compile.GraphNode{
 					testCompileGraphNode("n1", compile.NodeFact, "fact"),
@@ -246,6 +258,15 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 	}
 	if got.RootExternalID != "100" {
 		t.Fatalf("RootExternalID = %q", got.RootExternalID)
+	}
+	if len(got.Output.Branches) != 1 {
+		t.Fatalf("Branches = %#v, want persisted branch", got.Output.Branches)
+	}
+	if got.Output.Branches[0].Thesis != "branch thesis" {
+		t.Fatalf("Branch thesis = %q", got.Output.Branches[0].Thesis)
+	}
+	if len(got.Output.Branches[0].TransmissionPaths) != 1 || got.Output.Branches[0].TransmissionPaths[0].Target != "target" {
+		t.Fatalf("Branch transmission paths = %#v", got.Output.Branches[0].TransmissionPaths)
 	}
 }
 
