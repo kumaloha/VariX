@@ -77,7 +77,7 @@ func runAuthorValidation(ctx context.Context, rt runtimeChat, model string, bund
 	}
 
 	payload := map[string]any{
-		"task": "Validate only the author's claims, proof points, and reasoning. Do not audit the extraction graph, missing nodes, missing edges, or classification.",
+		"task": "Validate only the rendered author nodes, rendered evidence points, and rendered reasoning paths. Do not audit the extraction graph, missing nodes, missing edges, or classification.",
 		"status_contract": map[string]any{
 			"claim_status": []string{
 				string(compile.AuthorClaimSupported),
@@ -184,8 +184,6 @@ func visibleAuthorProofTexts(out compile.Output) map[string]struct{} {
 		}
 	}
 	add(out.EvidenceNodes)
-	add(out.ExplanationNodes)
-	add(out.SupplementaryNodes)
 	return visible
 }
 
@@ -336,7 +334,11 @@ func collectAuthorClaimCandidates(out compile.Output) []authorClaimCandidate {
 		if item == nil {
 			item = provenance[authorClaimProvenanceKey(kind, text)]
 		}
-		key := kind + "\x00" + branch + "\x00" + text
+		keyBranch := strings.TrimSpace(branch)
+		if kind == "render_node" {
+			keyBranch = ""
+		}
+		key := kind + "\x00" + keyBranch + "\x00" + text
 		if _, ok := seen[key]; ok {
 			return
 		}
@@ -350,26 +352,24 @@ func collectAuthorClaimCandidates(out compile.Output) []authorClaimCandidate {
 		})
 		applyAuthorClaimProvenance(&candidates[len(candidates)-1], item)
 	}
-	for _, value := range out.Drivers {
-		add("driver", value, "", nil)
+	addRenderNodes := func(branch string, values ...[]string) {
+		for _, group := range values {
+			for _, value := range group {
+				add("render_node", value, branch, nil)
+			}
+		}
 	}
-	for _, value := range out.Targets {
-		add("target", value, "", nil)
+	addRenderPathNodes := func(branch string, paths []compile.TransmissionPath) {
+		for _, path := range paths {
+			add("render_node", path.Driver, branch, nil)
+			addRenderNodes(branch, path.Steps)
+			add("render_node", path.Target, branch, nil)
+		}
 	}
+	addRenderNodes("", out.Drivers, out.Targets)
+	addRenderPathNodes("", out.TransmissionPaths)
 	for _, value := range out.EvidenceNodes {
 		add("proof_point", value, "", nil)
-	}
-	for _, value := range out.ExplanationNodes {
-		add("explanation", value, "", nil)
-	}
-	for _, value := range out.SupplementaryNodes {
-		add("supplementary_proof", value, "", nil)
-	}
-	for _, value := range out.Details.QuoteHighlights {
-		add("source_quote", value, "", nil)
-	}
-	for _, value := range out.Details.ReferenceHighlights {
-		add("reference_proof", value, "", nil)
 	}
 	for _, item := range out.Details.Items {
 		kind := hiddenDetailString(item, "kind")
@@ -380,16 +380,8 @@ func collectAuthorClaimCandidates(out compile.Output) []authorClaimCandidate {
 	}
 	for _, branch := range out.Branches {
 		branchID := firstTrimmed(branch.ID, branch.Thesis)
-		add("branch_thesis", branch.Thesis, branchID, nil)
-		for _, value := range branch.Anchors {
-			add("branch_anchor", value, branchID, nil)
-		}
-		for _, value := range branch.BranchDrivers {
-			add("branch_driver", value, branchID, nil)
-		}
-		for _, value := range branch.Targets {
-			add("branch_target", value, branchID, nil)
-		}
+		addRenderNodes(branchID, branch.Anchors, branch.Drivers, branch.BranchDrivers, branch.Targets)
+		addRenderPathNodes(branchID, branch.TransmissionPaths)
 	}
 	return candidates
 }
@@ -416,7 +408,7 @@ func authorClaimProvenanceKey(kind, text string) string {
 
 func isAuthorClaimDetailKind(kind string) bool {
 	switch strings.TrimSpace(kind) {
-	case "proof_point", "explanation", "supplementary_proof", "source_quote", "reference_proof":
+	case "proof_point":
 		return true
 	default:
 		return false
@@ -700,7 +692,7 @@ func defaultMissingAuthorClaimCheck(candidate authorClaimCandidate) compile.Auth
 
 func isAuthorNarrativeClaimKind(kind string) bool {
 	switch strings.TrimSpace(kind) {
-	case "driver", "target", "explanation", "branch_thesis", "branch_anchor", "branch_driver", "branch_target":
+	case "render_node", "driver", "target", "explanation", "branch_thesis", "branch_anchor", "branch_driver", "branch_target":
 		return true
 	default:
 		return false

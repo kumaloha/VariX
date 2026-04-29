@@ -15,7 +15,9 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 			"summary":{"verdict":"mixed"},
 			"claim_checks":[
 				{"claim_id":"claim-001","text":"Rates fall","claim_type":"fact","status":"supported","evidence":["source says rates fell"],"reason":"The author states this and it matches available evidence.","subclaims":[{"text":"Rates fall","subject":"policy rate","metric":"change","status":"supported","evidence":["source says rates fell"],"reason":"Matched source."}]},
-				{"claim_id":"claim-002","text":"Stocks will rise","claim_type":"forecast","status":"interpretive","reason":"This is an unresolved forecast."}
+				{"claim_id":"claim-002","text":"Stocks will rise","claim_type":"forecast","status":"interpretive","reason":"This is an unresolved forecast."},
+				{"claim_id":"claim-003","text":"Liquidity improves","claim_type":"interpretation","status":"interpretive","reason":"This is a rendered mechanism node."},
+				{"claim_id":"claim-004","text":"Policy rate declined by 25 bps","claim_type":"number","status":"supported","evidence":["The bank cut rates by 25 bps"],"reason":"The concrete evidence point is supported."}
 			],
 			"inference_checks":[
 				{"inference_id":"inference-001","from":"Rates fall","to":"Stocks will rise","steps":["Liquidity improves"],"status":"weak","reason":"The mechanism is plausible but not established."}
@@ -60,8 +62,8 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	if result.Render.AuthorValidation.Summary.Verdict != "mixed" {
 		t.Fatalf("verdict = %q, want mixed", result.Render.AuthorValidation.Summary.Verdict)
 	}
-	if result.Render.AuthorValidation.Summary.SupportedClaims != 1 || result.Render.AuthorValidation.Summary.InterpretiveClaims != 1 {
-		t.Fatalf("summary = %#v, want supported and interpretive claim counts", result.Render.AuthorValidation.Summary)
+	if result.Render.AuthorValidation.Summary.SupportedClaims != 2 || result.Render.AuthorValidation.Summary.InterpretiveClaims != 2 {
+		t.Fatalf("summary = %#v, want supported and interpretive render/proof claim counts", result.Render.AuthorValidation.Summary)
 	}
 	if result.Render.AuthorValidation.Summary.WeakInferences != 1 {
 		t.Fatalf("summary = %#v, want weak inference count", result.Render.AuthorValidation.Summary)
@@ -86,9 +88,14 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 		t.Fatalf("user prompt missing candidates: %#v", req.UserParts)
 	}
 	userPrompt := req.UserParts[len(req.UserParts)-1].Text
-	for _, want := range []string{"proof_point", "supplementary_proof", "source_quote", "reference_proof"} {
+	for _, want := range []string{"render_node", "proof_point"} {
 		if !strings.Contains(userPrompt, want) {
-			t.Fatalf("user prompt missing proof candidate kind %q: %s", want, userPrompt)
+			t.Fatalf("user prompt missing claim candidate kind %q: %s", want, userPrompt)
+		}
+	}
+	for _, unwanted := range []string{`"kind": "supplementary_proof"`, `"kind": "source_quote"`, `"kind": "reference_proof"`} {
+		if strings.Contains(userPrompt, unwanted) {
+			t.Fatalf("user prompt contains non-render/non-evidence candidate %q: %s", unwanted, userPrompt)
 		}
 	}
 	if !strings.Contains(userPrompt, `"source_quote": "The bank cut rates by 25 bps"`) {
@@ -98,6 +105,55 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 		if !strings.Contains(req.System, want) {
 			t.Fatalf("system prompt missing %q: %s", want, req.System)
 		}
+	}
+}
+
+func TestCollectAuthorClaimCandidatesUsesOnlyRenderNodesAndEvidence(t *testing.T) {
+	claims := collectAuthorClaimCandidates(compile.Output{
+		Drivers:            []string{"Rates fall"},
+		Targets:            []string{"Stocks rise"},
+		EvidenceNodes:      []string{"Policy rate declined by 25 bps"},
+		ExplanationNodes:   []string{"Central bank reaction function changed"},
+		SupplementaryNodes: []string{"Model caveat"},
+		TransmissionPaths: []compile.TransmissionPath{{
+			Driver: "Rates fall",
+			Steps:  []string{"Liquidity improves"},
+			Target: "Stocks rise",
+		}},
+		Details: compile.HiddenDetails{
+			QuoteHighlights:     []string{"The bank cut rates by 25 bps"},
+			ReferenceHighlights: []string{"Central bank release"},
+			Items: []map[string]any{
+				{
+					"kind":         "proof_point",
+					"text":         "Policy rate declined by 25 bps",
+					"source_quote": "The bank cut rates by 25 bps",
+				},
+				{"kind": "explanation", "text": "Central bank reaction function changed"},
+				{"kind": "supplementary_proof", "text": "Model caveat"},
+			},
+		},
+	})
+
+	byText := map[string]authorClaimCandidate{}
+	for _, claim := range claims {
+		byText[claim.Text] = claim
+	}
+	for _, want := range []string{"Rates fall", "Liquidity improves", "Stocks rise", "Policy rate declined by 25 bps"} {
+		if _, ok := byText[want]; !ok {
+			t.Fatalf("claims = %#v, missing %q", claims, want)
+		}
+	}
+	if byText["Rates fall"].Kind != "render_node" || byText["Policy rate declined by 25 bps"].Kind != "proof_point" {
+		t.Fatalf("claims by text = %#v, want render_node plus proof_point kinds", byText)
+	}
+	for _, unwanted := range []string{"Central bank reaction function changed", "Model caveat", "The bank cut rates by 25 bps", "Central bank release"} {
+		if _, ok := byText[unwanted]; ok {
+			t.Fatalf("claims = %#v, should exclude non-render/non-evidence candidate %q", claims, unwanted)
+		}
+	}
+	if byText["Policy rate declined by 25 bps"].SourceQuote != "The bank cut rates by 25 bps" {
+		t.Fatalf("proof provenance = %#v, want source_quote preserved", byText["Policy rate declined by 25 bps"])
 	}
 }
 
@@ -264,7 +320,14 @@ func TestAuthorValidationBackfillsPreviewGraphProvenanceForOldRender(t *testing.
 	enriched := enrichAuthorValidationRenderDetails(result)
 	claims := collectAuthorClaimCandidates(enriched)
 	inferences := collectAuthorInferenceCandidates(enriched)
-	if len(claims) != 1 || !strings.Contains(claims[0].SourceQuote, "5,000根") {
+	var proofClaim *authorClaimCandidate
+	for i := range claims {
+		if claims[i].Kind == "proof_point" && claims[i].Text == "NVL72机柜铜缆总重1.36吨" {
+			proofClaim = &claims[i]
+			break
+		}
+	}
+	if proofClaim == nil || !strings.Contains(proofClaim.SourceQuote, "5,000根") {
 		t.Fatalf("claims = %#v, want off-graph source quote backfilled", claims)
 	}
 	if len(inferences) != 1 || len(inferences[0].EdgeEvidence) != 1 {
