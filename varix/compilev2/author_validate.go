@@ -256,7 +256,10 @@ For each claim candidate:
 - Proof/evidence points are first-class claim candidates: numbers, quotations, cited facts, capacity claims, timing claims, and named-company evidence must be checked, not merely treated as support text.
 - Split compound proof points into subclaims before judging. Example: "NVL72 has 5000+ copper cables and weighs 1.36 tons" must become separate subclaims for cable count and rack/cable weight.
 - For every numeric subclaim, normalize units and compare against evidence ranges. Example: 100 weeks is about 23 months; evidence of 18-36 months supports it.
+- For percentages and ratios, identify the comparison base/denominator before judging. Example: "China consumes 80-90% of Iran's oil production" is not supported by evidence that China buys 80-90% of Iran's seaborne oil exports; production and exports are different bases.
 - Check attribution/object scope. Example: if 1.36 tons is rack weight, do not treat it as copper-cable weight.
+- Distinguish "number found but wrong object/base" from "number not found". If the number is found for a related but different subject, object, time window, or denominator, set scope_status="mismatch", attribution_ok=false, and status "contradicted" rather than "unverified".
+- If the denominator/base matches after unit conversion or wording differences, set scope_status="exact_match". If the evidence is directionally related but not the same base, set scope_status="related_scope". If no reliable base can be found, set scope_status="unknown".
 - Preserve the candidate's subject when validating. If the evidence supports "rack weight" but the candidate says "copper-cable weight", set attribution_ok=false and do not silently rewrite the subject.
 - If a precise number is not public but the direction is supported, mark the subclaim "unverified" and say it may require a paid or specialist source; do not call it false unless contradicted.
 
@@ -298,6 +301,9 @@ Return strict JSON only:
           "normalized_value":"converted value when applicable",
           "evidence_value":"matched source value when exact",
           "evidence_range":"matched source range when applicable",
+          "comparison_base":"author's denominator/object/time window, e.g. Iran total oil production",
+          "evidence_base":"evidence denominator/object/time window, e.g. Iran seaborne oil exports",
+          "scope_status":"exact_match|related_scope|mismatch|unknown",
           "unit_normalized":true,
           "range_covered":true,
           "attribution_ok":true,
@@ -702,10 +708,23 @@ func normalizeAuthorSubclaims(parentID string, subclaims []compile.AuthorSubclai
 		if strings.TrimSpace(subclaim.ParentClaimID) == "" {
 			subclaim.ParentClaimID = parentID
 		}
+		subclaim.ScopeStatus = normalizeAuthorScopeStatus(subclaim.ScopeStatus)
 		subclaim.Status = normalizeAuthorClaimStatus(subclaim.Status)
+		if subclaim.ScopeStatus == "mismatch" && subclaim.Status == compile.AuthorClaimSupported {
+			subclaim.Status = compile.AuthorClaimContradicted
+		}
 		out = append(out, subclaim)
 	}
 	return out
+}
+
+func normalizeAuthorScopeStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "exact_match", "related_scope", "mismatch", "unknown":
+		return strings.ToLower(strings.TrimSpace(status))
+	default:
+		return ""
+	}
 }
 
 func aggregateClaimStatusFromSubclaims(status compile.AuthorClaimStatus, subclaims []compile.AuthorSubclaim) compile.AuthorClaimStatus {

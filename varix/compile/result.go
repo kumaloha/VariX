@@ -347,6 +347,9 @@ type AuthorSubclaim struct {
 	NormalizedValue string            `json:"normalized_value,omitempty"`
 	EvidenceValue   string            `json:"evidence_value,omitempty"`
 	EvidenceRange   string            `json:"evidence_range,omitempty"`
+	ComparisonBase  string            `json:"comparison_base,omitempty"`
+	EvidenceBase    string            `json:"evidence_base,omitempty"`
+	ScopeStatus     string            `json:"scope_status,omitempty"`
 	UnitNormalized  bool              `json:"unit_normalized,omitempty"`
 	RangeCovered    bool              `json:"range_covered,omitempty"`
 	AttributionOK   bool              `json:"attribution_ok,omitempty"`

@@ -94,7 +94,7 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	if !strings.Contains(userPrompt, `"source_quote": "The bank cut rates by 25 bps"`) {
 		t.Fatalf("user prompt missing proof provenance source_quote: %s", userPrompt)
 	}
-	for _, want := range []string{"Split compound proof points", "normalize units", "range_covered", "attribution_ok", "do not silently rewrite the subject", "edge_evidence"} {
+	for _, want := range []string{"Split compound proof points", "normalize units", "range_covered", "attribution_ok", "comparison_base", "scope_status", "denominator", "do not silently rewrite the subject", "edge_evidence"} {
 		if !strings.Contains(req.System, want) {
 			t.Fatalf("system prompt missing %q: %s", want, req.System)
 		}
@@ -391,5 +391,39 @@ func TestNormalizeAuthorValidationAggregatesRangeCoveredSubclaims(t *testing.T) 
 	}
 	if validation.Summary.Verdict != "credible" {
 		t.Fatalf("verdict = %q, want credible", validation.Summary.Verdict)
+	}
+}
+
+func TestNormalizeAuthorValidationContradictsScopeMismatch(t *testing.T) {
+	validation := normalizeAuthorValidation(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID: "claim-001",
+			Text:    "China consumes 80-90% of Iran's oil production",
+			Status:  compile.AuthorClaimSupported,
+			Subclaims: []compile.AuthorSubclaim{{
+				Text:           "China consumes 80-90% of Iran's oil production",
+				Subject:        "China",
+				Metric:         "share of Iran oil",
+				OriginalValue:  "80-90%",
+				EvidenceValue:  "80-90%",
+				ComparisonBase: "Iran total oil production",
+				EvidenceBase:   "Iran seaborne oil exports",
+				ScopeStatus:    "mismatch",
+				AttributionOK:  false,
+				Status:         compile.AuthorClaimSupported,
+				Reason:         "The public number applies to exports, not total production.",
+			}},
+		}},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Text: "China consumes 80-90% of Iran's oil production"}}, nil, "model")
+
+	if validation.ClaimChecks[0].Status != compile.AuthorClaimContradicted {
+		t.Fatalf("claim status = %q, want contradicted for denominator mismatch", validation.ClaimChecks[0].Status)
+	}
+	subclaim := validation.ClaimChecks[0].Subclaims[0]
+	if subclaim.ScopeStatus != "mismatch" {
+		t.Fatalf("scope_status = %q, want mismatch", subclaim.ScopeStatus)
+	}
+	if subclaim.ComparisonBase != "Iran total oil production" || subclaim.EvidenceBase != "Iran seaborne oil exports" {
+		t.Fatalf("subclaim bases = %#v, want author/evidence bases preserved", subclaim)
 	}
 }
