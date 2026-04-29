@@ -59,7 +59,7 @@ func runAuthorValidation(ctx context.Context, rt runtimeChat, model string, bund
 	}
 
 	payload := map[string]any{
-		"task": "Validate only the author's claims and reasoning. Do not audit the extraction graph, missing nodes, missing edges, or classification.",
+		"task": "Validate only the author's claims, proof points, and reasoning. Do not audit the extraction graph, missing nodes, missing edges, or classification.",
 		"status_contract": map[string]any{
 			"claim_status": []string{
 				string(compile.AuthorClaimSupported),
@@ -111,7 +111,7 @@ func authorValidationSystemPrompt() string {
 	return strings.TrimSpace(`
 You are an author-claim validator for a reader-facing product.
 
-Validate ONLY what the author claims or implies. Do not critique the extraction pipeline, graph shape, missing nodes, missing edges, target classification, branch grouping, or UI wording.
+Validate ONLY what the author claims, uses as proof, or implies. Do not critique the extraction pipeline, graph shape, missing nodes, missing edges, target classification, branch grouping, or UI wording.
 
 For each claim candidate:
 - If the source text does not show the author making the claim, use status "not_author_claim". This is not an author fault.
@@ -119,6 +119,7 @@ For each claim candidate:
 - If available evidence contradicts it, use "contradicted".
 - If it is objective but cannot be verified from the source/search context, use "unverified".
 - If it is opinion, interpretation, analogy, or unresolved forecast, use "interpretive" unless it contains a checkable factual subclaim.
+- Proof/evidence points are first-class claim candidates: numbers, quotations, cited facts, capacity claims, timing claims, and named-company evidence must be checked, not merely treated as support text.
 
 For each inference candidate:
 - Judge whether the author actually makes that inferential jump and whether the stated premises support it.
@@ -176,10 +177,19 @@ func collectAuthorClaimCandidates(out compile.Output) []authorClaimCandidate {
 		add("target", value, "")
 	}
 	for _, value := range out.EvidenceNodes {
-		add("evidence", value, "")
+		add("proof_point", value, "")
 	}
 	for _, value := range out.ExplanationNodes {
 		add("explanation", value, "")
+	}
+	for _, value := range out.SupplementaryNodes {
+		add("supplementary_proof", value, "")
+	}
+	for _, value := range out.Details.QuoteHighlights {
+		add("source_quote", value, "")
+	}
+	for _, value := range out.Details.ReferenceHighlights {
+		add("reference_proof", value, "")
 	}
 	for _, branch := range out.Branches {
 		branchID := firstTrimmed(branch.ID, branch.Thesis)

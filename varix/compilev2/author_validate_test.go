@@ -32,9 +32,15 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	}, FlowPreviewResult{
 		ArticleForm: "forecast_thread",
 		Render: compile.Output{
-			Summary:           "Rates falling supports a stock rally forecast.",
-			Drivers:           []string{"Rates fall"},
-			Targets:           []string{"Stocks will rise"},
+			Summary:            "Rates falling supports a stock rally forecast.",
+			Drivers:            []string{"Rates fall"},
+			Targets:            []string{"Stocks will rise"},
+			EvidenceNodes:      []string{"Policy rate declined by 25 bps"},
+			SupplementaryNodes: []string{"Central bank statement confirms the cut"},
+			Details: compile.HiddenDetails{
+				QuoteHighlights:     []string{"The bank cut rates by 25 bps"},
+				ReferenceHighlights: []string{"Central bank release"},
+			},
 			TransmissionPaths: []compile.TransmissionPath{{Driver: "Rates fall", Steps: []string{"Liquidity improves"}, Target: "Stocks will rise"}},
 		},
 	})
@@ -68,6 +74,12 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	}
 	if len(req.UserParts) == 0 || !strings.Contains(req.UserParts[len(req.UserParts)-1].Text, "claim_candidates") || !strings.Contains(req.UserParts[len(req.UserParts)-1].Text, "inference_candidates") {
 		t.Fatalf("user prompt missing candidates: %#v", req.UserParts)
+	}
+	userPrompt := req.UserParts[len(req.UserParts)-1].Text
+	for _, want := range []string{"proof_point", "supplementary_proof", "source_quote", "reference_proof"} {
+		if !strings.Contains(userPrompt, want) {
+			t.Fatalf("user prompt missing proof candidate kind %q: %s", want, userPrompt)
+		}
 	}
 }
 
