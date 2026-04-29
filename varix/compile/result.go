@@ -328,13 +328,25 @@ const (
 )
 
 type AuthorClaimCheck struct {
-	ClaimID   string            `json:"claim_id"`
-	Text      string            `json:"text"`
-	ClaimType string            `json:"claim_type,omitempty"`
-	Status    AuthorClaimStatus `json:"status"`
-	Evidence  []string          `json:"evidence,omitempty"`
-	Reason    string            `json:"reason,omitempty"`
-	Subclaims []AuthorSubclaim  `json:"subclaims,omitempty"`
+	ClaimID          string                      `json:"claim_id"`
+	Text             string                      `json:"text"`
+	ClaimType        string                      `json:"claim_type,omitempty"`
+	Status           AuthorClaimStatus           `json:"status"`
+	RequiredEvidence []AuthorEvidenceRequirement `json:"required_evidence,omitempty"`
+	Evidence         []string                    `json:"evidence,omitempty"`
+	Reason           string                      `json:"reason,omitempty"`
+	Subclaims        []AuthorSubclaim            `json:"subclaims,omitempty"`
+}
+
+type AuthorEvidenceRequirement struct {
+	Description string            `json:"description"`
+	Subject     string            `json:"subject,omitempty"`
+	Metric      string            `json:"metric,omitempty"`
+	TimeWindow  string            `json:"time_window,omitempty"`
+	SourceType  string            `json:"source_type,omitempty"`
+	Status      AuthorClaimStatus `json:"status"`
+	Evidence    []string          `json:"evidence,omitempty"`
+	Reason      string            `json:"reason,omitempty"`
 }
 
 type AuthorSubclaim struct {
@@ -368,14 +380,15 @@ const (
 )
 
 type AuthorInferenceCheck struct {
-	InferenceID  string                `json:"inference_id"`
-	From         string                `json:"from"`
-	To           string                `json:"to"`
-	Steps        []string              `json:"steps,omitempty"`
-	Status       AuthorInferenceStatus `json:"status"`
-	Evidence     []string              `json:"evidence,omitempty"`
-	Reason       string                `json:"reason,omitempty"`
-	MissingLinks []string              `json:"missing_links,omitempty"`
+	InferenceID      string                      `json:"inference_id"`
+	From             string                      `json:"from"`
+	To               string                      `json:"to"`
+	Steps            []string                    `json:"steps,omitempty"`
+	Status           AuthorInferenceStatus       `json:"status"`
+	RequiredEvidence []AuthorEvidenceRequirement `json:"required_evidence,omitempty"`
+	Evidence         []string                    `json:"evidence,omitempty"`
+	Reason           string                      `json:"reason,omitempty"`
+	MissingLinks     []string                    `json:"missing_links,omitempty"`
 }
 
 type AuthorValidationSummary struct {

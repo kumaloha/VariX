@@ -14,13 +14,13 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 		Text: `{
 			"summary":{"verdict":"mixed"},
 			"claim_checks":[
-				{"claim_id":"claim-001","text":"Rates fall","claim_type":"fact","status":"supported","evidence":["source says rates fell"],"reason":"The author states this and it matches available evidence.","subclaims":[{"text":"Rates fall","subject":"policy rate","metric":"change","status":"supported","evidence":["source says rates fell"],"reason":"Matched source."}]},
+				{"claim_id":"claim-001","text":"Rates fall","claim_type":"fact","status":"supported","required_evidence":[{"description":"Confirm the policy rate changed downward","subject":"policy rate","metric":"rate change","time_window":"article period","source_type":"official","status":"supported","evidence":["source says rates fell"],"reason":"The official source reports a rate cut."}],"evidence":["source says rates fell"],"reason":"The author states this and it matches available evidence.","subclaims":[{"text":"Rates fall","subject":"policy rate","metric":"change","status":"supported","evidence":["source says rates fell"],"reason":"Matched source."}]},
 				{"claim_id":"claim-002","text":"Stocks will rise","claim_type":"forecast","status":"interpretive","reason":"This is an unresolved forecast."},
 				{"claim_id":"claim-003","text":"Liquidity improves","claim_type":"interpretation","status":"interpretive","reason":"This is a rendered mechanism node."},
 				{"claim_id":"claim-004","text":"Policy rate declined by 25 bps","claim_type":"number","status":"supported","evidence":["The bank cut rates by 25 bps"],"reason":"The concrete evidence point is supported."}
 			],
 			"inference_checks":[
-				{"inference_id":"inference-001","from":"Rates fall","to":"Stocks will rise","steps":["Liquidity improves"],"status":"weak","reason":"The mechanism is plausible but not established."}
+				{"inference_id":"inference-001","from":"Rates fall","to":"Stocks will rise","steps":["Liquidity improves"],"status":"weak","required_evidence":[{"description":"Check whether market liquidity proxies improved after the rate move","subject":"risk assets","metric":"liquidity proxy","time_window":"after rate move","source_type":"market_data","status":"unverified","reason":"No market liquidity data was returned."}],"reason":"The mechanism is plausible but not established."}
 			]
 		}`,
 	}}}
@@ -71,6 +71,12 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	if len(result.Render.AuthorValidation.ClaimChecks[0].Subclaims) != 1 {
 		t.Fatalf("subclaims = %#v, want preserved proof subclaim", result.Render.AuthorValidation.ClaimChecks[0].Subclaims)
 	}
+	if got := result.Render.AuthorValidation.ClaimChecks[0].RequiredEvidence; len(got) != 1 || got[0].Metric != "rate change" || got[0].Status != compile.AuthorClaimSupported {
+		t.Fatalf("claim required evidence = %#v, want supported rate-change requirement", got)
+	}
+	if got := result.Render.AuthorValidation.InferenceChecks[0].RequiredEvidence; len(got) != 1 || got[0].SourceType != "market_data" || got[0].Status != compile.AuthorClaimUnverified {
+		t.Fatalf("inference required evidence = %#v, want unverified market-data requirement", got)
+	}
 	if got := result.Metrics["author_validate_ms"]; got < 0 {
 		t.Fatalf("author_validate_ms = %d", got)
 	}
@@ -101,7 +107,7 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	if !strings.Contains(userPrompt, `"source_quote": "The bank cut rates by 25 bps"`) {
 		t.Fatalf("user prompt missing proof provenance source_quote: %s", userPrompt)
 	}
-	for _, want := range []string{"Validate only externally checkable point claims", "deferred to inference validation", "Do not use \"unverified\" for abstract claims", "Split compound proof points", "normalize units", "range_covered", "attribution_ok", "comparison_base", "scope_status", "denominator", "do not silently rewrite the subject", "edge_evidence", "implicit premises are externally supported", "missing_links for unverified or contradicted intermediate premises"} {
+	for _, want := range []string{"Validate only externally checkable point claims", "required_evidence", "metric, date/window, denominator/base", "data requirements needed to support the jump", "deferred to inference validation", "Do not use \"unverified\" for abstract claims", "Split compound proof points", "normalize units", "range_covered", "attribution_ok", "comparison_base", "scope_status", "denominator", "do not silently rewrite the subject", "edge_evidence", "implicit premises are externally supported", "missing_links for unverified or contradicted intermediate premises"} {
 		if !strings.Contains(req.System, want) {
 			t.Fatalf("system prompt missing %q: %s", want, req.System)
 		}

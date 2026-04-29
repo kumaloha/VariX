@@ -334,6 +334,8 @@ For each claim candidate:
 - If it is objective but cannot be verified from the source/search context, use "unverified".
 - If it is opinion, interpretation, analogy, or unresolved forecast, use "interpretive" unless it contains a checkable factual subclaim.
 - Proof/evidence points are first-class claim candidates: numbers, quotations, cited facts, capacity claims, timing claims, and named-company evidence must be checked, not merely treated as support text.
+- Before assigning a status to a checkable claim, list the data requirements needed to validate it in required_evidence. Decide what metric, date/window, denominator/base, object scope, and source type are necessary, then judge the actual values you find against that requirement.
+- For interpretive claims with embedded factual prerequisites, use required_evidence for the prerequisites and keep the parent claim interpretive unless the parent itself is a point fact.
 - Split compound proof points into subclaims before judging. Example: "NVL72 has 5000+ copper cables and weighs 1.36 tons" must become separate subclaims for cable count and rack/cable weight.
 - For every numeric subclaim, normalize units and compare against evidence ranges. Example: 100 weeks is about 23 months; evidence of 18-36 months supports it.
 - For percentages and ratios, identify the comparison base/denominator before judging. Example: "China consumes 80-90% of Iran's oil production" is not supported by evidence that China buys 80-90% of Iran's seaborne oil exports; production and exports are different bases.
@@ -346,6 +348,7 @@ For each claim candidate:
 For each inference candidate:
 - Judge whether the author actually makes that inferential jump and whether the stated premises support it.
 - When edge_evidence/source_quote/context is present, use it as provenance for the displayed transmission path. If a displayed edge lacks author support, mark the inference weak, unsupported_jump, or not_author_inference instead of repairing it into another path.
+- Before assigning an inference status, list the data requirements needed to support the jump in required_evidence. Identify what data would make the transition valid: market levels, price moves, rate moves, inventories, dates, event status, denominators, or other factual prerequisites.
 - Do not require the author to have listed every factual premise inside the rendered path. If a path depends on checkable market data, historical data, timing, prices, rates, inventories, or public events, use available source/search context to validate those missing intermediate premises.
 - Mark an inference "sound" when the author makes the jump and the required explicit or implicit premises are externally supported. Put the checked intermediate premises in evidence.
 - Mark it "weak" when the author makes the jump but key implicit premises remain unverified, are only directionally supported, or the rendered path compresses important steps that search cannot firmly establish.
@@ -373,6 +376,9 @@ Return strict JSON only:
       "text":"...",
       "claim_type":"fact|number|forecast|interpretation|opinion",
       "status":"supported|contradicted|unverified|interpretive|not_author_claim",
+      "required_evidence":[
+        {"description":"data needed to validate this claim", "subject":"...", "metric":"...", "time_window":"...", "source_type":"official|market_data|company_filing|news|specialist_database|author_source|other", "status":"supported|contradicted|unverified|interpretive|not_author_claim", "evidence":["source/value"], "reason":"brief comparison of required data vs found data"}
+      ],
       "evidence":["short quote or source"],
       "reason":"brief reason",
       "subclaims":[
@@ -400,7 +406,7 @@ Return strict JSON only:
     }
   ],
   "inference_checks": [
-    {"inference_id":"...", "from":"...", "to":"...", "steps":["..."], "status":"sound|weak|unsupported_jump|not_author_inference", "evidence":["short quote or source"], "reason":"brief reason", "missing_links":["..."]}
+    {"inference_id":"...", "from":"...", "to":"...", "steps":["..."], "status":"sound|weak|unsupported_jump|not_author_inference", "required_evidence":[{"description":"data needed to support this jump", "subject":"...", "metric":"...", "time_window":"...", "source_type":"official|market_data|company_filing|news|specialist_database|author_source|other", "status":"supported|contradicted|unverified|interpretive|not_author_claim", "evidence":["source/value"], "reason":"brief comparison of required data vs found data"}], "evidence":["short quote or source"], "reason":"brief reason", "missing_links":["..."]}
   ]
 }
 `)
@@ -691,6 +697,7 @@ func normalizeAuthorValidation(validation compile.AuthorValidation, claims []aut
 			continue
 		}
 		check.Status = normalizeAuthorClaimStatus(check.Status)
+		check.RequiredEvidence = normalizeAuthorEvidenceRequirements(check.RequiredEvidence)
 		check.Subclaims = normalizeAuthorSubclaims(check.ClaimID, check.Subclaims)
 		claimByID[check.ClaimID] = check
 	}
@@ -706,6 +713,7 @@ func normalizeAuthorValidation(validation compile.AuthorValidation, claims []aut
 			check.Text = candidate.Text
 		}
 		check.Status = normalizeAuthorClaimStatus(check.Status)
+		check.RequiredEvidence = normalizeAuthorEvidenceRequirements(check.RequiredEvidence)
 		check.Subclaims = normalizeAuthorSubclaims(check.ClaimID, check.Subclaims)
 		check.Status = aggregateClaimStatusFromSubclaims(check.Status, check.Subclaims)
 		normalizedClaims = append(normalizedClaims, check)
@@ -715,6 +723,7 @@ func normalizeAuthorValidation(validation compile.AuthorValidation, claims []aut
 			continue
 		}
 		check.Status = normalizeAuthorClaimStatus(check.Status)
+		check.RequiredEvidence = normalizeAuthorEvidenceRequirements(check.RequiredEvidence)
 		check.Subclaims = normalizeAuthorSubclaims(check.ClaimID, check.Subclaims)
 		check.Status = aggregateClaimStatusFromSubclaims(check.Status, check.Subclaims)
 		normalizedClaims = append(normalizedClaims, check)
@@ -728,6 +737,7 @@ func normalizeAuthorValidation(validation compile.AuthorValidation, claims []aut
 			continue
 		}
 		check.Status = normalizeAuthorInferenceStatus(check.Status)
+		check.RequiredEvidence = normalizeAuthorEvidenceRequirements(check.RequiredEvidence)
 		inferenceByID[check.InferenceID] = check
 	}
 	normalizedInferences := make([]compile.AuthorInferenceCheck, 0, len(inferences))
@@ -753,6 +763,7 @@ func normalizeAuthorValidation(validation compile.AuthorValidation, claims []aut
 			check.Steps = cloneStrings(candidate.Steps)
 		}
 		check.Status = normalizeAuthorInferenceStatus(check.Status)
+		check.RequiredEvidence = normalizeAuthorEvidenceRequirements(check.RequiredEvidence)
 		normalizedInferences = append(normalizedInferences, check)
 	}
 	validation.InferenceChecks = normalizedInferences
@@ -790,6 +801,26 @@ func normalizeAuthorClaimStatus(status compile.AuthorClaimStatus) compile.Author
 	default:
 		return compile.AuthorClaimUnverified
 	}
+}
+
+func normalizeAuthorEvidenceRequirements(requirements []compile.AuthorEvidenceRequirement) []compile.AuthorEvidenceRequirement {
+	if len(requirements) == 0 {
+		return nil
+	}
+	out := make([]compile.AuthorEvidenceRequirement, 0, len(requirements))
+	for _, requirement := range requirements {
+		requirement.Description = strings.TrimSpace(requirement.Description)
+		requirement.Subject = strings.TrimSpace(requirement.Subject)
+		requirement.Metric = strings.TrimSpace(requirement.Metric)
+		requirement.TimeWindow = strings.TrimSpace(requirement.TimeWindow)
+		requirement.SourceType = strings.TrimSpace(requirement.SourceType)
+		requirement.Status = normalizeAuthorClaimStatus(requirement.Status)
+		if requirement.Description == "" && requirement.Subject == "" && requirement.Metric == "" {
+			continue
+		}
+		out = append(out, requirement)
+	}
+	return out
 }
 
 func normalizeAuthorSubclaims(parentID string, subclaims []compile.AuthorSubclaim) []compile.AuthorSubclaim {
