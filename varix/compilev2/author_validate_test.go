@@ -321,11 +321,17 @@ func TestAuthorValidationBackfillsPreviewGraphProvenanceForOldRender(t *testing.
 	claims := collectAuthorClaimCandidates(enriched)
 	inferences := collectAuthorInferenceCandidates(enriched)
 	var proofClaim *authorClaimCandidate
+	var renderClaim *authorClaimCandidate
 	for i := range claims {
 		if claims[i].Kind == "proof_point" && claims[i].Text == "NVL72机柜铜缆总重1.36吨" {
 			proofClaim = &claims[i]
-			break
 		}
+		if claims[i].Kind == "render_node" && claims[i].Text == "AI硬件瓶颈扩散" {
+			renderClaim = &claims[i]
+		}
+	}
+	if renderClaim == nil || !strings.Contains(renderClaim.SourceQuote, "GPU扩散到电力") {
+		t.Fatalf("claims = %#v, want render node source quote backfilled", claims)
 	}
 	if proofClaim == nil || !strings.Contains(proofClaim.SourceQuote, "5,000根") {
 		t.Fatalf("claims = %#v, want off-graph source quote backfilled", claims)
