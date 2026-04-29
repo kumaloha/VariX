@@ -1344,9 +1344,12 @@ func demoteSupportingRoleNodes(state graphState) graphState {
 }
 
 func preserveSupportingDiscourseRole(articleForm, role string) bool {
+	normalizedRole := normalizeDiscourseRole(role)
 	switch normalizeArticleForm(articleForm) {
+	case "evidence_backed_forecast":
+		return normalizedRole == "evidence"
 	case "risk_list":
-		return normalizeDiscourseRole(role) == "caveat"
+		return normalizedRole == "caveat"
 	default:
 		return false
 	}

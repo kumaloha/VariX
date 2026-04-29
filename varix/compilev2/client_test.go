@@ -202,6 +202,36 @@ func TestCollapseDemotesSupportingRolesWithoutAuxEdges(t *testing.T) {
 	}
 }
 
+func TestCollapseKeepsEvidenceForEvidenceBackedForecast(t *testing.T) {
+	state := collapseClusters(graphState{
+		ArticleForm: "evidence_backed_forecast",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "World war is in early stages", DiscourseRole: "thesis"},
+			{ID: "n2", Text: "Historical indicators resemble 1913-14 and 1938-39", SourceQuote: "roughly analogous to the 1913-14 and the 1938-39 periods", DiscourseRole: "evidence"},
+			{ID: "n3", Text: "Some countries have less confidence the US will defend them", SourceQuote: "less confidence among some countries that the US will defend them", DiscourseRole: "evidence"},
+			{ID: "n4", Text: "A side caveat is timing imprecision", SourceQuote: "there is nothing precise about these indicators", DiscourseRole: "caveat"},
+		},
+	})
+	if !graphNodesContainID(state.Nodes, "n2") || !graphNodesContainID(state.Nodes, "n3") {
+		t.Fatalf("Nodes = %#v, want forecast evidence retained for proof branches", state.Nodes)
+	}
+	if graphNodesContainID(state.Nodes, "n4") {
+		t.Fatalf("Nodes = %#v, want caveat still demoted", state.Nodes)
+	}
+	if len(state.BranchHeads) != 3 {
+		t.Fatalf("BranchHeads = %#v, want thesis plus retained evidence heads", state.BranchHeads)
+	}
+}
+
+func graphNodesContainID(nodes []graphNode, id string) bool {
+	for _, node := range nodes {
+		if node.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func TestCollapseKeepsInferentialConclusionAsHead(t *testing.T) {
 	state := collapseClusters(graphState{
 		Nodes: []graphNode{
