@@ -120,6 +120,10 @@ For each claim candidate:
 - If it is objective but cannot be verified from the source/search context, use "unverified".
 - If it is opinion, interpretation, analogy, or unresolved forecast, use "interpretive" unless it contains a checkable factual subclaim.
 - Proof/evidence points are first-class claim candidates: numbers, quotations, cited facts, capacity claims, timing claims, and named-company evidence must be checked, not merely treated as support text.
+- Split compound proof points into subclaims before judging. Example: "NVL72 has 5000+ copper cables and weighs 1.36 tons" must become separate subclaims for cable count and rack/cable weight.
+- For every numeric subclaim, normalize units and compare against evidence ranges. Example: 100 weeks is about 23 months; evidence of 18-36 months supports it.
+- Check attribution/object scope. Example: if 1.36 tons is rack weight, do not treat it as copper-cable weight.
+- If a precise number is not public but the direction is supported, mark the subclaim "unverified" and say it may require a paid or specialist source; do not call it false unless contradicted.
 
 For each inference candidate:
 - Judge whether the author actually makes that inferential jump and whether the stated premises support it.
@@ -140,7 +144,33 @@ Return strict JSON only:
     "not_author_inferences": 0
   },
   "claim_checks": [
-    {"claim_id":"...", "text":"...", "claim_type":"fact|number|forecast|interpretation|opinion", "status":"supported|contradicted|unverified|interpretive|not_author_claim", "evidence":["short quote or source"], "reason":"brief reason"}
+    {
+      "claim_id":"...",
+      "text":"...",
+      "claim_type":"fact|number|forecast|interpretation|opinion",
+      "status":"supported|contradicted|unverified|interpretive|not_author_claim",
+      "evidence":["short quote or source"],
+      "reason":"brief reason",
+      "subclaims":[
+        {
+          "subclaim_id":"...",
+          "parent_claim_id":"...",
+          "text":"atomic subclaim",
+          "subject":"object being described",
+          "metric":"measured attribute",
+          "original_value":"as written by author",
+          "normalized_value":"converted value when applicable",
+          "evidence_value":"matched source value when exact",
+          "evidence_range":"matched source range when applicable",
+          "unit_normalized":true,
+          "range_covered":true,
+          "attribution_ok":true,
+          "status":"supported|contradicted|unverified|interpretive|not_author_claim",
+          "evidence":["short quote or source"],
+          "reason":"brief reason"
+        }
+      ]
+    }
   ],
   "inference_checks": [
     {"inference_id":"...", "from":"...", "to":"...", "steps":["..."], "status":"sound|weak|unsupported_jump|not_author_inference", "evidence":["short quote or source"], "reason":"brief reason", "missing_links":["..."]}
@@ -259,10 +289,13 @@ func normalizeAuthorValidation(validation compile.AuthorValidation, claims []aut
 			continue
 		}
 		check.Status = normalizeAuthorClaimStatus(check.Status)
+		check.Subclaims = normalizeAuthorSubclaims(check.ClaimID, check.Subclaims)
 		claimByID[check.ClaimID] = check
 	}
 	normalizedClaims := make([]compile.AuthorClaimCheck, 0, len(claims))
+	usedClaimIDs := make(map[string]struct{}, len(claims))
 	for _, candidate := range claims {
+		usedClaimIDs[candidate.ClaimID] = struct{}{}
 		check, ok := claimByID[candidate.ClaimID]
 		if !ok {
 			check = compile.AuthorClaimCheck{
@@ -276,6 +309,17 @@ func normalizeAuthorValidation(validation compile.AuthorValidation, claims []aut
 			check.Text = candidate.Text
 		}
 		check.Status = normalizeAuthorClaimStatus(check.Status)
+		check.Subclaims = normalizeAuthorSubclaims(check.ClaimID, check.Subclaims)
+		check.Status = aggregateClaimStatusFromSubclaims(check.Status, check.Subclaims)
+		normalizedClaims = append(normalizedClaims, check)
+	}
+	for _, check := range validation.ClaimChecks {
+		if _, ok := usedClaimIDs[check.ClaimID]; ok {
+			continue
+		}
+		check.Status = normalizeAuthorClaimStatus(check.Status)
+		check.Subclaims = normalizeAuthorSubclaims(check.ClaimID, check.Subclaims)
+		check.Status = aggregateClaimStatusFromSubclaims(check.Status, check.Subclaims)
 		normalizedClaims = append(normalizedClaims, check)
 	}
 	validation.ClaimChecks = normalizedClaims
@@ -325,6 +369,70 @@ func normalizeAuthorClaimStatus(status compile.AuthorClaimStatus) compile.Author
 		return status
 	default:
 		return compile.AuthorClaimUnverified
+	}
+}
+
+func normalizeAuthorSubclaims(parentID string, subclaims []compile.AuthorSubclaim) []compile.AuthorSubclaim {
+	if len(subclaims) == 0 {
+		return nil
+	}
+	out := make([]compile.AuthorSubclaim, 0, len(subclaims))
+	for i, subclaim := range subclaims {
+		subclaim.SubclaimID = strings.TrimSpace(subclaim.SubclaimID)
+		if subclaim.SubclaimID == "" {
+			subclaim.SubclaimID = fmt.Sprintf("%s.%d", parentID, i+1)
+		}
+		if strings.TrimSpace(subclaim.ParentClaimID) == "" {
+			subclaim.ParentClaimID = parentID
+		}
+		subclaim.Status = normalizeAuthorClaimStatus(subclaim.Status)
+		out = append(out, subclaim)
+	}
+	return out
+}
+
+func aggregateClaimStatusFromSubclaims(status compile.AuthorClaimStatus, subclaims []compile.AuthorSubclaim) compile.AuthorClaimStatus {
+	if len(subclaims) == 0 {
+		return status
+	}
+	hasContradicted := false
+	hasUnverified := false
+	hasInterpretive := false
+	hasNotAuthor := false
+	allSupported := true
+	for _, subclaim := range subclaims {
+		switch subclaim.Status {
+		case compile.AuthorClaimContradicted:
+			hasContradicted = true
+			allSupported = false
+		case compile.AuthorClaimUnverified:
+			hasUnverified = true
+			allSupported = false
+		case compile.AuthorClaimInterpretive:
+			hasInterpretive = true
+			allSupported = false
+		case compile.AuthorClaimNotAuthorClaim:
+			hasNotAuthor = true
+			allSupported = false
+		case compile.AuthorClaimSupported:
+		default:
+			hasUnverified = true
+			allSupported = false
+		}
+	}
+	switch {
+	case hasContradicted:
+		return compile.AuthorClaimContradicted
+	case hasUnverified:
+		return compile.AuthorClaimUnverified
+	case hasNotAuthor:
+		return compile.AuthorClaimNotAuthorClaim
+	case hasInterpretive:
+		return compile.AuthorClaimInterpretive
+	case allSupported:
+		return compile.AuthorClaimSupported
+	default:
+		return status
 	}
 }
 

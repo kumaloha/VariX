@@ -334,6 +334,25 @@ type AuthorClaimCheck struct {
 	Status    AuthorClaimStatus `json:"status"`
 	Evidence  []string          `json:"evidence,omitempty"`
 	Reason    string            `json:"reason,omitempty"`
+	Subclaims []AuthorSubclaim  `json:"subclaims,omitempty"`
+}
+
+type AuthorSubclaim struct {
+	SubclaimID      string            `json:"subclaim_id,omitempty"`
+	ParentClaimID   string            `json:"parent_claim_id,omitempty"`
+	Text            string            `json:"text"`
+	Subject         string            `json:"subject,omitempty"`
+	Metric          string            `json:"metric,omitempty"`
+	OriginalValue   string            `json:"original_value,omitempty"`
+	NormalizedValue string            `json:"normalized_value,omitempty"`
+	EvidenceValue   string            `json:"evidence_value,omitempty"`
+	EvidenceRange   string            `json:"evidence_range,omitempty"`
+	UnitNormalized  bool              `json:"unit_normalized,omitempty"`
+	RangeCovered    bool              `json:"range_covered,omitempty"`
+	AttributionOK   bool              `json:"attribution_ok,omitempty"`
+	Status          AuthorClaimStatus `json:"status"`
+	Evidence        []string          `json:"evidence,omitempty"`
+	Reason          string            `json:"reason,omitempty"`
 }
 
 type AuthorInferenceStatus string

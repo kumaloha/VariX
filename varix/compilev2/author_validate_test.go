@@ -14,7 +14,7 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 		Text: `{
 			"summary":{"verdict":"mixed"},
 			"claim_checks":[
-				{"claim_id":"claim-001","text":"Rates fall","claim_type":"fact","status":"supported","evidence":["source says rates fell"],"reason":"The author states this and it matches available evidence."},
+				{"claim_id":"claim-001","text":"Rates fall","claim_type":"fact","status":"supported","evidence":["source says rates fell"],"reason":"The author states this and it matches available evidence.","subclaims":[{"text":"Rates fall","subject":"policy rate","metric":"change","status":"supported","evidence":["source says rates fell"],"reason":"Matched source."}]},
 				{"claim_id":"claim-002","text":"Stocks will rise","claim_type":"forecast","status":"interpretive","reason":"This is an unresolved forecast."}
 			],
 			"inference_checks":[
@@ -59,6 +59,9 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	if result.Render.AuthorValidation.Summary.WeakInferences != 1 {
 		t.Fatalf("summary = %#v, want weak inference count", result.Render.AuthorValidation.Summary)
 	}
+	if len(result.Render.AuthorValidation.ClaimChecks[0].Subclaims) != 1 {
+		t.Fatalf("subclaims = %#v, want preserved proof subclaim", result.Render.AuthorValidation.ClaimChecks[0].Subclaims)
+	}
 	if got := result.Metrics["author_validate_ms"]; got < 0 {
 		t.Fatalf("author_validate_ms = %d", got)
 	}
@@ -79,6 +82,11 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	for _, want := range []string{"proof_point", "supplementary_proof", "source_quote", "reference_proof"} {
 		if !strings.Contains(userPrompt, want) {
 			t.Fatalf("user prompt missing proof candidate kind %q: %s", want, userPrompt)
+		}
+	}
+	for _, want := range []string{"Split compound proof points", "normalize units", "range_covered", "attribution_ok"} {
+		if !strings.Contains(req.System, want) {
+			t.Fatalf("system prompt missing %q: %s", want, req.System)
 		}
 	}
 }
@@ -103,5 +111,101 @@ func TestNormalizeAuthorValidationBackfillsMissingCandidates(t *testing.T) {
 	}
 	if validation.Summary.Verdict != "mixed" {
 		t.Fatalf("verdict = %q, want mixed", validation.Summary.Verdict)
+	}
+}
+
+func TestNormalizeAuthorValidationPreservesModelSplitClaims(t *testing.T) {
+	validation := normalizeAuthorValidation(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{
+			{
+				ClaimID: "claim-001",
+				Text:    "NVL72 has 5000+ copper cables and weighs 1.36 tons",
+				Status:  compile.AuthorClaimSupported,
+				Subclaims: []compile.AuthorSubclaim{
+					{
+						Text:          "NVL72 uses more than 5000 copper cables",
+						Subject:       "NVL72",
+						Metric:        "copper cable count",
+						OriginalValue: "5000+",
+						EvidenceValue: "5184",
+						Status:        compile.AuthorClaimSupported,
+						Reason:        "Public sources report 5184 or more than 5000 cables.",
+					},
+					{
+						Text:          "NVL72 copper cables weigh 1.36 tons",
+						Subject:       "copper cables",
+						Metric:        "weight",
+						OriginalValue: "1.36 tons",
+						EvidenceValue: "1.36 tons rack weight",
+						AttributionOK: false,
+						Status:        compile.AuthorClaimContradicted,
+						Reason:        "The matched value describes rack weight, not cable weight.",
+					},
+				},
+			},
+			{
+				ClaimID: "claim-001-a",
+				Text:    "NVL72 rack weighs 1.36 tons",
+				Status:  compile.AuthorClaimSupported,
+				Subclaims: []compile.AuthorSubclaim{{
+					Text:          "NVL72 rack weighs 1.36 tons",
+					Subject:       "NVL72 rack",
+					Metric:        "weight",
+					OriginalValue: "1.36 tons",
+					EvidenceValue: "1.36 metric tons",
+					Status:        compile.AuthorClaimSupported,
+				}},
+			},
+		},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Text: "NVL72 has 5000+ copper cables and weighs 1.36 tons"}}, nil, "model")
+
+	if len(validation.ClaimChecks) != 2 {
+		t.Fatalf("claim checks = %#v, want original plus model-split claim preserved", validation.ClaimChecks)
+	}
+	if validation.ClaimChecks[0].Status != compile.AuthorClaimContradicted {
+		t.Fatalf("compound claim status = %q, want contradicted due misattributed subclaim", validation.ClaimChecks[0].Status)
+	}
+	if len(validation.ClaimChecks[0].Subclaims) != 2 {
+		t.Fatalf("subclaims = %#v, want two split proof subclaims", validation.ClaimChecks[0].Subclaims)
+	}
+	if validation.ClaimChecks[0].Subclaims[1].AttributionOK {
+		t.Fatalf("misattributed subclaim attribution_ok = true, want false")
+	}
+	if validation.ClaimChecks[1].ClaimID != "claim-001-a" {
+		t.Fatalf("extra split claim = %#v, want preserved model-created split claim", validation.ClaimChecks[1])
+	}
+}
+
+func TestNormalizeAuthorValidationAggregatesRangeCoveredSubclaims(t *testing.T) {
+	validation := normalizeAuthorValidation(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID: "claim-001",
+			Text:    "Transformer delivery lead times stretched to 100 weeks",
+			Status:  compile.AuthorClaimUnverified,
+			Subclaims: []compile.AuthorSubclaim{{
+				Text:            "Transformer delivery lead times stretched to 100 weeks",
+				Subject:         "large power transformer",
+				Metric:          "delivery lead time",
+				OriginalValue:   "100 weeks",
+				NormalizedValue: "about 23 months",
+				EvidenceRange:   "18-36 months",
+				UnitNormalized:  true,
+				RangeCovered:    true,
+				AttributionOK:   true,
+				Status:          compile.AuthorClaimSupported,
+				Reason:          "100 weeks is inside the public 18-36 month range.",
+			}},
+		}},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Text: "Transformer delivery lead times stretched to 100 weeks"}}, nil, "model")
+
+	if validation.ClaimChecks[0].Status != compile.AuthorClaimSupported {
+		t.Fatalf("claim status = %q, want supported from range-covered subclaim", validation.ClaimChecks[0].Status)
+	}
+	subclaim := validation.ClaimChecks[0].Subclaims[0]
+	if !subclaim.UnitNormalized || !subclaim.RangeCovered {
+		t.Fatalf("subclaim = %#v, want unit_normalized and range_covered", subclaim)
+	}
+	if validation.Summary.Verdict != "credible" {
+		t.Fatalf("verdict = %q, want credible", validation.Summary.Verdict)
 	}
 }
