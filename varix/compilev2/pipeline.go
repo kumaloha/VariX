@@ -546,7 +546,7 @@ func decodeStage1Nodes(raw any) []graphNode {
 
 func normalizeArticleForm(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "single_thesis", "main_narrative_plus_investment_implication", "evidence_backed_forecast", "risk_list", "macro_framework", "market_update":
+	case "single_thesis", "main_narrative_plus_investment_implication", "evidence_backed_forecast", "risk_list", "macro_framework", "market_update", "institutional_satire", "satirical_financial_commentary":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""
@@ -558,6 +558,9 @@ func refineArticleFormFromExtract(bundle compile.Bundle, state graphState) strin
 	if form != "" && form != "main_narrative_plus_investment_implication" {
 		return form
 	}
+	if satireArticleScore(bundle.TextContext(), state.Nodes) >= 5 {
+		return "satirical_financial_commentary"
+	}
 	if !isLongFormMacroSource(bundle) {
 		return form
 	}
@@ -568,6 +571,40 @@ func refineArticleFormFromExtract(bundle compile.Bundle, state graphState) strin
 		return form
 	}
 	return "macro_framework"
+}
+
+func satireArticleScore(article string, nodes []graphNode) int {
+	textParts := []string{article}
+	analogyRoles := 0
+	satireTargetRoles := 0
+	for _, node := range nodes {
+		textParts = append(textParts, node.Text, node.SourceQuote)
+		switch normalizeDiscourseRole(node.DiscourseRole) {
+		case "analogy":
+			analogyRoles++
+		case "satire_target", "implied_thesis":
+			satireTargetRoles++
+		}
+	}
+	score := 0
+	if analogyRoles > 0 {
+		score += 2
+	}
+	if satireTargetRoles > 0 {
+		score += 3
+	}
+	text := strings.ToLower(strings.Join(textParts, " "))
+	for _, family := range [][]string{
+		{"讽刺", "satire", "satirical", "irony"},
+		{"寓言", "类比", "故事", "analogy", "allegory"},
+		{"村长", "新富", "幸运游戏", "抽奖", "幸运观众"},
+		{"叙事", "包装成公平", "包装", "忽悠", "牌照"},
+	} {
+		if containsAnyText(text, family) {
+			score++
+		}
+	}
+	return score
 }
 
 func evidenceBackedForecastScore(article string, nodes []graphNode) int {
@@ -631,7 +668,7 @@ func longFormMacroFrameworkFamilies() [][]string {
 
 func normalizeDiscourseRole(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "thesis", "mechanism", "evidence", "example", "implication", "caveat", "market_move":
+	case "thesis", "mechanism", "evidence", "example", "implication", "caveat", "market_move", "analogy", "satire_target", "implied_thesis":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""
@@ -741,8 +778,10 @@ func projectRolesFromSpines(state graphState) (graphState, bool) {
 		return state, false
 	}
 	valid := map[string]struct{}{}
+	nodeIndex := map[string]graphNode{}
 	for _, node := range state.Nodes {
 		valid[node.ID] = struct{}{}
+		nodeIndex[node.ID] = node
 	}
 	driverIDs := map[string]struct{}{}
 	targetIDs := map[string]struct{}{}
@@ -752,10 +791,8 @@ func projectRolesFromSpines(state graphState) (graphState, bool) {
 		if len(nodes) == 0 {
 			continue
 		}
-		for _, id := range nodes {
-			spineNodeIDs[id] = struct{}{}
-		}
-		sources, terminals := spineSourceAndTerminalIDs(spine, nodes, valid)
+		markSpineProjectionNodes(spine, nodes, valid, nodeIndex, spineNodeIDs)
+		sources, terminals := spineSourceAndTerminalIDs(spine, nodes, valid, nodeIndex)
 		for _, id := range sources {
 			driverIDs[id] = struct{}{}
 		}
@@ -784,6 +821,29 @@ func projectRolesFromSpines(state graphState) (graphState, bool) {
 	return state, true
 }
 
+func markSpineProjectionNodes(spine PreviewSpine, nodeIDs []string, valid map[string]struct{}, nodes map[string]graphNode, out map[string]struct{}) {
+	if normalizePreviewSpinePolicy(spine.Policy) != "satirical_analogy" {
+		for _, id := range nodeIDs {
+			out[id] = struct{}{}
+		}
+		return
+	}
+	before := len(out)
+	for _, edge := range spineProjectionEdges(spine, nodes) {
+		if _, ok := valid[edge.From]; ok {
+			out[edge.From] = struct{}{}
+		}
+		if _, ok := valid[edge.To]; ok {
+			out[edge.To] = struct{}{}
+		}
+	}
+	if len(out) == before {
+		for _, id := range nodeIDs {
+			out[id] = struct{}{}
+		}
+	}
+}
+
 func validSpineNodeIDs(spine PreviewSpine, valid map[string]struct{}) []string {
 	out := make([]string, 0, len(spine.NodeIDs))
 	seen := map[string]struct{}{}
@@ -804,7 +864,7 @@ func validSpineNodeIDs(spine PreviewSpine, valid map[string]struct{}) []string {
 	return out
 }
 
-func spineSourceAndTerminalIDs(spine PreviewSpine, nodeIDs []string, valid map[string]struct{}) ([]string, []string) {
+func spineSourceAndTerminalIDs(spine PreviewSpine, nodeIDs []string, valid map[string]struct{}, nodes map[string]graphNode) ([]string, []string) {
 	if len(nodeIDs) == 0 {
 		return nil, nil
 	}
@@ -814,7 +874,7 @@ func spineSourceAndTerminalIDs(spine PreviewSpine, nodeIDs []string, valid map[s
 	for _, id := range nodeIDs {
 		nodeSet[id] = struct{}{}
 	}
-	for _, edge := range spine.Edges {
+	for _, edge := range spineProjectionEdges(spine, nodes) {
 		if _, ok := valid[edge.From]; !ok {
 			continue
 		}
@@ -855,6 +915,28 @@ func spineSourceAndTerminalIDs(spine PreviewSpine, nodeIDs []string, valid map[s
 	return sources, terminals
 }
 
+func spineProjectionEdges(spine PreviewSpine, nodes map[string]graphNode) []PreviewEdge {
+	if normalizePreviewSpinePolicy(spine.Policy) != "satirical_analogy" {
+		return spine.Edges
+	}
+	out := make([]PreviewEdge, 0, len(spine.Edges))
+	for _, edge := range spine.Edges {
+		fromRole := normalizeDiscourseRole(nodes[edge.From].DiscourseRole)
+		if fromRole == "analogy" || fromRole == "example" {
+			continue
+		}
+		out = append(out, edge)
+	}
+	if len(out) == 0 {
+		return spine.Edges
+	}
+	return out
+}
+
+func isIllustrationKind(kind string) bool {
+	return strings.EqualFold(strings.TrimSpace(kind), "illustration")
+}
+
 func hasID(values map[string]struct{}, id string) bool {
 	_, ok := values[id]
 	return ok
@@ -864,6 +946,7 @@ type mainlineSpinePatch struct {
 	ID          string   `json:"id"`
 	Level       string   `json:"level"`
 	Priority    int      `json:"priority"`
+	Policy      string   `json:"policy"`
 	Thesis      string   `json:"thesis"`
 	NodeIDs     []string `json:"node_ids"`
 	EdgeIndexes []int    `json:"edge_indexes"`
@@ -917,6 +1000,15 @@ func policyForArticleForm(articleForm string) spinePolicy {
 			PreserveInvestmentImplications: true,
 			MergeSameFamilyBranches:        true,
 		}
+	case "institutional_satire", "satirical_financial_commentary":
+		return spinePolicy{
+			ArticleForm:             form,
+			PrimaryMode:             "required",
+			MinSpines:               2,
+			MaxSpines:               5,
+			MaxLocal:                1,
+			MergeSameFamilyBranches: true,
+		}
 	case "macro_framework":
 		return spinePolicy{
 			ArticleForm:             form,
@@ -957,6 +1049,8 @@ func renderSpinePolicyPrompt(articleForm string) string {
 		return "main_narrative_plus_investment_implication: keep one primary narrative spine plus branch spines for derived investment implications; do not collapse investment advice into the primary spine when it is a distinct author conclusion; merge same-function local market implications."
 	case "evidence_backed_forecast":
 		return "evidence_backed_forecast: the article uses research clues, historical precedent, policy signals, legal feasibility, or quantitative indicators to infer a future regime/outcome. Keep proof branches as inference relations into the forecast thesis, then keep causal branches from that forecast thesis into market or investment implications. The primary spine may be research/policy evidence -> inferred thesis -> implications; mark proof edges as kind=inference."
+	case "institutional_satire", "satirical_financial_commentary":
+		return "institutional_satire/satirical_financial_commentary: preserve mixed spine policies. A satire spine should be policy=satirical_analogy and follow satire vehicle/allegory -> mapped institutional mechanism -> implied critique or real-world implication. Use kind=illustration from the allegory/example into the real mechanism; do not make the allegory character the economic driver. Keep ordinary causal, forecast, concept, and investment branch spines when the article also contains them."
 	case "macro_framework":
 		return "macro_framework: keep one framework primary plus summary-level mechanism branches; do not turn section order or historical examples into causal order; preserve mechanism families and demote mere examples."
 	case "market_update":
@@ -1273,7 +1367,7 @@ func firstMainlineDiscourseNodeID(nodes []graphNode) string {
 
 func isMainlineDiscourseRole(role string) bool {
 	switch normalizeDiscourseRole(role) {
-	case "thesis", "mechanism", "implication", "market_move":
+	case "thesis", "mechanism", "implication", "market_move", "satire_target", "implied_thesis":
 		return true
 	default:
 		return false
@@ -1460,6 +1554,7 @@ func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdg
 			ID:       id,
 			Level:    level,
 			Priority: priority,
+			Policy:   normalizePreviewSpinePolicy(item.Policy),
 			Thesis:   strings.TrimSpace(item.Thesis),
 			NodeIDs:  nodeIDs,
 			Edges:    spineEdges,
@@ -1473,10 +1568,47 @@ func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdg
 		return out[i].ID < out[j].ID
 	})
 	policy := policyForArticleForm(articleForm)
+	out = inferMissingSpinePolicies(out, valid, policy)
 	out = applySpinePolicy(out, valid, policy)
 	out = compactSpines(out, valid)
 	out = enforceSpineBudget(out, valid, policy)
 	return assignSpineFamilies(out, valid)
+}
+
+func inferMissingSpinePolicies(spines []PreviewSpine, valid map[string]graphNode, policy spinePolicy) []PreviewSpine {
+	for i := range spines {
+		current := normalizePreviewSpinePolicy(spines[i].Policy)
+		if isSatiricalArticleForm(policy.ArticleForm) && spineHasDiscourseRole(spines[i], valid, "analogy", "satire_target", "implied_thesis") {
+			if current == "" || current == "causal_mechanism" {
+				spines[i].Policy = "satirical_analogy"
+				continue
+			}
+		}
+		if current == "" && spineHasRelationKind(spines[i], "inference") {
+			spines[i].Policy = "forecast_inference"
+			continue
+		}
+		spines[i].Policy = current
+	}
+	return spines
+}
+
+func isSatiricalArticleForm(articleForm string) bool {
+	switch normalizeArticleForm(articleForm) {
+	case "institutional_satire", "satirical_financial_commentary":
+		return true
+	default:
+		return false
+	}
+}
+
+func spineHasRelationKind(spine PreviewSpine, kind string) bool {
+	for _, edge := range spine.Edges {
+		if strings.EqualFold(strings.TrimSpace(edge.Kind), strings.TrimSpace(kind)) {
+			return true
+		}
+	}
+	return false
 }
 
 func applySpinePolicy(spines []PreviewSpine, valid map[string]graphNode, policy spinePolicy) []PreviewSpine {
@@ -2101,6 +2233,15 @@ func normalizePreviewSpineScope(value, level string) string {
 	}
 }
 
+func normalizePreviewSpinePolicy(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "causal_mechanism", "forecast_inference", "investment_implication", "satirical_analogy", "concept_explanation", "risk_family", "market_update":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
 func stage4Validate(ctx context.Context, rt runtimeChat, model string, bundle compile.Bundle, state graphState, maxRounds int) (graphState, error) {
 	if maxRounds <= 0 {
 		return state, nil
@@ -2184,8 +2325,12 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 	if len(paths) == 0 {
 		paths = extractPaths(state, drivers, targets)
 	}
+	paths, satiricalCoveredNodes := applySatiricalRenderProjection(state, paths)
+	paths = filterCyclicRenderPaths(paths)
+	drivers = mergePathDrivers(drivers, paths)
+	targets = mergePathTargets(targets, paths)
 	drivers = filterRenderDrivers(drivers, paths)
-	targets = filterRenderTargets(targets, paths, state.ArticleForm)
+	targets = filterRenderTargets(targets, paths, state.ArticleForm, satiricalCoveredNodes)
 	translated, err := translateAll(ctx, rt, model, uniqueTexts(drivers, targets, paths, state.OffGraph))
 	if err != nil {
 		return compile.Output{}, err
@@ -2220,7 +2365,8 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 		})
 	}
 	evidence, explanation, supplementary := renderOffGraph(state.OffGraph, cn)
-	summary, err := summarizeChinese(ctx, rt, model, driversOut, targetsOut, transmission, bundle)
+	evidence = dedupeStrings(append(evidence, renderSpineIllustrations(state, cn)...))
+	summary, err := summarizeChinese(ctx, rt, model, state.ArticleForm, driversOut, targetsOut, transmission, bundle)
 	if err != nil {
 		summary = fallbackSummary(driversOut, targetsOut)
 	}
@@ -2277,6 +2423,384 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 	}, nil
 }
 
+func filterCyclicRenderPaths(paths []renderedPath) []renderedPath {
+	if len(paths) < 2 {
+		return paths
+	}
+	reaches := map[string]map[string]struct{}{}
+	out := make([]renderedPath, 0, len(paths))
+	for _, path := range paths {
+		nodeIDs := renderedPathNodeIDs(path)
+		if len(nodeIDs) < 2 {
+			out = append(out, path)
+			continue
+		}
+		if renderedPathHasCycle(nodeIDs, reaches) {
+			continue
+		}
+		out = append(out, path)
+		for i := 0; i+1 < len(nodeIDs); i++ {
+			addReachability(reaches, nodeIDs[i], nodeIDs[i+1])
+		}
+	}
+	if len(out) == 0 {
+		return paths
+	}
+	return out
+}
+
+func renderedPathNodeIDs(path renderedPath) []string {
+	nodeIDs := make([]string, 0, len(path.steps)+2)
+	if id := strings.TrimSpace(path.driver.ID); id != "" {
+		nodeIDs = append(nodeIDs, id)
+	}
+	for _, step := range path.steps {
+		if id := strings.TrimSpace(step.ID); id != "" {
+			nodeIDs = append(nodeIDs, id)
+		}
+	}
+	if id := strings.TrimSpace(path.target.ID); id != "" {
+		nodeIDs = append(nodeIDs, id)
+	}
+	return nodeIDs
+}
+
+func renderedPathHasCycle(nodeIDs []string, reaches map[string]map[string]struct{}) bool {
+	seen := map[string]struct{}{}
+	for _, id := range nodeIDs {
+		if _, ok := seen[id]; ok {
+			return true
+		}
+		seen[id] = struct{}{}
+	}
+	for i := 0; i+1 < len(nodeIDs); i++ {
+		for j := i + 1; j < len(nodeIDs); j++ {
+			if pathReachable(reaches, nodeIDs[j], nodeIDs[i]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func pathReachable(reaches map[string]map[string]struct{}, from, to string) bool {
+	if from == to {
+		return true
+	}
+	_, ok := reaches[from][to]
+	return ok
+}
+
+func addReachability(reaches map[string]map[string]struct{}, from, to string) {
+	ensureReachSet := func(id string) map[string]struct{} {
+		if reaches[id] == nil {
+			reaches[id] = map[string]struct{}{}
+		}
+		return reaches[id]
+	}
+	fromSet := ensureReachSet(from)
+	fromSet[to] = struct{}{}
+	for next := range reaches[to] {
+		fromSet[next] = struct{}{}
+	}
+	for source, targets := range reaches {
+		if source == from {
+			continue
+		}
+		if _, ok := targets[from]; !ok {
+			continue
+		}
+		targets[to] = struct{}{}
+		for next := range reaches[to] {
+			targets[next] = struct{}{}
+		}
+	}
+}
+
+type satiricalProjection struct {
+	path    renderedPath
+	nodeSet map[string]struct{}
+}
+
+func applySatiricalRenderProjection(state graphState, paths []renderedPath) ([]renderedPath, map[string]struct{}) {
+	if len(state.Spines) == 0 {
+		return paths, nil
+	}
+	nodeIndex := map[string]graphNode{}
+	valid := map[string]struct{}{}
+	for _, node := range state.Nodes {
+		nodeIndex[node.ID] = node
+		valid[node.ID] = struct{}{}
+	}
+	projections := make([]satiricalProjection, 0)
+	for _, spine := range state.Spines {
+		if normalizePreviewSpinePolicy(spine.Policy) != "satirical_analogy" {
+			continue
+		}
+		path, nodeSet, ok := satiricalDisplayPath(spine, nodeIndex, valid, state.OffGraph)
+		if !ok {
+			continue
+		}
+		projections = append(projections, satiricalProjection{path: path, nodeSet: nodeSet})
+	}
+	if len(projections) == 0 {
+		return paths, nil
+	}
+	covered := map[string]struct{}{}
+	out := make([]renderedPath, 0, len(projections)+len(paths))
+	for _, projection := range projections {
+		out = append(out, projection.path)
+		for id := range projection.nodeSet {
+			covered[id] = struct{}{}
+		}
+	}
+	for _, path := range paths {
+		if pathWithinAnySatiricalProjection(path, projections) {
+			continue
+		}
+		out = append(out, path)
+	}
+	return out, covered
+}
+
+func satiricalDisplayPath(spine PreviewSpine, nodes map[string]graphNode, valid map[string]struct{}, offGraph []offGraphItem) (renderedPath, map[string]struct{}, bool) {
+	nodeIDs := validSpineNodeIDs(spine, valid)
+	if len(nodeIDs) < 2 {
+		return renderedPath{}, nil, false
+	}
+	nodeSet := map[string]struct{}{}
+	ordered := make([]graphNode, 0, len(nodeIDs))
+	for _, id := range nodeIDs {
+		node, ok := nodes[id]
+		if !ok {
+			continue
+		}
+		nodeSet[id] = struct{}{}
+		ordered = append(ordered, node)
+	}
+	if len(ordered) < 2 {
+		return renderedPath{}, nil, false
+	}
+	driver, driverOK := bestSatiricalDriverNode(ordered)
+	target, targetOK := bestSatiricalTargetNode(ordered, driver.ID)
+	if offTarget, ok := bestSatiricalOffGraphTarget(offGraph, nodeSet); ok && (!targetOK || satiricalTargetScore(offTarget) > satiricalTargetScore(target)) {
+		target = offTarget
+		targetOK = true
+	}
+	if !driverOK || !targetOK || driver.ID == target.ID {
+		return renderedPath{}, nil, false
+	}
+	steps := make([]graphNode, 0, min(4, max(0, len(ordered)-2)))
+	for _, node := range ordered {
+		if node.ID == driver.ID || node.ID == target.ID {
+			continue
+		}
+		steps = append(steps, node)
+		if len(steps) >= 4 {
+			break
+		}
+	}
+	return renderedPath{driver: driver, target: target, steps: steps}, nodeSet, true
+}
+
+func bestSatiricalDriverNode(nodes []graphNode) (graphNode, bool) {
+	best := graphNode{}
+	bestScore := -999
+	for _, node := range nodes {
+		score := satiricalDriverScore(node)
+		if score > bestScore {
+			best = node
+			bestScore = score
+		}
+	}
+	return best, bestScore > 0
+}
+
+func bestSatiricalTargetNode(nodes []graphNode, driverID string) (graphNode, bool) {
+	best := graphNode{}
+	bestScore := -999
+	for _, node := range nodes {
+		if node.ID == driverID {
+			continue
+		}
+		score := satiricalTargetScore(node)
+		if score > bestScore {
+			best = node
+			bestScore = score
+		}
+	}
+	return best, bestScore > 0
+}
+
+func bestSatiricalOffGraphTarget(offGraph []offGraphItem, spineNodeSet map[string]struct{}) (graphNode, bool) {
+	best := graphNode{}
+	bestScore := -999
+	for i, item := range offGraph {
+		attachTo := strings.TrimSpace(item.AttachesTo)
+		if attachTo == "" {
+			continue
+		}
+		if _, ok := spineNodeSet[attachTo]; !ok {
+			continue
+		}
+		text := strings.TrimSpace(item.Text)
+		if text == "" {
+			continue
+		}
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("satire_offgraph_target_%d", i+1)
+		}
+		node := graphNode{
+			ID:            id,
+			Text:          text,
+			SourceQuote:   item.SourceQuote,
+			DiscourseRole: item.Role,
+			Role:          roleTransmission,
+			IsTarget:      true,
+		}
+		score := satiricalTargetScore(node)
+		if score > bestScore {
+			best = node
+			bestScore = score
+		}
+	}
+	return best, bestScore > 0
+}
+
+func satiricalDriverScore(node graphNode) int {
+	text := strings.ToLower(strings.TrimSpace(node.Text))
+	score := 0
+	switch normalizeDiscourseRole(node.DiscourseRole) {
+	case "satire_target":
+		score += 35
+	case "implied_thesis":
+		score += 30
+	case "thesis":
+		score += 18
+	case "mechanism":
+		score += 5
+	}
+	for _, marker := range []string{"叙事", "包装", "公平", "不公平", "牌照", "表面", "实质", "控制", "机制", "忽悠", "手续费", "零售客户", "买单"} {
+		if strings.Contains(text, marker) {
+			score += 7
+		}
+	}
+	for _, marker := range []string{"2000", "每人", "每月", "年息", "委托贷款", "抽一人", "中奖者", "存银行"} {
+		if strings.Contains(text, marker) {
+			score -= 10
+		}
+	}
+	return score
+}
+
+func satiricalTargetScore(node graphNode) int {
+	text := strings.ToLower(strings.TrimSpace(node.Text))
+	score := 0
+	switch normalizeDiscourseRole(node.DiscourseRole) {
+	case "implication":
+		score += 18
+	case "market_move":
+		score += 10
+	}
+	for _, marker := range []string{"归管理者", "归我", "基金", "净亏", "承担", "成本", "缺口", "后75", "零售客户", "买单", "损失", "亏", "转移", "锁定", "无法取出"} {
+		if strings.Contains(text, marker) {
+			score += 8
+		}
+	}
+	for _, marker := range []string{"规则", "每人", "每月", "年息", "叙事", "包装"} {
+		if strings.Contains(text, marker) {
+			score -= 6
+		}
+	}
+	return score
+}
+
+func pathWithinAnySatiricalProjection(path renderedPath, projections []satiricalProjection) bool {
+	for _, projection := range projections {
+		if _, ok := projection.nodeSet[path.driver.ID]; !ok {
+			continue
+		}
+		if _, ok := projection.nodeSet[path.target.ID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func renderSpineIllustrations(state graphState, cn func(string, string) string) []string {
+	if len(state.Spines) == 0 {
+		return nil
+	}
+	byID := map[string]graphNode{}
+	for _, node := range state.Nodes {
+		byID[node.ID] = node
+	}
+	out := make([]string, 0)
+	for _, spine := range state.Spines {
+		if normalizePreviewSpinePolicy(spine.Policy) != "satirical_analogy" {
+			continue
+		}
+		for _, id := range spine.NodeIDs {
+			node, ok := byID[id]
+			if ok && normalizeDiscourseRole(node.DiscourseRole) == "analogy" {
+				out = append(out, cn(node.ID, node.Text))
+			}
+		}
+		for _, edge := range spine.Edges {
+			if !isIllustrationKind(edge.Kind) {
+				continue
+			}
+			node, ok := byID[edge.From]
+			if !ok {
+				continue
+			}
+			out = append(out, cn(node.ID, node.Text))
+		}
+	}
+	return out
+}
+
+func mergePathDrivers(drivers []graphNode, paths []renderedPath) []graphNode {
+	out := append([]graphNode(nil), drivers...)
+	seen := map[string]struct{}{}
+	for _, driver := range out {
+		seen[driver.ID] = struct{}{}
+	}
+	for _, path := range paths {
+		if strings.TrimSpace(path.driver.ID) == "" {
+			continue
+		}
+		if _, ok := seen[path.driver.ID]; ok {
+			continue
+		}
+		seen[path.driver.ID] = struct{}{}
+		out = append(out, path.driver)
+	}
+	return out
+}
+
+func mergePathTargets(targets []graphNode, paths []renderedPath) []graphNode {
+	out := append([]graphNode(nil), targets...)
+	seen := map[string]struct{}{}
+	for _, target := range out {
+		seen[target.ID] = struct{}{}
+	}
+	for _, path := range paths {
+		if strings.TrimSpace(path.target.ID) == "" {
+			continue
+		}
+		if _, ok := seen[path.target.ID]; ok {
+			continue
+		}
+		seen[path.target.ID] = struct{}{}
+		target := path.target
+		target.IsTarget = true
+		out = append(out, target)
+	}
+	return out
+}
+
 func filterRenderDrivers(drivers []graphNode, paths []renderedPath) []graphNode {
 	if len(drivers) == 0 || len(paths) == 0 {
 		return drivers
@@ -2309,19 +2833,28 @@ func filterRenderDrivers(drivers []graphNode, paths []renderedPath) []graphNode 
 	return out
 }
 
-func filterRenderTargets(targets []graphNode, paths []renderedPath, articleForm string) []graphNode {
+func filterRenderTargets(targets []graphNode, paths []renderedPath, articleForm string, satiricalCoveredNodes map[string]struct{}) []graphNode {
 	if len(targets) == 0 || len(paths) == 0 {
 		return targets
 	}
 	pathDrivers := map[string]struct{}{}
+	pathSteps := map[string]struct{}{}
 	for _, path := range paths {
 		if strings.TrimSpace(path.driver.ID) != "" {
 			pathDrivers[path.driver.ID] = struct{}{}
+		}
+		for _, step := range path.steps {
+			if strings.TrimSpace(step.ID) != "" {
+				pathSteps[step.ID] = struct{}{}
+			}
 		}
 	}
 	out := make([]graphNode, 0, len(targets))
 	for _, target := range targets {
 		if _, ok := pathDrivers[target.ID]; ok {
+			continue
+		}
+		if _, ok := pathSteps[target.ID]; ok && hasID(satiricalCoveredNodes, target.ID) {
 			continue
 		}
 		if isRenderProcessStateTarget(target) {
@@ -2517,8 +3050,10 @@ func extractSpinePaths(state graphState) []renderedPath {
 		return nil
 	}
 	valid := map[string]struct{}{}
+	nodeIndex := map[string]graphNode{}
 	for _, node := range state.Nodes {
 		valid[node.ID] = struct{}{}
+		nodeIndex[node.ID] = node
 	}
 	out := make([]renderedPath, 0)
 	seen := map[string]struct{}{}
@@ -2527,8 +3062,8 @@ func extractSpinePaths(state graphState) []renderedPath {
 		if len(nodeIDs) < 2 {
 			continue
 		}
-		sources, terminals := spineSourceAndTerminalIDs(spine, nodeIDs, valid)
-		adj := spineAdjacency(spine, valid)
+		sources, terminals := spineSourceAndTerminalIDs(spine, nodeIDs, valid, nodeIndex)
+		adj := spineAdjacency(spine, valid, nodeIndex)
 		if len(adj) == 0 && len(nodeIDs) >= 2 {
 			for i := 0; i+1 < len(nodeIDs); i++ {
 				adj[nodeIDs[i]] = append(adj[nodeIDs[i]], nodeIDs[i+1])
@@ -2566,9 +3101,9 @@ func extractSpinePaths(state graphState) []renderedPath {
 	return out
 }
 
-func spineAdjacency(spine PreviewSpine, valid map[string]struct{}) map[string][]string {
+func spineAdjacency(spine PreviewSpine, valid map[string]struct{}, nodes map[string]graphNode) map[string][]string {
 	adj := map[string][]string{}
-	for _, edge := range spine.Edges {
+	for _, edge := range spineProjectionEdges(spine, nodes) {
 		if _, ok := valid[edge.From]; !ok {
 			continue
 		}
@@ -2883,6 +3418,8 @@ func normalizeMainlineRelationKind(kind string) string {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "inference", "inferential", "proof":
 		return "inference"
+	case "illustration", "analogy", "satire", "satirical":
+		return "illustration"
 	default:
 		return "causal"
 	}
@@ -3365,8 +3902,8 @@ func translateAll(ctx context.Context, rt runtimeChat, model string, items []map
 	return out, nil
 }
 
-func summarizeChinese(ctx context.Context, rt runtimeChat, model string, drivers, targets []string, paths []compile.TransmissionPath, bundle compile.Bundle) (string, error) {
-	payload, err := json.Marshal(map[string]any{"drivers": drivers, "targets": targets, "paths": paths})
+func summarizeChinese(ctx context.Context, rt runtimeChat, model string, articleForm string, drivers, targets []string, paths []compile.TransmissionPath, bundle compile.Bundle) (string, error) {
+	payload, err := json.Marshal(map[string]any{"article_form": normalizeArticleForm(articleForm), "drivers": drivers, "targets": targets, "paths": paths})
 	if err != nil {
 		return "", err
 	}
@@ -3610,6 +4147,7 @@ func mainlineSchema() *llm.Schema {
 				"id":           map[string]any{"type": "string"},
 				"level":        map[string]any{"type": "string"},
 				"priority":     map[string]any{"type": "integer"},
+				"policy":       map[string]any{"type": "string"},
 				"thesis":       map[string]any{"type": "string"},
 				"node_ids":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				"edge_indexes": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}},

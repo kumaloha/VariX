@@ -75,6 +75,7 @@ type PreviewSpine struct {
 	ID          string        `json:"id"`
 	Level       string        `json:"level"`
 	Priority    int           `json:"priority"`
+	Policy      string        `json:"policy,omitempty"`
 	Thesis      string        `json:"thesis"`
 	NodeIDs     []string      `json:"node_ids"`
 	Edges       []PreviewEdge `json:"edges"`
@@ -278,11 +279,7 @@ func collectSpineEdges(spines []PreviewSpine) []PreviewEdge {
 func writePreviewSpinesMermaid(b *strings.Builder, labels map[string]string, spines []PreviewSpine) {
 	labelToID := map[string]string{}
 	nextID := 1
-	nodeID := func(id string) string {
-		label := strings.TrimSpace(labels[id])
-		if label == "" {
-			label = strings.TrimSpace(id)
-		}
+	nodeIDForLabel := func(label string) string {
 		if label == "" {
 			label = "Unnamed"
 		}
@@ -295,25 +292,37 @@ func writePreviewSpinesMermaid(b *strings.Builder, labels map[string]string, spi
 		fmt.Fprintf(b, "  %s[\"%s\"]\n", renderID, escapeMermaidLabel(label))
 		return renderID
 	}
+	nodeID := func(id string) string {
+		label := strings.TrimSpace(labels[id])
+		if label == "" {
+			label = strings.TrimSpace(id)
+		}
+		return nodeIDForLabel(label)
+	}
 	renderedNodes := map[string]struct{}{}
 	seenEdges := map[string]struct{}{}
-	for _, edge := range collectSpineEdges(spines) {
-		if strings.TrimSpace(edge.From) == "" || strings.TrimSpace(edge.To) == "" || edge.From == edge.To {
+	for _, spine := range spines {
+		if isSatiricalPreviewSpine(spine) && writeSatiricalPreviewSpineMermaid(b, labels, spine, nodeIDForLabel, renderedNodes, seenEdges) {
 			continue
 		}
-		from := nodeID(edge.From)
-		to := nodeID(edge.To)
-		renderedNodes[edge.From] = struct{}{}
-		renderedNodes[edge.To] = struct{}{}
-		if from == to {
-			continue
+		for _, edge := range spine.Edges {
+			if strings.TrimSpace(edge.From) == "" || strings.TrimSpace(edge.To) == "" || edge.From == edge.To {
+				continue
+			}
+			from := nodeID(edge.From)
+			to := nodeID(edge.To)
+			renderedNodes[edge.From] = struct{}{}
+			renderedNodes[edge.To] = struct{}{}
+			if from == to {
+				continue
+			}
+			key := from + "->" + to
+			if _, ok := seenEdges[key]; ok {
+				continue
+			}
+			seenEdges[key] = struct{}{}
+			fmt.Fprintf(b, "  %s --> %s\n", from, to)
 		}
-		key := from + "->" + to
-		if _, ok := seenEdges[key]; ok {
-			continue
-		}
-		seenEdges[key] = struct{}{}
-		fmt.Fprintf(b, "  %s --> %s\n", from, to)
 	}
 	for _, spine := range spines {
 		for _, id := range spine.NodeIDs {
@@ -328,6 +337,153 @@ func writePreviewSpinesMermaid(b *strings.Builder, labels map[string]string, spi
 			renderedNodes[id] = struct{}{}
 		}
 	}
+}
+
+func isSatiricalPreviewSpine(spine PreviewSpine) bool {
+	return strings.EqualFold(strings.TrimSpace(spine.Policy), "satirical_analogy")
+}
+
+func writeSatiricalPreviewSpineMermaid(
+	b *strings.Builder,
+	labels map[string]string,
+	spine PreviewSpine,
+	nodeIDForLabel func(string) string,
+	renderedNodes map[string]struct{},
+	seenEdges map[string]struct{},
+) bool {
+	vehicle, ok := satiricalVehicleLabel(labels, spine)
+	if !ok {
+		return false
+	}
+	mechanism := satiricalMechanismLabel(labels, spine)
+	conclusion := satiricalConclusionLabel(labels, spine)
+	if mechanism == "" && conclusion == "" {
+		mechanism = strings.TrimSpace(spine.Thesis)
+	}
+	if mechanism == "" && conclusion == "" {
+		return false
+	}
+	vehicleID := nodeIDForLabel(vehicle)
+	prevID := vehicleID
+	for _, label := range []string{mechanism, conclusion} {
+		label = strings.TrimSpace(label)
+		if label == "" || strings.EqualFold(label, vehicle) {
+			continue
+		}
+		nextID := nodeIDForLabel(label)
+		if nextID != prevID {
+			key := prevID + "->" + nextID
+			if _, ok := seenEdges[key]; !ok {
+				seenEdges[key] = struct{}{}
+				fmt.Fprintf(b, "  %s --> %s\n", prevID, nextID)
+			}
+		}
+		prevID = nextID
+	}
+	for _, id := range spine.NodeIDs {
+		if strings.TrimSpace(id) != "" {
+			renderedNodes[id] = struct{}{}
+		}
+	}
+	return true
+}
+
+func satiricalVehicleLabel(labels map[string]string, spine PreviewSpine) (string, bool) {
+	for _, id := range spine.NodeIDs {
+		label := strings.TrimSpace(labels[id])
+		if label == "" {
+			continue
+		}
+		lower := strings.ToLower(label)
+		if strings.Contains(label, "幸运游戏") {
+			return "讽刺寓言：幸运游戏", true
+		}
+		if strings.Contains(label, "寓言") || strings.Contains(label, "类比") || strings.Contains(lower, "allegory") || strings.Contains(lower, "analogy") {
+			return "讽刺寓言：" + compactPreviewLabel(label, 32), true
+		}
+	}
+	for _, id := range spine.NodeIDs {
+		if label := strings.TrimSpace(labels[id]); label != "" {
+			return "讽刺寓言：" + compactPreviewLabel(label, 32), true
+		}
+	}
+	return "", false
+}
+
+func satiricalMechanismLabel(labels map[string]string, spine PreviewSpine) string {
+	for _, markerSet := range [][]string{
+		{"包装", "公平"},
+		{"内部", "赢家"},
+		{"吸引", "75"},
+		{"忽悠"},
+		{"不公平"},
+		{"机制"},
+	} {
+		if label := firstSatiricalLabelMatching(labels, spine, markerSet, false); label != "" {
+			return "映射机制：" + compactPreviewLabel(label, 42)
+		}
+	}
+	return ""
+}
+
+func satiricalConclusionLabel(labels map[string]string, spine PreviewSpine) string {
+	for _, markerSet := range [][]string{
+		{"现实", "骗局"},
+		{"风险识别"},
+		{"不是智商"},
+		{"净亏"},
+		{"承担", "成本"},
+		{"买单"},
+	} {
+		if label := firstSatiricalLabelMatching(labels, spine, markerSet, true); label != "" {
+			return "批判结论：" + compactPreviewLabel(label, 42)
+		}
+	}
+	return ""
+}
+
+func firstSatiricalLabelMatching(labels map[string]string, spine PreviewSpine, markers []string, preferLast bool) string {
+	matches := make([]string, 0, 1)
+	for _, id := range spine.NodeIDs {
+		label := strings.TrimSpace(labels[id])
+		if label == "" || isSatiricalStoryDetail(label) {
+			continue
+		}
+		ok := true
+		for _, marker := range markers {
+			if !strings.Contains(label, marker) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			matches = append(matches, label)
+		}
+	}
+	if len(matches) == 0 {
+		return ""
+	}
+	if preferLast {
+		return matches[len(matches)-1]
+	}
+	return matches[0]
+}
+
+func isSatiricalStoryDetail(label string) bool {
+	for _, marker := range []string{"每月", "每人", "利率", "委托贷款", "本金贷回", "抽一人", "抽完", "中奖者"} {
+		if strings.Contains(label, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func compactPreviewLabel(label string, maxRunes int) string {
+	runes := []rune(strings.TrimSpace(label))
+	if maxRunes <= 0 || len(runes) <= maxRunes {
+		return string(runes)
+	}
+	return string(runes[:maxRunes]) + "..."
 }
 
 func writePreviewEdgesMermaid(b *strings.Builder, labels map[string]string, edges []PreviewEdge) {

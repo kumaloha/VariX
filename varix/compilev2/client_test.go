@@ -269,6 +269,41 @@ func TestClientCompilePassesArticleContextToMainline(t *testing.T) {
 	}
 }
 
+func TestStage5SummaryPromptIncludesArticleForm(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"通过叙事包装游戏为公平"},{"id":"n2","text":"游戏结束后本金归管理者基金"}]}`},
+		{Text: `{"summary":"作者借幸运游戏讽刺叙事包装下的财富转移。"}`},
+	}}
+	_, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "bilibili:summary-article-form",
+		Source:  "bilibili",
+		Content: "A village lottery is a satire.",
+	}, graphState{
+		ArticleForm: "satirical_financial_commentary",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "通过叙事包装游戏为公平", Role: roleDriver},
+			{ID: "n2", Text: "游戏结束后本金归管理者基金", Role: roleTransmission, IsTarget: true},
+		},
+		Edges: []graphEdge{{From: "n1", To: "n2"}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	summaryPrompt := ""
+	for _, req := range rt.requests {
+		if req.JSONSchema != nil && req.JSONSchema.Name == "compile_summary" {
+			for _, part := range req.UserParts {
+				if part.Type == "text" {
+					summaryPrompt += part.Text
+				}
+			}
+		}
+	}
+	if !strings.Contains(summaryPrompt, `"article_form":"satirical_financial_commentary"`) {
+		t.Fatalf("summary prompt missing article_form:\n%s", summaryPrompt)
+	}
+}
+
 func TestStage3MainlinePreservesInferenceRelationKind(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
 		Text: `{"relations":[{"from":"n1","to":"n2","kind":"inference","source_quote":"沃什主张大幅降息，因此金融抑制可能开启","reason":"The Warsh research clue is used to infer the financial repression forecast."},{"from":"n2","to":"n3","kind":"causal","source_quote":"金融抑制开启后现金购买力会贬值","reason":"The forecast regime drives the cash purchasing-power implication."}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"调研证据推导金融抑制并影响现金","node_ids":["n1","n2","n3"],"edge_indexes":[0,1],"scope":"article","why":"This is the proof-backed forecast spine."}]}`,
@@ -300,6 +335,77 @@ func TestStage3MainlinePreservesInferenceRelationKind(t *testing.T) {
 	}
 	if len(state.Spines) != 1 || len(state.Spines[0].Edges) != 2 || state.Spines[0].Edges[0].Kind != "inference" {
 		t.Fatalf("Spines = %#v, want inference edge preserved in spine", state.Spines)
+	}
+}
+
+func TestStage3MainlinePreservesMixedSpinePolicyAndIllustrationKind(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n1","to":"n2","kind":"illustration","source_quote":"村长和新富设计幸运游戏，这就像现实里用牌照包装金融游戏","reason":"The allegory illustrates the real institutional mechanism instead of mechanically causing it."},{"from":"n2","to":"n3","kind":"causal","source_quote":"规则包装后，后来的参与者承担机会成本和管理费","reason":"The quote states the packaged mechanism transfers costs to later participants."}],"spines":[{"id":"s1","level":"primary","priority":1,"policy":"satirical_analogy","thesis":"幸运游戏讽刺牌照化金融规则转嫁成本","node_ids":["n1","n2","n3"],"edge_indexes":[0,1],"scope":"article","why":"The article's primary argument is made through a satire/allegory."}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "bilibili:satire-mainline",
+		Source:  "bilibili",
+		Content: "村长和新富设计幸运游戏，这就像现实里用牌照包装金融游戏。规则包装后，后来的参与者承担机会成本和管理费。",
+	}, graphState{
+		ArticleForm: "institutional_satire",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "村长与新富设计幸运游戏", DiscourseRole: "analogy"},
+			{ID: "n2", Text: "牌照化金融游戏把资金转移包装成公平规则", DiscourseRole: "thesis"},
+			{ID: "n3", Text: "多数后续参与者承担机会成本与管理费", DiscourseRole: "implication"},
+		},
+		BranchHeads: []string{"n2", "n3"},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	if len(state.Edges) != 2 {
+		t.Fatalf("Edges = %#v, want two edges", state.Edges)
+	}
+	if state.Edges[0].Kind != "illustration" {
+		t.Fatalf("Edges[0].Kind = %q, want illustration", state.Edges[0].Kind)
+	}
+	if len(state.Spines) != 1 {
+		t.Fatalf("Spines = %#v, want one satire spine", state.Spines)
+	}
+	if state.Spines[0].Policy != "satirical_analogy" {
+		t.Fatalf("Spine policy = %q, want satirical_analogy", state.Spines[0].Policy)
+	}
+	if len(state.Spines[0].Edges) != 2 || state.Spines[0].Edges[0].Kind != "illustration" {
+		t.Fatalf("Spine edges = %#v, want illustration edge preserved", state.Spines[0].Edges)
+	}
+}
+
+func TestRefineArticleFormDetectsSatiricalFinancialCommentaryFromRoles(t *testing.T) {
+	got := refineArticleFormFromExtract(compile.Bundle{
+		Source:  "bilibili",
+		Content: "村长和新富设计幸运游戏，用叙事把不公平包装成公平，忽悠后面的人进来。",
+	}, graphState{
+		ArticleForm: "main_narrative_plus_investment_implication",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "村长与新富设计幸运游戏", DiscourseRole: "analogy"},
+			{ID: "n2", Text: "游戏本质不公平但可包装成公平", DiscourseRole: "satire_target"},
+			{ID: "n3", Text: "后75%参与者承担机会成本", DiscourseRole: "implication"},
+		},
+	})
+	if got != "satirical_financial_commentary" {
+		t.Fatalf("article form = %q, want satirical_financial_commentary", got)
+	}
+}
+
+func TestRefineArticleFormPreservesPureInstitutionalSatire(t *testing.T) {
+	got := refineArticleFormFromExtract(compile.Bundle{
+		Source:  "bilibili",
+		Content: "村长和新富设计幸运游戏，用叙事把不公平包装成公平，忽悠后面的人进来。",
+	}, graphState{
+		ArticleForm: "institutional_satire",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "村长与新富设计幸运游戏", DiscourseRole: "analogy"},
+			{ID: "n2", Text: "游戏本质不公平但可包装成公平", DiscourseRole: "satire_target"},
+			{ID: "n3", Text: "后75%参与者承担机会成本", DiscourseRole: "implication"},
+		},
+	})
+	if got != "institutional_satire" {
+		t.Fatalf("article form = %q, want institutional_satire", got)
 	}
 }
 
@@ -822,6 +928,498 @@ func TestStage5RenderProjectsDriverTargetPathsFromSpines(t *testing.T) {
 	}
 	if len(out.TransmissionPaths) != 1 {
 		t.Fatalf("TransmissionPaths = %#v, want one spine path", out.TransmissionPaths)
+	}
+}
+
+func TestStage5RenderProjectsSatiricalAnalogyFromRealMechanism(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"村长与新富设计幸运游戏"},{"id":"n2","text":"牌照化金融游戏把资金转移包装成公平规则"},{"id":"n3","text":"多数后续参与者承担机会成本与管理费"}]}`},
+		{Text: `{"summary":"牌照化金融游戏把资金转移包装成公平规则，导致多数后续参与者承担机会成本与管理费。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "bilibili:satire-render",
+		Source:  "bilibili",
+		Content: "A village game satirizes institutional finance.",
+	}, graphState{
+		ArticleForm: "institutional_satire",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "村长与新富设计幸运游戏", DiscourseRole: "analogy"},
+			{ID: "n2", Text: "牌照化金融游戏把资金转移包装成公平规则", DiscourseRole: "thesis"},
+			{ID: "n3", Text: "多数后续参与者承担机会成本与管理费", DiscourseRole: "implication"},
+		},
+		Edges: []graphEdge{
+			{From: "n1", To: "n2", Kind: "illustration"},
+			{From: "n2", To: "n3", Kind: "causal"},
+		},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Policy:   "satirical_analogy",
+			Thesis:   "幸运游戏讽刺牌照化金融规则转嫁成本",
+			NodeIDs:  []string{"n1", "n2", "n3"},
+			Edges: []PreviewEdge{
+				{From: "n1", To: "n2", Kind: "illustration"},
+				{From: "n2", To: "n3", Kind: "causal"},
+			},
+			Scope: "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if containsString(out.Drivers, "村长与新富设计幸运游戏") {
+		t.Fatalf("Drivers = %#v, want satire vehicle kept out of display drivers", out.Drivers)
+	}
+	if !containsString(out.Drivers, "牌照化金融游戏把资金转移包装成公平规则") {
+		t.Fatalf("Drivers = %#v, want real institutional mechanism as display driver", out.Drivers)
+	}
+	if !containsString(out.Targets, "多数后续参与者承担机会成本与管理费") {
+		t.Fatalf("Targets = %#v, want real-world transferred cost as display target", out.Targets)
+	}
+	if !hasTransmissionPath(out.TransmissionPaths, "牌照化金融游戏把资金转移包装成公平规则", "多数后续参与者承担机会成本与管理费") {
+		t.Fatalf("TransmissionPaths = %#v, want real mechanism path instead of allegory-source path", out.TransmissionPaths)
+	}
+	if !containsString(out.EvidenceNodes, "村长与新富设计幸运游戏") {
+		t.Fatalf("EvidenceNodes = %#v, want satire vehicle displayed as evidence/illustration", out.EvidenceNodes)
+	}
+}
+
+func TestStage5RenderKeepsAnalogySourceOutOfSatiricalDriversWithoutIllustrationKind(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"村长与新富设计幸运游戏"},{"id":"n2","text":"游戏本质不公平但可包装成公平"},{"id":"n3","text":"多数后续参与者承担机会成本与管理费"}]}`},
+		{Text: `{"summary":"游戏本质不公平但可包装成公平，导致多数后续参与者承担机会成本与管理费。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "bilibili:satire-render-causal-edge",
+		Source:  "bilibili",
+		Content: "A village game satirizes institutional finance.",
+	}, graphState{
+		ArticleForm: "satirical_financial_commentary",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "村长与新富设计幸运游戏", DiscourseRole: "analogy"},
+			{ID: "n2", Text: "游戏本质不公平但可包装成公平", DiscourseRole: "satire_target"},
+			{ID: "n3", Text: "多数后续参与者承担机会成本与管理费", DiscourseRole: "implication"},
+		},
+		Edges: []graphEdge{
+			{From: "n1", To: "n2", Kind: "causal"},
+			{From: "n2", To: "n3", Kind: "causal"},
+		},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Policy:   "satirical_analogy",
+			Thesis:   "幸运游戏讽刺规则包装后的成本转嫁",
+			NodeIDs:  []string{"n1", "n2", "n3"},
+			Edges: []PreviewEdge{
+				{From: "n1", To: "n2", Kind: "causal"},
+				{From: "n2", To: "n3", Kind: "causal"},
+			},
+			Scope: "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if containsString(out.Drivers, "村长与新富设计幸运游戏") {
+		t.Fatalf("Drivers = %#v, want analogy node kept out of display drivers", out.Drivers)
+	}
+	if !containsString(out.Drivers, "游戏本质不公平但可包装成公平") {
+		t.Fatalf("Drivers = %#v, want satire target as display driver", out.Drivers)
+	}
+	if !hasTransmissionPath(out.TransmissionPaths, "游戏本质不公平但可包装成公平", "多数后续参与者承担机会成本与管理费") {
+		t.Fatalf("TransmissionPaths = %#v, want satire target path", out.TransmissionPaths)
+	}
+}
+
+func TestStage5RenderDropsCyclicSpineProjectionPath(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"不公平游戏"},{"id":"n2","text":"包装资产"},{"id":"n3","text":"安全感下降"},{"id":"n4","text":"财务自由变远"}]}`},
+		{Text: `{"summary":"不公平游戏通过包装资产和安全感下降拉长财务自由进程。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "bilibili:cyclic-spines",
+		Source:  "bilibili",
+		Content: "Satire plus branches.",
+	}, graphState{
+		ArticleForm: "satirical_financial_commentary",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "不公平游戏", DiscourseRole: "thesis"},
+			{ID: "n2", Text: "包装资产", DiscourseRole: "satire_target"},
+			{ID: "n3", Text: "安全感下降", DiscourseRole: "mechanism"},
+			{ID: "n4", Text: "财务自由变远", DiscourseRole: "implication"},
+		},
+		Edges: []graphEdge{
+			{From: "n1", To: "n2"},
+			{From: "n2", To: "n3"},
+			{From: "n3", To: "n4"},
+			{From: "n4", To: "n1"},
+		},
+		Spines: []PreviewSpine{
+			{ID: "s1", Level: "primary", Priority: 1, Policy: "satirical_analogy", Thesis: "不公平游戏映射包装资产", NodeIDs: []string{"n1", "n2"}, Edges: []PreviewEdge{{From: "n1", To: "n2"}}, Scope: "article"},
+			{ID: "s2", Level: "branch", Priority: 2, Policy: "causal_mechanism", Thesis: "包装资产降低安全感", NodeIDs: []string{"n2", "n3"}, Edges: []PreviewEdge{{From: "n2", To: "n3"}}, Scope: "section"},
+			{ID: "s3", Level: "branch", Priority: 3, Policy: "investment_implication", Thesis: "安全感下降拉长自由进程", NodeIDs: []string{"n3", "n4"}, Edges: []PreviewEdge{{From: "n3", To: "n4"}}, Scope: "section"},
+			{ID: "s4", Level: "branch", Priority: 4, Policy: "investment_implication", Thesis: "错误回环", NodeIDs: []string{"n4", "n1"}, Edges: []PreviewEdge{{From: "n4", To: "n1"}}, Scope: "section"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if hasTransmissionPath(out.TransmissionPaths, "财务自由变远", "不公平游戏") {
+		t.Fatalf("TransmissionPaths = %#v, want cycle-closing path dropped", out.TransmissionPaths)
+	}
+	if containsString(out.Targets, "不公平游戏") {
+		t.Fatalf("Targets = %#v, want driver not reintroduced as target by cycle fallback", out.Targets)
+	}
+	if !containsString(out.Targets, "财务自由变远") {
+		t.Fatalf("Targets = %#v, want final acyclic terminal retained", out.Targets)
+	}
+}
+
+func TestStage5RenderDropsCycleClosingPathThroughIntermediateStep(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"初始驱动"},{"id":"n2","text":"中间机制"},{"id":"n3","text":"最终结果"}]}`},
+		{Text: `{"summary":"初始驱动经由中间机制导致最终结果。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:multi-step-cycle",
+		Source:  "web",
+		Content: "A drives B, B drives C, with a bad B-to-A branch.",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "初始驱动", Role: roleDriver},
+			{ID: "n2", Text: "中间机制", Role: roleTransmission},
+			{ID: "n3", Text: "最终结果", Role: roleTransmission, IsTarget: true},
+		},
+		Spines: []PreviewSpine{
+			{
+				ID:       "s1",
+				Level:    "primary",
+				Priority: 1,
+				Policy:   "causal_mechanism",
+				Thesis:   "初始驱动经由中间机制导致最终结果",
+				NodeIDs:  []string{"n1", "n2", "n3"},
+				Edges: []PreviewEdge{
+					{From: "n1", To: "n2", Kind: "causal"},
+					{From: "n2", To: "n3", Kind: "causal"},
+				},
+				Scope: "article",
+			},
+			{
+				ID:       "s2",
+				Level:    "branch",
+				Priority: 2,
+				Policy:   "causal_mechanism",
+				Thesis:   "错误回指",
+				NodeIDs:  []string{"n2", "n1"},
+				Edges:    []PreviewEdge{{From: "n2", To: "n1", Kind: "causal"}},
+				Scope:    "section",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if !hasTransmissionPath(out.TransmissionPaths, "初始驱动", "最终结果") {
+		t.Fatalf("TransmissionPaths = %#v, want multi-step primary path retained", out.TransmissionPaths)
+	}
+	if hasTransmissionPath(out.TransmissionPaths, "中间机制", "初始驱动") {
+		t.Fatalf("TransmissionPaths = %#v, want back-edge through intermediate step dropped", out.TransmissionPaths)
+	}
+	if containsString(out.Targets, "初始驱动") {
+		t.Fatalf("Targets = %#v, want driver not reintroduced as target through back-edge", out.Targets)
+	}
+}
+
+func TestStage5RenderDropsMultiStepPathClosingPriorEndpointCycle(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"初始驱动"},{"id":"n2","text":"中间机制"},{"id":"n3","text":"最终结果"}]}`},
+		{Text: `{"summary":"错误回指不应再允许初始驱动形成回环路径。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:prior-endpoint-cycle",
+		Source:  "web",
+		Content: "C points back to A before a later A-B-C projection.",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "初始驱动", Role: roleDriver},
+			{ID: "n2", Text: "中间机制", Role: roleTransmission},
+			{ID: "n3", Text: "最终结果", Role: roleTransmission, IsTarget: true},
+		},
+		Spines: []PreviewSpine{
+			{
+				ID:       "s1",
+				Level:    "branch",
+				Priority: 1,
+				Policy:   "causal_mechanism",
+				Thesis:   "错误回指先出现",
+				NodeIDs:  []string{"n3", "n1"},
+				Edges:    []PreviewEdge{{From: "n3", To: "n1", Kind: "causal"}},
+				Scope:    "section",
+			},
+			{
+				ID:       "s2",
+				Level:    "primary",
+				Priority: 2,
+				Policy:   "causal_mechanism",
+				Thesis:   "初始驱动经由中间机制导致最终结果",
+				NodeIDs:  []string{"n1", "n2", "n3"},
+				Edges: []PreviewEdge{
+					{From: "n1", To: "n2", Kind: "causal"},
+					{From: "n2", To: "n3", Kind: "causal"},
+				},
+				Scope: "article",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if !hasTransmissionPath(out.TransmissionPaths, "最终结果", "初始驱动") {
+		t.Fatalf("TransmissionPaths = %#v, want earlier endpoint path retained", out.TransmissionPaths)
+	}
+	if hasTransmissionPath(out.TransmissionPaths, "初始驱动", "最终结果") {
+		t.Fatalf("TransmissionPaths = %#v, want later multi-step cycle-closing path dropped", out.TransmissionPaths)
+	}
+}
+
+func TestStage5RenderKeepsSalientPathStepDisplayTargets(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"驱动"},{"id":"n2","text":"中间桥"},{"id":"n3","text":"最终结果"}]}`},
+		{Text: `{"summary":"驱动通过中间桥导致最终结果。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "web:path-step-target",
+		Source:  "web",
+		Content: "A drives B, B drives C.",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "驱动", Role: roleDriver},
+			{ID: "n2", Text: "中间桥", Role: roleTransmission, IsTarget: true},
+			{ID: "n3", Text: "最终结果", Role: roleTransmission, IsTarget: true},
+		},
+		Edges: []graphEdge{{From: "n1", To: "n2"}, {From: "n2", To: "n3"}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if !containsString(out.Targets, "中间桥") {
+		t.Fatalf("Targets = %#v, want salient path step target retained", out.Targets)
+	}
+	if !containsString(out.Targets, "最终结果") {
+		t.Fatalf("Targets = %#v, want final path target retained", out.Targets)
+	}
+}
+
+func TestStage5RenderUsesCritiqueMechanismForAllIllustrationSatireSpine(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"幸运游戏规则：2000人每人出资5万"},{"id":"n2","text":"村长贷回1亿本金"},{"id":"n3","text":"游戏结束后本金归管理者基金"},{"id":"n4","text":"通过叙事包装游戏为公平"},{"id":"n5","text":"村长必须控制叙事"}]}`},
+		{Text: `{"summary":"通过叙事包装游戏为公平，最终让本金归管理者基金。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "bilibili:all-illustration-satire",
+		Source:  "bilibili",
+		Content: "A village lottery is an allegory.",
+	}, graphState{
+		ArticleForm: "satirical_financial_commentary",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "幸运游戏规则：2000人每人出资5万", DiscourseRole: "mechanism"},
+			{ID: "n2", Text: "村长贷回1亿本金", DiscourseRole: "mechanism"},
+			{ID: "n3", Text: "游戏结束后本金归管理者基金", DiscourseRole: "mechanism"},
+			{ID: "n4", Text: "通过叙事包装游戏为公平", DiscourseRole: "mechanism"},
+			{ID: "n5", Text: "村长必须控制叙事", DiscourseRole: "implication"},
+		},
+		Edges: []graphEdge{
+			{From: "n1", To: "n2", Kind: "illustration"},
+			{From: "n2", To: "n3", Kind: "illustration"},
+			{From: "n3", To: "n4", Kind: "illustration"},
+			{From: "n4", To: "n5", Kind: "illustration"},
+		},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Policy:   "satirical_analogy",
+			Thesis:   "幸运游戏说明表面公平方案隐藏财富转移",
+			NodeIDs:  []string{"n1", "n2", "n3", "n4", "n5"},
+			Edges: []PreviewEdge{
+				{From: "n1", To: "n2", Kind: "illustration"},
+				{From: "n2", To: "n3", Kind: "illustration"},
+				{From: "n3", To: "n4", Kind: "illustration"},
+				{From: "n4", To: "n5", Kind: "illustration"},
+			},
+			Scope: "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if containsString(out.Drivers, "幸运游戏规则：2000人每人出资5万") {
+		t.Fatalf("Drivers = %#v, want story mechanics kept out of display driver", out.Drivers)
+	}
+	if !containsString(out.Drivers, "通过叙事包装游戏为公平") {
+		t.Fatalf("Drivers = %#v, want critique mechanism as display driver", out.Drivers)
+	}
+	if !containsString(out.Targets, "游戏结束后本金归管理者基金") {
+		t.Fatalf("Targets = %#v, want wealth-transfer consequence as display target", out.Targets)
+	}
+	if containsString(out.Targets, "村长贷回1亿本金") {
+		t.Fatalf("Targets = %#v, want intermediate bridge omitted from display targets", out.Targets)
+	}
+	if !hasTransmissionPath(out.TransmissionPaths, "通过叙事包装游戏为公平", "游戏结束后本金归管理者基金") {
+		t.Fatalf("TransmissionPaths = %#v, want synthetic satire display path", out.TransmissionPaths)
+	}
+}
+
+func TestStage5RenderUsesOffGraphConsequenceForCompressedSatireSpine(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"该幸运游戏本质上极其不公平"},{"id":"n2","text":"追求高回报率容易掉入陷阱"},{"id":"o1","text":"游戏结束后一个亿本金归管理者基金"}]}`},
+		{Text: `{"summary":"作者借幸运游戏讽刺表面公平方案隐藏财富转移。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "bilibili:compressed-satire",
+		Source:  "bilibili",
+		Content: "A compressed satire spine.",
+	}, graphState{
+		ArticleForm: "satirical_financial_commentary",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "该幸运游戏本质上极其不公平", DiscourseRole: "thesis"},
+			{ID: "n2", Text: "追求高回报率容易掉入陷阱", DiscourseRole: "thesis"},
+		},
+		OffGraph: []offGraphItem{{
+			ID:         "o1",
+			Text:       "游戏结束后一个亿本金归管理者基金",
+			Role:       "explanation",
+			AttachesTo: "n1",
+		}, {
+			ID:         "o2",
+			Text:       "无关零售客户承担高额手续费",
+			Role:       "explanation",
+			AttachesTo: "other_branch",
+		}},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Policy:   "satirical_analogy",
+			Thesis:   "幸运游戏说明表面公平方案隐藏财富转移",
+			NodeIDs:  []string{"n1", "n2"},
+			Edges:    []PreviewEdge{{From: "n1", To: "n2", Kind: "illustration"}},
+			Scope:    "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if !containsString(out.Targets, "游戏结束后一个亿本金归管理者基金") {
+		t.Fatalf("Targets = %#v, want off-graph wealth-transfer consequence", out.Targets)
+	}
+	if containsString(out.Targets, "追求高回报率容易掉入陷阱") {
+		t.Fatalf("Targets = %#v, want generic trap target replaced by concrete consequence", out.Targets)
+	}
+}
+
+func TestStage5RenderDoesNotStealUnattachedOffGraphSatireTarget(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"该幸运游戏本质上极其不公平"},{"id":"n2","text":"追求高回报率容易掉入陷阱"},{"id":"o1","text":"无关零售客户承担高额手续费"}]}`},
+		{Text: `{"summary":"作者借幸运游戏讽刺表面公平方案隐藏财富转移。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "bilibili:unattached-offgraph",
+		Source:  "bilibili",
+		Content: "A compressed satire spine.",
+	}, graphState{
+		ArticleForm: "satirical_financial_commentary",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "该幸运游戏本质上极其不公平", DiscourseRole: "thesis"},
+			{ID: "n2", Text: "追求高回报率容易掉入陷阱", DiscourseRole: "thesis"},
+		},
+		OffGraph: []offGraphItem{{ID: "o1", Text: "无关零售客户承担高额手续费", Role: "explanation", AttachesTo: "other_branch"}},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Policy:   "satirical_analogy",
+			Thesis:   "幸运游戏说明表面公平方案隐藏财富转移",
+			NodeIDs:  []string{"n1", "n2"},
+			Edges:    []PreviewEdge{{From: "n1", To: "n2", Kind: "illustration"}},
+			Scope:    "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if containsString(out.Targets, "无关零售客户承担高额手续费") {
+		t.Fatalf("Targets = %#v, want unattached off-graph item ignored", out.Targets)
+	}
+}
+
+func TestStage5RenderIgnoresBlankAttachOffGraphSatireTarget(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"该幸运游戏本质上极其不公平"},{"id":"n2","text":"追求高回报率容易掉入陷阱"},{"id":"o1","text":"空挂载零售客户承担高额手续费"}]}`},
+		{Text: `{"summary":"作者借幸运游戏讽刺表面公平方案隐藏财富转移。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "bilibili:blank-attach-offgraph",
+		Source:  "bilibili",
+		Content: "A compressed satire spine.",
+	}, graphState{
+		ArticleForm: "satirical_financial_commentary",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "该幸运游戏本质上极其不公平", DiscourseRole: "thesis"},
+			{ID: "n2", Text: "追求高回报率容易掉入陷阱", DiscourseRole: "thesis"},
+		},
+		OffGraph: []offGraphItem{{ID: "o1", Text: "空挂载零售客户承担高额手续费", Role: "explanation"}},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Policy:   "satirical_analogy",
+			Thesis:   "幸运游戏说明表面公平方案隐藏财富转移",
+			NodeIDs:  []string{"n1", "n2"},
+			Edges:    []PreviewEdge{{From: "n1", To: "n2", Kind: "illustration"}},
+			Scope:    "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if containsString(out.Targets, "空挂载零售客户承担高额手续费") {
+		t.Fatalf("Targets = %#v, want blank-attached off-graph item ignored", out.Targets)
+	}
+}
+
+func TestStage5RenderProjectsSatiricalBranchAlongsideCausalPrimary(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"利率下行"},{"id":"n2","text":"投资被压制"},{"id":"n3","text":"该幸运游戏本质上极其不公平"},{"id":"n4","text":"游戏结束后本金归管理者基金"}]}`},
+		{Text: `{"summary":"利率下行压制投资，同时讽刺不公平游戏中的财富转移。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "bilibili:satire-branch",
+		Source:  "bilibili",
+		Content: "Mixed causal essay with a satire branch.",
+	}, graphState{
+		ArticleForm: "satirical_financial_commentary",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "利率下行", DiscourseRole: "mechanism"},
+			{ID: "n2", Text: "投资被压制", DiscourseRole: "implication"},
+			{ID: "n3", Text: "该幸运游戏本质上极其不公平", DiscourseRole: "thesis"},
+			{ID: "n4", Text: "游戏结束后本金归管理者基金", DiscourseRole: "implication"},
+		},
+		Spines: []PreviewSpine{
+			{ID: "s1", Level: "primary", Priority: 1, Policy: "causal_mechanism", Thesis: "利率压制投资", NodeIDs: []string{"n1", "n2"}, Edges: []PreviewEdge{{From: "n1", To: "n2"}}, Scope: "article"},
+			{ID: "s2", Level: "branch", Priority: 2, Policy: "satirical_analogy", Thesis: "幸运游戏说明财富转移", NodeIDs: []string{"n3", "n4"}, Edges: []PreviewEdge{{From: "n3", To: "n4", Kind: "illustration"}}, Scope: "section"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if !hasTransmissionPath(out.TransmissionPaths, "利率下行", "投资被压制") {
+		t.Fatalf("TransmissionPaths = %#v, want primary causal path retained", out.TransmissionPaths)
+	}
+	if !hasTransmissionPath(out.TransmissionPaths, "该幸运游戏本质上极其不公平", "游戏结束后本金归管理者基金") {
+		t.Fatalf("TransmissionPaths = %#v, want branch satire path projected", out.TransmissionPaths)
 	}
 }
 

@@ -24,6 +24,11 @@ func TestPromptTemplatesPresentCoreInstructions(t *testing.T) {
 			file: "translate_system.tmpl",
 			want: []string{"financial-Chinese translator", "already-Chinese", "translations"},
 		},
+		{
+			name: "summary",
+			file: "summary_system.tmpl",
+			want: []string{"satirical_financial_commentary", "do not call it `论文`", "mapped critique mechanism"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body, err := loader.render(tc.file, nil)
@@ -155,11 +160,13 @@ func TestStage3MainlinePromptRequiresGroundedRelations(t *testing.T) {
 		"Your job now is only to draw the retained relations and spines",
 		"Every relation must include kind:",
 		"`inference`: A is research evidence, historical precedent, policy signal, legal feasibility, or quantitative indicator",
+		"`illustration`: A is an allegory, analogy, satirical scene, or example used to map onto B.",
 		"Every relation must include:",
 		"source_quote: the quote span that grounds the drives relation",
 		"relations: article-grounded edges among retained nodes",
 		"spines: grouped causal spines over relations",
 		"level: primary, branch, or local",
+		"policy: one of causal_mechanism, forecast_inference, investment_implication, satirical_analogy",
 		"edge_indexes: zero-based indexes into relations",
 		"Risk-list articles should usually produce several branch spines",
 		"Keep grounded non-market upstream causes",
@@ -185,6 +192,12 @@ func TestStage3MainlinePromptRequiresGroundedRelations(t *testing.T) {
 		"use at most one primary spine unless the article truly has two independent article-level theses",
 		"For evidence-backed forecast articles",
 		"kind=inference",
+		"For satirical analogy articles",
+		"kind=illustration",
+		"do not chain every in-story operational detail",
+		"Do not output a spine like game rule -> bank loan -> fund receives principal",
+		"lucky-game allegory -> unfair mechanism packaged as fair and promoted by insiders -> real scams test risk recognition",
+		"Mixed articles may contain multiple spine policies at once.",
 		"Do not turn section order into causal order.",
 		"do not pretend proof material is mechanical causality",
 		"2-8 nodes",
@@ -432,8 +445,14 @@ func TestStage1PromptAllowsNormalizationButRejectsSemanticUpgrade(t *testing.T) 
 		"Article form:",
 		"`main_narrative_plus_investment_implication`",
 		"`evidence_backed_forecast`",
+		"`institutional_satire`",
+		`"article_form": "single_thesis|main_narrative_plus_investment_implication|evidence_backed_forecast|institutional_satire|satirical_financial_commentary|risk_list|macro_framework|market_update"`,
 		"Node discourse roles:",
 		"Every node must include a `role`",
+		"`analogy`",
+		"`satire_target`",
+		`"role":"thesis|mechanism|evidence|example|implication|caveat|market_move|analogy|satire_target|implied_thesis"`,
+		"do not demote the central allegory",
 		"U.S. trade policy is causing a realignment of global economic relations",
 		"Barings基金赎回请求仅满足44.3%",
 		"Barings基金每季度最多允许5%赎回",
@@ -528,6 +547,12 @@ func TestMainlineSchemaIncludesOptionalSpines(t *testing.T) {
 	props := items["properties"].(map[string]any)
 	if _, ok := props["kind"]; !ok {
 		t.Fatalf("mainline relation schema missing kind: %#v", props)
+	}
+	spines := schema.Properties["spines"].(map[string]any)
+	spineItems := spines["items"].(map[string]any)
+	spineProps := spineItems["properties"].(map[string]any)
+	if _, ok := spineProps["policy"]; !ok {
+		t.Fatalf("mainline spine schema missing policy: %#v", spineProps)
 	}
 }
 

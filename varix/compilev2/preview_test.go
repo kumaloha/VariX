@@ -140,6 +140,49 @@ func TestBuildMainlineMarkdownUsesPreviewSpines(t *testing.T) {
 	}
 }
 
+func TestBuildMainlineMarkdownCompressesSatiricalAnalogySpines(t *testing.T) {
+	body := BuildMainlineMarkdown(FlowPreviewResult{
+		Platform:   "bilibili",
+		ExternalID: "satire",
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Policy:   "satirical_analogy",
+			Thesis:   "Lucky game satire",
+			NodeIDs:  []string{"n1", "n2", "n3", "n4", "n5", "n6"},
+			Edges: []PreviewEdge{
+				{From: "n1", To: "n2", Kind: "illustration"},
+				{From: "n2", To: "n3", Kind: "illustration"},
+				{From: "n3", To: "n4", Kind: "illustration"},
+				{From: "n4", To: "n5", Kind: "illustration"},
+				{From: "n5", To: "n6", Kind: "illustration"},
+			},
+		}},
+		Relations: PreviewGraph{
+			Nodes: []PreviewNode{
+				{ID: "n1", Text: "幸运游戏每月抽一人得40万，抽完为止"},
+				{ID: "n2", Text: "新富通过委托贷款把1亿本金贷回给村长"},
+				{ID: "n3", Text: "游戏结束后1亿本金自动归新富设立的基金"},
+				{ID: "n4", Text: "新富指定内部人作为前25%赢家来吸引后75%参与者"},
+				{ID: "n5", Text: "哄抢氛围使普通人放弃冷静思考急于参与"},
+				{ID: "n6", Text: "现实中的骗局不主要考验智商而是风险识别"},
+			},
+		},
+	})
+
+	for _, want := range []string{"讽刺寓言：幸运游戏", "映射机制：新富指定内部人作为前25%赢家来吸引后75%参与者", "批判结论：现实中的骗局不主要考验智商而是风险识别"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("mainline markdown missing compressed satire label %q:\n%s", want, body)
+		}
+	}
+	for _, noisy := range []string{"新富通过委托贷款把1亿本金贷回给村长", "游戏结束后1亿本金自动归新富设立的基金"} {
+		if strings.Contains(body, noisy) {
+			t.Fatalf("mainline markdown leaked in-story accounting detail %q:\n%s", noisy, body)
+		}
+	}
+}
+
 func TestBuildMainlineMarkdownRendersSingleNodeSpines(t *testing.T) {
 	body := BuildMainlineMarkdown(FlowPreviewResult{
 		Platform:   "web",

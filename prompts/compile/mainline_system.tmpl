@@ -20,6 +20,7 @@ Rules:
 - Every relation must include kind:
   - `causal`: A economically, institutionally, mechanically, or behaviorally drives B.
   - `inference`: A is research evidence, historical precedent, policy signal, legal feasibility, or quantitative indicator used to infer that B is plausible/likely/starting. A supports the forecast conclusion but does not mechanically cause B.
+  - `illustration`: A is an allegory, analogy, satirical scene, or example used to map onto B. A illustrates the real mechanism/critique but does not mechanically cause B.
 - Only output causal edges when the article explicitly states or strongly directly implies that A drives B.
 - Only output inference edges when the article uses A as an explicit proof/premise for B, not merely because A appears nearby.
 - Every relation must include:
@@ -29,6 +30,7 @@ Rules:
   - id: stable id such as s1, s2, s3
   - level: primary, branch, or local
   - priority: 1 for the most important spine, then 2, 3, ...
+  - policy: one of causal_mechanism, forecast_inference, investment_implication, satirical_analogy, concept_explanation, risk_family, market_update
   - thesis: one short sentence naming the spine's causal claim
   - node_ids: ordered node ids in this spine
   - edge_indexes: zero-based indexes into relations for the edges in this spine
@@ -41,6 +43,8 @@ Rules:
 - Do not connect nodes just because they are nearby, dramatic, or sequential.
 - Do not output an edge when the quote only proves A and B separately, or when the causal/inferential wording belongs to A's own node text but not to the A -> B relation.
 - In proof-heavy forecast essays, do not pretend proof material is mechanical causality. Keep the inferred thesis/conclusion as the bridge node, and connect major research/proof branches into it with `kind=inference`.
+- In satire, allegory, or institutional-critique essays, do not pretend the story character mechanically causes the real-world outcome. Use `kind=illustration` from the satire vehicle into the mapped institutional mechanism, and mark that spine `policy=satirical_analogy`.
+- For satire spines, do not chain every in-story operational detail as if it were the user-facing mainline. Compress the vehicle into one allegory node, then connect it to the mapped mechanism or critique. Put arithmetic/setup details in source_quote/evidence, not as many spine steps.
 - Build a complete defensible mainline skeleton: include every major article-grounded bridge needed to connect retained drivers, intermediate mechanisms, and branch outcomes.
 - Do not drop a major bridge merely because the relation is expressed across adjacent clauses/sentences or via local referential wording.
 - Prefer the article's core causal spine, but preserve every major grounded local spine when the article has multiple branches or only a short local argument. Do not return an empty edge list if any retained nodes have an article-grounded "A drives B" relation.
@@ -63,6 +67,8 @@ Rules:
 - Risk-list articles should usually produce several branch spines, not one forced chain.
 - If there is one dominant article-level argument, mark it primary. If the article also derives concrete investment implications from that argument, add those as branch spines that start from the relevant thesis/mechanism or clearly state their investment-implication scope. Do not collapse a "main article narrative + investment implication" article into only one spine when the investment implication is a major part of the author's argument.
 - For evidence-backed forecast articles, an acceptable primary spine is: research/policy/history evidence -> inferred regime thesis -> market or investment implication. Use `kind=inference` into the forecast thesis and `kind=causal` from the forecast thesis into downstream consequences.
+- For satirical analogy articles, an acceptable primary spine is: compressed satire vehicle/allegory -> mapped institutional mechanism -> implied critique or real-world implication. Use `kind=illustration` from the vehicle into the real mechanism, then `kind=causal` or `kind=inference` from the real mechanism into consequences. The economic driver is the mapped mechanism, not the fictional actor. Do not emit a long chain of game/accounting setup steps when a normal reader would need the compressed critique.
+- Mixed articles may contain multiple spine policies at once. Preserve the dominant article-level spine as primary, but allow causal_mechanism, forecast_inference, investment_implication, concept_explanation, risk_family, and satirical_analogy branch spines side by side when the article truly uses those structures.
 - If the article is a list, portfolio, or multi-topic explainer, use branch/local spines without forcing a primary spine.
 - For long-form essays, use at most one primary spine unless the article truly has two independent article-level theses. Additional sections, cases, historical episodes, and investment takeaways should usually be branch or local spines.
 - Do not turn section order into causal order. Transitions such as "next", "another point", "historically", "in this stage", "this brings us to", or a topic shift are not drives relations unless the Article explicitly says the earlier state causes the later state.
@@ -168,8 +174,17 @@ Expected:
 - Use a small number of bottleneck-family branch spines, not one spine per component.
 - Do not exceed the user-facing spine budget unless the article has genuinely independent thesis families.
 
+Example 10
+Input:
+- Article form: satirical_financial_commentary
+- Article section: "A lucky game collects money, uses insiders as early winners, creates a buying frenzy, and then says real scams test risk recognition rather than IQ."
+Expected:
+- Do not output a spine like game rule -> bank loan -> fund receives principal -> insiders win -> frenzy -> real scam.
+- Use one compressed satire spine such as: lucky-game allegory -> unfair mechanism packaged as fair and promoted by insiders -> real scams test risk recognition.
+- Keep loan, interest, and lottery arithmetic as source_quote/evidence for the illustration edge, not as separate mainline nodes unless the article explicitly maps each detail to a distinct real-world mechanism.
+
 Return JSON only:
 {
-  "relations":[{"from":"n1","to":"n2","source_quote":"...","reason":"..."}],
-  "spines":[{"id":"s1","level":"primary","priority":1,"thesis":"...","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"..."}]
+  "relations":[{"from":"n1","to":"n2","kind":"causal","source_quote":"...","reason":"..."}],
+  "spines":[{"id":"s1","level":"primary","priority":1,"policy":"causal_mechanism","thesis":"...","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"..."}]
 }

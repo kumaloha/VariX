@@ -21,13 +21,15 @@ Article form:
   - `single_thesis`: one dominant argument or conclusion.
   - `main_narrative_plus_investment_implication`: article first builds a narrative/conclusion, then derives market or investment implications from it.
   - `evidence_backed_forecast`: article uses research clues, historical precedent, policy signals, legal feasibility, or quantitative indicators to infer a future regime/outcome, then explains likely market or investment consequences.
+  - `institutional_satire`: article uses satire, allegory, irony, or a fictionalized setup to critique an institution, market rule, financial product design, or policy system.
+  - `satirical_financial_commentary`: article mixes satire/allegory with ordinary financial explanation, market implications, or investment commentary.
   - `risk_list`: several major risk families or topic branches are intentionally listed side by side.
   - `macro_framework`: long-form framework/cycle essay where the article explains a general mechanism across examples.
   - `market_update`: market moves/news items are updated with limited deeper thesis.
 - Use article form to preserve the right grain: risk-list articles may keep several branch families; single-thesis articles should keep fewer thesis/mechanism nodes; investment-implication articles must preserve the bridge from narrative conclusion to investment implication; evidence-backed forecasts must preserve both the proof/inference branches and the forecast-to-implication branches.
 
 Node discourse roles:
-- Every node must include a `role` from: `thesis`, `mechanism`, `evidence`, `example`, `implication`, `caveat`, `market_move`.
+- Every node must include a `role` from: `thesis`, `mechanism`, `evidence`, `example`, `implication`, `caveat`, `market_move`, `analogy`, `satire_target`, `implied_thesis`.
 - `thesis`: article-level claim/conclusion or a major branch claim.
 - `mechanism`: causal/mechanical step needed to connect upstream and downstream ideas.
 - `evidence`: statistic, report, concrete observation, data point, or named fact used to support a claim.
@@ -35,7 +37,11 @@ Node discourse roles:
 - `implication`: investment, policy, allocation, or market inference derived from prior reasoning.
 - `caveat`: limitation, uncertainty, exception, or condition.
 - `market_move`: observed price/yield/flow/asset move that matters as an outcome or setup.
+- `analogy`: an allegory, story vehicle, satire scene, or concrete comparison used to map onto a real financial mechanism.
+- `satire_target`: the real institution, rule, product design, or policy mechanism being criticized through satire.
+- `implied_thesis`: a conclusion implied by irony, contrast, or satire rather than stated as a direct thesis.
 - Prefer `thesis` and `mechanism` for nodes that should survive into mainline spines. Prefer `evidence` / `example` for nodes that should usually support or attach to a thesis/mechanism rather than become their own spine.
+- In institutional satire, do not demote the central allegory merely because it is a story. If it is the carrier of the article-level critique, keep it as a node with role `analogy`; keep the mapped real mechanism as `satire_target` or `thesis`.
 
 Later edge meanings:
 - Main causal edge (`drive`, A -> B): A is presented as pushing, triggering, enabling, constraining, worsening, raising, lowering, or otherwise driving B in the article's financial reasoning. Keep both endpoint nodes when both are explicitly stated.
@@ -236,7 +242,7 @@ Why:
 
 Return JSON only with keys:
 {
-  "article_form": "single_thesis|main_narrative_plus_investment_implication|evidence_backed_forecast|risk_list|macro_framework|market_update",
-  "nodes": [{"id":"n1","text":"...","source_quote":"...","role":"thesis|mechanism|evidence|example|implication|caveat|market_move"}],
+  "article_form": "single_thesis|main_narrative_plus_investment_implication|evidence_backed_forecast|institutional_satire|satirical_financial_commentary|risk_list|macro_framework|market_update",
+  "nodes": [{"id":"n1","text":"...","source_quote":"...","role":"thesis|mechanism|evidence|example|implication|caveat|market_move|analogy|satire_target|implied_thesis"}],
   "off_graph": [{"id":"o1","text":"...","role":"evidence|explanation|supplementary","attaches_to":"n1","source_quote":"..."}]
 }
