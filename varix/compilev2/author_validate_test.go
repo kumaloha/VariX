@@ -107,7 +107,7 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	if !strings.Contains(userPrompt, `"source_quote": "The bank cut rates by 25 bps"`) {
 		t.Fatalf("user prompt missing proof provenance source_quote: %s", userPrompt)
 	}
-	for _, want := range []string{"Validate only externally checkable point claims", "required_evidence", "metric, date/window, denominator/base", "data requirements needed to support the jump", "deferred to inference validation", "Do not use \"unverified\" for abstract claims", "Split compound proof points", "normalize units", "range_covered", "attribution_ok", "comparison_base", "scope_status", "denominator", "do not silently rewrite the subject", "edge_evidence", "implicit premises are externally supported", "missing_links for unverified or contradicted intermediate premises"} {
+	for _, want := range []string{"Validate only externally checkable point claims", "required_evidence", "metric, date/window, denominator/base", "do not substitute YTD for MTD", "post date", "nearest close used", "data requirements needed to support the jump", "deferred to inference validation", "Do not use \"unverified\" for abstract claims", "Split compound proof points", "normalize units", "range_covered", "attribution_ok", "comparison_base", "scope_status", "denominator", "do not silently rewrite the subject", "edge_evidence", "implicit premises are externally supported", "missing_links for unverified or contradicted intermediate premises"} {
 		if !strings.Contains(req.System, want) {
 			t.Fatalf("system prompt missing %q: %s", want, req.System)
 		}
