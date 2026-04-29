@@ -247,6 +247,9 @@ You are an author-claim validator for a reader-facing product.
 Validate ONLY what the author claims, uses as proof, or implies. Do not critique the extraction pipeline, graph shape, missing nodes, missing edges, target classification, branch grouping, or UI wording.
 
 For each claim candidate:
+- Validate only externally checkable point claims. A checkable claim is a concrete public fact, number, dated event, sourceable quote, named-entity attribution, capacity claim, timing claim, or current/historical state that public evidence could support or contradict.
+- Do not force abstract framing, interpretation, analogy, value judgment, broad causal description, unresolved forecast, or reader-facing thesis language into a true/false fact check. Mark it "interpretive" and explain that point validation is deferred to inference validation unless it contains concrete factual subclaims.
+- Use "unverified" only for concrete checkable claims where evidence should exist but the available source/search context cannot establish it. Do not use "unverified" for abstract claims merely because they cannot be proven or disproven as standalone facts.
 - If the source text does not show the author making the claim, use status "not_author_claim". This is not an author fault.
 - When source_text/source_quote/context is present, use it as provenance for the candidate. If it contradicts the compressed candidate wording, flag the candidate or subclaim as contradicted/not_author_claim rather than repairing it into a different supported claim.
 - If it is an objective factual/numeric claim and available evidence supports it, use "supported".
@@ -621,12 +624,7 @@ func normalizeAuthorValidation(validation compile.AuthorValidation, claims []aut
 		usedClaimIDs[candidate.ClaimID] = struct{}{}
 		check, ok := claimByID[candidate.ClaimID]
 		if !ok {
-			check = compile.AuthorClaimCheck{
-				ClaimID: candidate.ClaimID,
-				Text:    candidate.Text,
-				Status:  compile.AuthorClaimUnverified,
-				Reason:  "validator did not return this candidate",
-			}
+			check = defaultMissingAuthorClaimCheck(candidate)
 		}
 		if strings.TrimSpace(check.Text) == "" {
 			check.Text = candidate.Text
@@ -684,6 +682,29 @@ func normalizeAuthorValidation(validation compile.AuthorValidation, claims []aut
 	validation.InferenceChecks = normalizedInferences
 	validation.Summary = summarizeAuthorValidation(validation)
 	return validation
+}
+
+func defaultMissingAuthorClaimCheck(candidate authorClaimCandidate) compile.AuthorClaimCheck {
+	check := compile.AuthorClaimCheck{
+		ClaimID: candidate.ClaimID,
+		Text:    candidate.Text,
+		Status:  compile.AuthorClaimUnverified,
+		Reason:  "validator did not return this concrete proof candidate",
+	}
+	if isAuthorNarrativeClaimKind(candidate.Kind) {
+		check.Status = compile.AuthorClaimInterpretive
+		check.Reason = "validator did not return this narrative candidate; defer abstract point validation to inference checks unless a concrete subclaim is explicitly checked"
+	}
+	return check
+}
+
+func isAuthorNarrativeClaimKind(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "driver", "target", "explanation", "branch_thesis", "branch_anchor", "branch_driver", "branch_target":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeAuthorClaimStatus(status compile.AuthorClaimStatus) compile.AuthorClaimStatus {
@@ -766,6 +787,9 @@ func aggregateClaimStatusFromSubclaims(status compile.AuthorClaimStatus, subclai
 	case hasInterpretive:
 		return compile.AuthorClaimInterpretive
 	case allSupported:
+		if status == compile.AuthorClaimInterpretive {
+			return compile.AuthorClaimInterpretive
+		}
 		return compile.AuthorClaimSupported
 	default:
 		return status

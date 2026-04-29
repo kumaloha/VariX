@@ -94,7 +94,7 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	if !strings.Contains(userPrompt, `"source_quote": "The bank cut rates by 25 bps"`) {
 		t.Fatalf("user prompt missing proof provenance source_quote: %s", userPrompt)
 	}
-	for _, want := range []string{"Split compound proof points", "normalize units", "range_covered", "attribution_ok", "comparison_base", "scope_status", "denominator", "do not silently rewrite the subject", "edge_evidence"} {
+	for _, want := range []string{"Validate only externally checkable point claims", "deferred to inference validation", "Do not use \"unverified\" for abstract claims", "Split compound proof points", "normalize units", "range_covered", "attribution_ok", "comparison_base", "scope_status", "denominator", "do not silently rewrite the subject", "edge_evidence"} {
 		if !strings.Contains(req.System, want) {
 			t.Fatalf("system prompt missing %q: %s", want, req.System)
 		}
@@ -298,6 +298,23 @@ func TestNormalizeAuthorValidationBackfillsMissingCandidates(t *testing.T) {
 	}
 }
 
+func TestNormalizeAuthorValidationBackfillsNarrativeCandidatesAsInterpretive(t *testing.T) {
+	validation := normalizeAuthorValidation(compile.AuthorValidation{}, []authorClaimCandidate{
+		{ClaimID: "claim-001", Kind: "target", Text: "China and Russia are relative geopolitical winners"},
+		{ClaimID: "claim-002", Kind: "proof_point", Text: "China has 90-120 days of oil inventory"},
+	}, nil, "model")
+
+	if validation.ClaimChecks[0].Status != compile.AuthorClaimInterpretive {
+		t.Fatalf("narrative claim status = %q, want interpretive", validation.ClaimChecks[0].Status)
+	}
+	if validation.ClaimChecks[1].Status != compile.AuthorClaimUnverified {
+		t.Fatalf("proof claim status = %q, want unverified", validation.ClaimChecks[1].Status)
+	}
+	if validation.Summary.InterpretiveClaims != 1 || validation.Summary.UnverifiedClaims != 1 {
+		t.Fatalf("summary = %#v, want one interpretive narrative and one unverified proof", validation.Summary)
+	}
+}
+
 func TestNormalizeAuthorValidationPreservesModelSplitClaims(t *testing.T) {
 	validation := normalizeAuthorValidation(compile.AuthorValidation{
 		ClaimChecks: []compile.AuthorClaimCheck{
@@ -391,6 +408,37 @@ func TestNormalizeAuthorValidationAggregatesRangeCoveredSubclaims(t *testing.T) 
 	}
 	if validation.Summary.Verdict != "credible" {
 		t.Fatalf("verdict = %q, want credible", validation.Summary.Verdict)
+	}
+}
+
+func TestNormalizeAuthorValidationKeepsInterpretiveParentWithSupportedSubclaims(t *testing.T) {
+	validation := normalizeAuthorValidation(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID:   "claim-001",
+			Text:      "China and Russia are relative economic and geopolitical winners from this war",
+			ClaimType: "interpretation",
+			Status:    compile.AuthorClaimInterpretive,
+			Subclaims: []compile.AuthorSubclaim{{
+				Text:           "China buys most of Iran's seaborne oil exports",
+				Subject:        "China",
+				Metric:         "share of Iranian seaborne oil exports",
+				OriginalValue:  "most",
+				EvidenceValue:  "80-90%",
+				ComparisonBase: "Iran seaborne oil exports",
+				EvidenceBase:   "Iran seaborne oil exports",
+				ScopeStatus:    "exact_match",
+				AttributionOK:  true,
+				Status:         compile.AuthorClaimSupported,
+				Reason:         "Public sources support the concrete oil-import premise.",
+			}},
+		}},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Kind: "target", Text: "China and Russia are relative economic and geopolitical winners from this war"}}, nil, "model")
+
+	if validation.ClaimChecks[0].Status != compile.AuthorClaimInterpretive {
+		t.Fatalf("claim status = %q, want interpretive parent despite supported factual subclaim", validation.ClaimChecks[0].Status)
+	}
+	if validation.Summary.InterpretiveClaims != 1 || validation.Summary.SupportedClaims != 0 {
+		t.Fatalf("summary = %#v, want interpretive parent not supported point claim", validation.Summary)
 	}
 }
 
