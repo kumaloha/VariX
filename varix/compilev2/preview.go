@@ -32,6 +32,7 @@ type FlowPreviewResult struct {
 	Relations   PreviewGraph     `json:"relations"`
 	Spines      []PreviewSpine   `json:"spines,omitempty"`
 	Classify    PreviewGraph     `json:"classify"`
+	Validate    PreviewGraph     `json:"validate,omitempty"`
 	Render      compile.Output   `json:"render"`
 	Metrics     map[string]int64 `json:"metrics"`
 }
@@ -180,6 +181,39 @@ func (c *Client) PreviewFlow(ctx context.Context, bundle compile.Bundle, opts Fl
 
 	start = time.Now()
 	rendered, err := stage5Render(ctx, c.runtime, c.model, bundle, cloneGraphState(classifyState))
+	if err != nil {
+		return FlowPreviewResult{}, fmt.Errorf("render: %w", err)
+	}
+	result.Render = rendered
+	result.Metrics["render_ms"] = time.Since(start).Milliseconds()
+	return result, nil
+}
+
+func (c *Client) ValidatePreviewResult(ctx context.Context, bundle compile.Bundle, result FlowPreviewResult, maxRounds int, paragraphLimit int) (FlowPreviewResult, error) {
+	if c == nil || c.runtime == nil {
+		return FlowPreviewResult{}, fmt.Errorf("compile v2 client is nil")
+	}
+	if result.Metrics == nil {
+		result.Metrics = map[string]int64{}
+	}
+	state := fromPreviewGraph(result.Classify, result.Spines, result.ArticleForm)
+	if len(state.Nodes) == 0 {
+		state = fromPreviewGraph(result.Relations, result.Spines, result.ArticleForm)
+	}
+	if len(state.Spines) == 0 {
+		state.Spines = result.Spines
+	}
+	start := time.Now()
+	validated, err := runValidatePreview(ctx, c.runtime, c.model, bundle, state, maxRounds, paragraphLimit)
+	if err != nil {
+		return FlowPreviewResult{}, fmt.Errorf("validate: %w", err)
+	}
+	result.Validate = toPreviewGraph(validated)
+	result.Spines = validated.Spines
+	result.Metrics["validate_ms"] = time.Since(start).Milliseconds()
+
+	start = time.Now()
+	rendered, err := stage5Render(ctx, c.runtime, c.model, bundle, cloneGraphState(validated))
 	if err != nil {
 		return FlowPreviewResult{}, fmt.Errorf("render: %w", err)
 	}
@@ -816,6 +850,58 @@ func toPreviewGraph(state graphState) PreviewGraph {
 		})
 	}
 	return out
+}
+
+func fromPreviewGraph(graph PreviewGraph, spines []PreviewSpine, articleForm string) graphState {
+	state := graphState{
+		Nodes:       make([]graphNode, 0, len(graph.Nodes)),
+		Edges:       make([]graphEdge, 0, len(graph.Edges)),
+		AuxEdges:    make([]auxEdge, 0, len(graph.AuxEdges)),
+		OffGraph:    make([]offGraphItem, 0, len(graph.OffGraph)),
+		BranchHeads: append([]string(nil), graph.BranchHeads...),
+		Spines:      append([]PreviewSpine(nil), spines...),
+		ArticleForm: strings.TrimSpace(articleForm),
+		Rounds:      graph.Rounds,
+	}
+	for _, node := range graph.Nodes {
+		state.Nodes = append(state.Nodes, graphNode{
+			ID:            strings.TrimSpace(node.ID),
+			Text:          strings.TrimSpace(node.Text),
+			SourceQuote:   strings.TrimSpace(node.SourceQuote),
+			Role:          graphRole(strings.TrimSpace(node.Role)),
+			DiscourseRole: strings.TrimSpace(node.DiscourseRole),
+			Ontology:      strings.TrimSpace(node.Ontology),
+			IsTarget:      node.IsTarget,
+		})
+	}
+	for _, edge := range graph.Edges {
+		state.Edges = append(state.Edges, graphEdge{
+			From:        strings.TrimSpace(edge.From),
+			To:          strings.TrimSpace(edge.To),
+			Kind:        strings.TrimSpace(edge.Kind),
+			SourceQuote: strings.TrimSpace(edge.SourceQuote),
+			Reason:      strings.TrimSpace(edge.Reason),
+		})
+	}
+	for _, edge := range graph.AuxEdges {
+		state.AuxEdges = append(state.AuxEdges, auxEdge{
+			From:        strings.TrimSpace(edge.From),
+			To:          strings.TrimSpace(edge.To),
+			Kind:        strings.TrimSpace(edge.Kind),
+			SourceQuote: strings.TrimSpace(edge.SourceQuote),
+			Reason:      strings.TrimSpace(edge.Reason),
+		})
+	}
+	for _, item := range graph.OffGraph {
+		state.OffGraph = append(state.OffGraph, offGraphItem{
+			ID:          strings.TrimSpace(item.ID),
+			Text:        strings.TrimSpace(item.Text),
+			Role:        strings.TrimSpace(item.Role),
+			AttachesTo:  strings.TrimSpace(item.AttachesTo),
+			SourceQuote: strings.TrimSpace(item.SourceQuote),
+		})
+	}
+	return state
 }
 
 func cloneGraphState(state graphState) graphState {

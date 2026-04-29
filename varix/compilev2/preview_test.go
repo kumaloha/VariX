@@ -97,6 +97,47 @@ func TestDerivePreviewSpinesKeepsParallelBranchesSeparate(t *testing.T) {
 	}
 }
 
+func TestPreviewGraphRoundTripsGraphStateForValidate(t *testing.T) {
+	state := graphState{
+		ArticleForm: "evidence_backed_forecast",
+		Nodes: []graphNode{{
+			ID:            "n1",
+			Text:          "driver",
+			SourceQuote:   "quote",
+			Role:          roleDriver,
+			DiscourseRole: "thesis",
+			Ontology:      "claim",
+			IsTarget:      true,
+		}},
+		Edges:       []graphEdge{{From: "n1", To: "n2", Kind: "causal", SourceQuote: "edge quote", Reason: "because"}},
+		AuxEdges:    []auxEdge{{From: "n2", To: "n3", Kind: "supports", SourceQuote: "aux quote"}},
+		OffGraph:    []offGraphItem{{ID: "off1", Text: "evidence", Role: "evidence", AttachesTo: "n1", SourceQuote: "off quote"}},
+		BranchHeads: []string{"n1"},
+		Spines:      []PreviewSpine{{ID: "s1", Level: "primary", Thesis: "spine", NodeIDs: []string{"n1", "n2"}}},
+		Rounds:      1,
+	}
+	preview := toPreviewGraph(state)
+	roundTrip := fromPreviewGraph(preview, state.Spines, state.ArticleForm)
+	if len(roundTrip.Nodes) != 1 || roundTrip.Nodes[0].Role != roleDriver || !roundTrip.Nodes[0].IsTarget {
+		t.Fatalf("round trip nodes = %#v", roundTrip.Nodes)
+	}
+	if len(roundTrip.Edges) != 1 || roundTrip.Edges[0].Kind != "causal" || roundTrip.Edges[0].Reason != "because" {
+		t.Fatalf("round trip edges = %#v", roundTrip.Edges)
+	}
+	if len(roundTrip.AuxEdges) != 1 || roundTrip.AuxEdges[0].Kind != "supports" {
+		t.Fatalf("round trip aux edges = %#v", roundTrip.AuxEdges)
+	}
+	if len(roundTrip.OffGraph) != 1 || roundTrip.OffGraph[0].Role != "evidence" {
+		t.Fatalf("round trip off graph = %#v", roundTrip.OffGraph)
+	}
+	if len(roundTrip.Spines) != 1 || roundTrip.Spines[0].ID != "s1" {
+		t.Fatalf("round trip spines = %#v", roundTrip.Spines)
+	}
+	if roundTrip.ArticleForm != "evidence_backed_forecast" || roundTrip.Rounds != 1 {
+		t.Fatalf("round trip metadata = form %q rounds %d", roundTrip.ArticleForm, roundTrip.Rounds)
+	}
+}
+
 func TestBuildMainlineMarkdownUsesPreviewSpines(t *testing.T) {
 	body := BuildMainlineMarkdown(FlowPreviewResult{
 		Platform:   "web",

@@ -115,6 +115,19 @@ func TestRunIngestFetchWritesJSONToStdout(t *testing.T) {
 	}
 }
 
+func TestParseCompileRunIDsDedupesAndRejectsInvalidValues(t *testing.T) {
+	got, err := parseCompileRunIDs("301, 302,301")
+	if err != nil {
+		t.Fatalf("parseCompileRunIDs() error = %v", err)
+	}
+	if len(got) != 2 || got[0] != 301 || got[1] != 302 {
+		t.Fatalf("parseCompileRunIDs() = %#v", got)
+	}
+	if _, err := parseCompileRunIDs("301,nope"); err == nil {
+		t.Fatalf("parseCompileRunIDs() error = nil, want invalid run id error")
+	}
+}
+
 func TestRunIngestFetchRequiresURL(t *testing.T) {
 	prevGetwd := getwd
 	t.Cleanup(func() {
