@@ -866,6 +866,12 @@ func writeBranchSection(b *strings.Builder, branches []c.Branch, limit int) {
 			label = "branch"
 		}
 		fmt.Fprintf(b, "- %s\n", label)
+		if len(branch.Anchors) > 0 {
+			fmt.Fprintf(b, "  - Anchor: %s\n", strings.Join(truncateList(branch.Anchors, 3), " / "))
+		}
+		if len(branch.BranchDrivers) > 0 {
+			fmt.Fprintf(b, "  - Branch driver: %s\n", strings.Join(truncateList(branch.BranchDrivers, 3), " / "))
+		}
 		for _, chain := range branchLogicChains(branch) {
 			fmt.Fprintf(b, "  - %s\n", chain)
 		}
@@ -880,15 +886,11 @@ func branchLogicChains(branch c.Branch) []string {
 	chains := make([]string, 0, len(branch.TransmissionPaths))
 	for _, path := range branch.TransmissionPaths {
 		parts := []string{}
-		if strings.TrimSpace(path.Driver) != "" {
-			parts = append(parts, truncate(path.Driver, 50))
-		}
+		parts = appendChainPart(parts, path.Driver)
 		for _, step := range path.Steps {
-			parts = append(parts, truncate(step, 50))
+			parts = appendChainPart(parts, step)
 		}
-		if strings.TrimSpace(path.Target) != "" {
-			parts = append(parts, truncate(path.Target, 50))
-		}
+		parts = appendChainPart(parts, path.Target)
 		if len(parts) > 0 {
 			chains = append(chains, strings.Join(parts, " -> "))
 		}
@@ -910,6 +912,8 @@ func writeCompactNodeSection(b *strings.Builder, title string, items []string) {
 func cloneBranches(values []c.Branch) []c.Branch {
 	out := make([]c.Branch, 0, len(values))
 	for _, branch := range values {
+		branch.Anchors = cloneStringSlice(branch.Anchors)
+		branch.BranchDrivers = cloneStringSlice(branch.BranchDrivers)
 		branch.Drivers = cloneStringSlice(branch.Drivers)
 		branch.Targets = cloneStringSlice(branch.Targets)
 		branch.TransmissionPaths = cloneTransmissionPaths(branch.TransmissionPaths)
@@ -934,20 +938,28 @@ func legacyLogicChains(record c.Record) []string {
 	chains := make([]string, 0, len(record.Output.TransmissionPaths))
 	for _, path := range record.Output.TransmissionPaths {
 		parts := []string{}
-		if strings.TrimSpace(path.Driver) != "" {
-			parts = append(parts, truncate(path.Driver, 50))
-		}
+		parts = appendChainPart(parts, path.Driver)
 		for _, step := range path.Steps {
-			parts = append(parts, truncate(step, 50))
+			parts = appendChainPart(parts, step)
 		}
-		if strings.TrimSpace(path.Target) != "" {
-			parts = append(parts, truncate(path.Target, 50))
-		}
+		parts = appendChainPart(parts, path.Target)
 		if len(parts) > 0 {
 			chains = append(chains, strings.Join(parts, " -> "))
 		}
 	}
 	return chains
+}
+
+func appendChainPart(parts []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return parts
+	}
+	value = truncate(value, 50)
+	if len(parts) > 0 && parts[len(parts)-1] == value {
+		return parts
+	}
+	return append(parts, value)
 }
 
 func graphFirstNodeSection(subgraph graphmodel.ContentSubgraph, keep func(graphmodel.GraphNode) bool) []string {

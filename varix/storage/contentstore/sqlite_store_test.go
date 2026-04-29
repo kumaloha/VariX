@@ -223,6 +223,8 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 				Level:             "primary",
 				Policy:            "forecast_inference",
 				Thesis:            "branch thesis",
+				Anchors:           []string{"anchor"},
+				BranchDrivers:     []string{"branch driver"},
 				Drivers:           []string{"driver"},
 				Targets:           []string{"target"},
 				TransmissionPaths: []compile.TransmissionPath{{Driver: "driver", Target: "target", Steps: []string{"step"}}},
@@ -264,6 +266,12 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 	}
 	if got.Output.Branches[0].Thesis != "branch thesis" {
 		t.Fatalf("Branch thesis = %q", got.Output.Branches[0].Thesis)
+	}
+	if len(got.Output.Branches[0].Anchors) != 1 || got.Output.Branches[0].Anchors[0] != "anchor" {
+		t.Fatalf("Branch anchors = %#v", got.Output.Branches[0].Anchors)
+	}
+	if len(got.Output.Branches[0].BranchDrivers) != 1 || got.Output.Branches[0].BranchDrivers[0] != "branch driver" {
+		t.Fatalf("Branch drivers = %#v", got.Output.Branches[0].BranchDrivers)
 	}
 	if len(got.Output.Branches[0].TransmissionPaths) != 1 || got.Output.Branches[0].TransmissionPaths[0].Target != "target" {
 		t.Fatalf("Branch transmission paths = %#v", got.Output.Branches[0].TransmissionPaths)

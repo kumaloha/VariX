@@ -1024,6 +1024,67 @@ func TestStage5RenderBuildsBranchLocalRolesFromSpines(t *testing.T) {
 	}
 }
 
+func TestStage5RenderSeparatesCommonAnchorFromBranchDrivers(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"长期世界大战"},{"id":"n2","text":"秩序转向强权逻辑"},{"id":"n3","text":"冲突增加"},{"id":"n4","text":"美国过度扩张"},{"id":"n5","text":"世界秩序被重塑"}]}`},
+		{Text: `{"summary":"长期世界大战通过不同分支影响秩序与美国脆弱性。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compilev2-model", compile.Bundle{
+		UnitID:  "twitter:anchor-render",
+		Source:  "twitter",
+		Content: "A macro frame supports several local branches.",
+	}, graphState{
+		ArticleForm: "evidence_backed_forecast",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "长期世界大战"},
+			{ID: "n2", Text: "秩序转向强权逻辑"},
+			{ID: "n3", Text: "冲突增加"},
+			{ID: "n4", Text: "美国过度扩张"},
+			{ID: "n5", Text: "世界秩序被重塑"},
+		},
+		Spines: []PreviewSpine{
+			{
+				ID:       "s1",
+				Level:    "primary",
+				Priority: 1,
+				Policy:   "causal_mechanism",
+				Thesis:   "长期世界大战推动秩序转向强权并增加冲突",
+				NodeIDs:  []string{"n1", "n2", "n3"},
+				Edges:    []PreviewEdge{{From: "n1", To: "n2", Kind: "causal"}, {From: "n2", To: "n3", Kind: "causal"}},
+				Scope:    "article",
+			},
+			{
+				ID:       "s2",
+				Level:    "branch",
+				Priority: 2,
+				Policy:   "causal_mechanism",
+				Thesis:   "长期世界大战暴露美国过度扩张并重塑秩序",
+				NodeIDs:  []string{"n1", "n4", "n5"},
+				Edges:    []PreviewEdge{{From: "n1", To: "n4", Kind: "causal"}, {From: "n4", To: "n5", Kind: "causal"}},
+				Scope:    "section",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if len(out.Branches) != 2 {
+		t.Fatalf("Branches = %#v, want two branches", out.Branches)
+	}
+	if len(out.Branches[0].Anchors) != 1 || out.Branches[0].Anchors[0] != "长期世界大战" {
+		t.Fatalf("first branch anchors = %#v, want shared macro frame", out.Branches[0].Anchors)
+	}
+	if len(out.Branches[0].BranchDrivers) != 1 || out.Branches[0].BranchDrivers[0] != "秩序转向强权逻辑" {
+		t.Fatalf("first branch drivers = %#v, want local mechanism", out.Branches[0].BranchDrivers)
+	}
+	if len(out.Branches[1].Anchors) != 1 || out.Branches[1].Anchors[0] != "长期世界大战" {
+		t.Fatalf("second branch anchors = %#v, want shared macro frame", out.Branches[1].Anchors)
+	}
+	if len(out.Branches[1].BranchDrivers) != 1 || out.Branches[1].BranchDrivers[0] != "美国过度扩张" {
+		t.Fatalf("second branch drivers = %#v, want local mechanism", out.Branches[1].BranchDrivers)
+	}
+}
+
 func TestStage5RenderProjectsSatiricalAnalogyFromRealMechanism(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{
 		{Text: `{"translations":[{"id":"n1","text":"村长与新富设计幸运游戏"},{"id":"n2","text":"牌照化金融游戏把资金转移包装成公平规则"},{"id":"n3","text":"多数后续参与者承担机会成本与管理费"}]}`},

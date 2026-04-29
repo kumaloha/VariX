@@ -2447,6 +2447,7 @@ func renderBranchesFromSpines(spines []PreviewSpine, paths []renderedPath, cn fu
 	if len(pathsByBranch) == 0 {
 		return nil
 	}
+	commonDrivers := commonRenderedDrivers(paths, cn)
 	out := make([]compile.Branch, 0, len(spines))
 	for _, spine := range spines {
 		branchID := strings.TrimSpace(spine.ID)
@@ -2466,6 +2467,12 @@ func renderBranchesFromSpines(spines []PreviewSpine, paths []renderedPath, cn fu
 		for _, path := range branchPaths {
 			driver := cn(path.driver.ID, path.driver.Text)
 			target := cn(path.target.ID, path.target.Text)
+			if _, ok := commonDrivers[driver]; ok {
+				branch.Anchors = appendUniqueString(branch.Anchors, driver)
+			}
+			if branchDriver := renderBranchDriver(path, commonDrivers, cn); branchDriver != "" {
+				branch.BranchDrivers = appendUniqueString(branch.BranchDrivers, branchDriver)
+			}
 			branch.Drivers = appendUniqueString(branch.Drivers, driver)
 			branch.Targets = appendUniqueString(branch.Targets, target)
 			branch.TransmissionPaths = append(branch.TransmissionPaths, renderPathToTransmission(path, cn))
@@ -2473,6 +2480,51 @@ func renderBranchesFromSpines(spines []PreviewSpine, paths []renderedPath, cn fu
 		out = append(out, branch)
 	}
 	return out
+}
+
+func commonRenderedDrivers(paths []renderedPath, cn func(string, string) string) map[string]struct{} {
+	driverBranches := map[string]map[string]struct{}{}
+	for _, path := range paths {
+		branchID := strings.TrimSpace(path.branchID)
+		if branchID == "" {
+			continue
+		}
+		driver := cn(path.driver.ID, path.driver.Text)
+		if strings.TrimSpace(driver) == "" {
+			continue
+		}
+		if driverBranches[driver] == nil {
+			driverBranches[driver] = map[string]struct{}{}
+		}
+		driverBranches[driver][branchID] = struct{}{}
+	}
+	common := map[string]struct{}{}
+	for driver, branches := range driverBranches {
+		if len(branches) > 1 {
+			common[driver] = struct{}{}
+		}
+	}
+	return common
+}
+
+func renderBranchDriver(path renderedPath, commonDrivers map[string]struct{}, cn func(string, string) string) string {
+	target := cn(path.target.ID, path.target.Text)
+	candidates := make([]string, 0, len(path.steps)+1)
+	candidates = append(candidates, cn(path.driver.ID, path.driver.Text))
+	for _, step := range path.steps {
+		candidates = append(candidates, cn(step.ID, step.Text))
+	}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || candidate == target {
+			continue
+		}
+		if _, ok := commonDrivers[candidate]; ok {
+			continue
+		}
+		return candidate
+	}
+	return ""
 }
 
 func appendUniqueString(values []string, value string) []string {

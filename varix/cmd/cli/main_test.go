@@ -4174,6 +4174,8 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 					ID:                "s1",
 					Level:             "primary",
 					Thesis:            "分支论点",
+					Anchors:           []string{"总前提"},
+					BranchDrivers:     []string{"分支机制"},
 					Drivers:           []string{"驱动A"},
 					Targets:           []string{"目标B"},
 					TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
@@ -4202,7 +4204,7 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Branches", "分支论点", "驱动A -> 中间步骤 -> 目标B", "Logic chain", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Branches", "分支论点", "Anchor: 总前提", "Branch driver: 分支机制", "驱动A -> 中间步骤 -> 目标B", "Logic chain", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}

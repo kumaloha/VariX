@@ -310,6 +310,8 @@ type Branch struct {
 	Level             string             `json:"level,omitempty"`
 	Policy            string             `json:"policy,omitempty"`
 	Thesis            string             `json:"thesis,omitempty"`
+	Anchors           []string           `json:"anchors,omitempty"`
+	BranchDrivers     []string           `json:"branch_drivers,omitempty"`
 	Drivers           []string           `json:"drivers,omitempty"`
 	Targets           []string           `json:"targets,omitempty"`
 	TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
