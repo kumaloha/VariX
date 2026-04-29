@@ -346,6 +346,11 @@ For each claim candidate:
 For each inference candidate:
 - Judge whether the author actually makes that inferential jump and whether the stated premises support it.
 - When edge_evidence/source_quote/context is present, use it as provenance for the displayed transmission path. If a displayed edge lacks author support, mark the inference weak, unsupported_jump, or not_author_inference instead of repairing it into another path.
+- Do not require the author to have listed every factual premise inside the rendered path. If a path depends on checkable market data, historical data, timing, prices, rates, inventories, or public events, use available source/search context to validate those missing intermediate premises.
+- Mark an inference "sound" when the author makes the jump and the required explicit or implicit premises are externally supported. Put the checked intermediate premises in evidence.
+- Mark it "weak" when the author makes the jump but key implicit premises remain unverified, are only directionally supported, or the rendered path compresses important steps that search cannot firmly establish.
+- Mark it "unsupported_jump" when checked premises contradict the jump or the conclusion does not follow even after adding reasonable implicit premises.
+- Use missing_links for unverified or contradicted intermediate premises, not for premises that are simply absent from the article but externally supported.
 - Use "sound", "weak", "unsupported_jump", or "not_author_inference".
 
 Return strict JSON only:
