@@ -223,6 +223,58 @@ func TestRenderTransmissionPathDetailsPreservesEdgeQuotes(t *testing.T) {
 	}
 }
 
+func TestAuthorValidationBackfillsPreviewGraphProvenanceForOldRender(t *testing.T) {
+	result := FlowPreviewResult{
+		ArticleForm: "analysis",
+		Classify: PreviewGraph{
+			Nodes: []PreviewNode{
+				{ID: "n1", Text: "AI硬件瓶颈扩散", SourceQuote: "AI硬件瓶颈从GPU扩散到电力等五个维度"},
+				{ID: "n2", Text: "光互连加速落地", SourceQuote: "2026年处于光互连加速落地阶段", IsTarget: true},
+			},
+			OffGraph: []PreviewOffGraph{{
+				ID:          "off1",
+				Text:        "NVL72机柜铜缆总重1.36吨",
+				Role:        "evidence",
+				SourceQuote: "NVL72机柜铜缆超5,000根、总重1.36吨",
+			}},
+		},
+		Spines: []PreviewSpine{{
+			ID:      "spine-1",
+			Level:   "primary",
+			Thesis:  "AI hardware constraints force optical interconnect",
+			NodeIDs: []string{"n1", "n2"},
+			Edges: []PreviewEdge{{
+				From:        "n1",
+				To:          "n2",
+				SourceQuote: "AI硬件瓶颈扩散后，目前处于光互连加速落地阶段",
+				Reason:      "The author links bottleneck diffusion to optical interconnect adoption.",
+			}},
+		}},
+		Render: compile.Output{
+			EvidenceNodes: []string{"NVL72机柜铜缆总重1.36吨"},
+			TransmissionPaths: []compile.TransmissionPath{{
+				Driver: "AI硬件瓶颈扩散",
+				Target: "光互连加速落地",
+				Steps:  []string{"AI硬件瓶颈扩散"},
+			}},
+			Details: compile.HiddenDetails{Caveats: []string{"old render without details.items"}},
+		},
+	}
+
+	enriched := enrichAuthorValidationRenderDetails(result)
+	claims := collectAuthorClaimCandidates(enriched)
+	inferences := collectAuthorInferenceCandidates(enriched)
+	if len(claims) != 1 || !strings.Contains(claims[0].SourceQuote, "5,000根") {
+		t.Fatalf("claims = %#v, want off-graph source quote backfilled", claims)
+	}
+	if len(inferences) != 1 || len(inferences[0].EdgeEvidence) != 1 {
+		t.Fatalf("inferences = %#v, want edge evidence backfilled", inferences)
+	}
+	if !strings.Contains(inferences[0].EdgeEvidence[0].SourceQuote, "光互连加速落地") {
+		t.Fatalf("edge evidence = %#v, want spine edge quote", inferences[0].EdgeEvidence)
+	}
+}
+
 func TestNormalizeAuthorValidationBackfillsMissingCandidates(t *testing.T) {
 	validation := normalizeAuthorValidation(compile.AuthorValidation{
 		ClaimChecks: []compile.AuthorClaimCheck{{ClaimID: "claim-001", Status: compile.AuthorClaimSupported}},
