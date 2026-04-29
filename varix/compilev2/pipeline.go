@@ -2359,6 +2359,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle comp
 	branches := renderBranchesFromSpines(state.Spines, paths, cn)
 	evidence, explanation, supplementary := renderOffGraph(state.OffGraph, cn)
 	detailItems := renderOffGraphDetails(state.OffGraph, cn)
+	detailItems = append(detailItems, renderTransmissionPathDetails(paths, cn)...)
 	evidence = dedupeStrings(append(evidence, renderSpineIllustrations(state, cn)...))
 	summary, err := summarizeChinese(ctx, rt, model, state.ArticleForm, driversOut, targetsOut, transmission, bundle)
 	if err != nil {
@@ -3163,6 +3164,7 @@ type renderedPath struct {
 	driver   graphNode
 	target   graphNode
 	steps    []graphNode
+	edges    []PreviewEdge
 }
 
 func extractSpinePaths(state graphState) []renderedPath {
@@ -3214,7 +3216,13 @@ func extractSpinePaths(state graphState) []renderedPath {
 					}
 				}
 				seen[key] = struct{}{}
-				out = append(out, renderedPath{branchID: spine.ID, driver: driver, target: target, steps: steps})
+				out = append(out, renderedPath{
+					branchID: spine.ID,
+					driver:   driver,
+					target:   target,
+					steps:    steps,
+					edges:    previewEdgesForPath(pathIDs, spineProjectionEdges(spine, nodeIndex), nodeIndex),
+				})
 			}
 		}
 	}
@@ -3243,6 +3251,10 @@ func extractPaths(state graphState, drivers, targets []graphNode) []renderedPath
 	for _, e := range state.Edges {
 		adj[e.From] = append(adj[e.From], e.To)
 	}
+	nodeIndex := map[string]graphNode{}
+	for _, node := range state.Nodes {
+		nodeIndex[node.ID] = node
+	}
 	var out []renderedPath
 	for _, d := range drivers {
 		for _, t := range targets {
@@ -3256,10 +3268,64 @@ func extractPaths(state graphState, drivers, targets []graphNode) []renderedPath
 					steps = append(steps, node)
 				}
 			}
-			out = append(out, renderedPath{driver: d, target: t, steps: steps})
+			out = append(out, renderedPath{driver: d, target: t, steps: steps, edges: graphEdgesForPath(pathIDs, state.Edges, nodeIndex)})
 		}
 	}
 	return out
+}
+
+func graphEdgesForPath(pathIDs []string, edges []graphEdge, nodes map[string]graphNode) []PreviewEdge {
+	previewEdges := make([]PreviewEdge, 0, len(edges))
+	for _, edge := range edges {
+		previewEdges = append(previewEdges, previewEdgeFromGraphEdge(edge))
+	}
+	return previewEdgesForPath(pathIDs, previewEdges, nodes)
+}
+
+func previewEdgesForPath(pathIDs []string, edges []PreviewEdge, nodes map[string]graphNode) []PreviewEdge {
+	if len(pathIDs) < 2 {
+		return nil
+	}
+	edgeIndex := map[string]PreviewEdge{}
+	for _, edge := range edges {
+		from := strings.TrimSpace(edge.From)
+		to := strings.TrimSpace(edge.To)
+		if from == "" || to == "" || from == to {
+			continue
+		}
+		key := from + "->" + to
+		if existing, ok := edgeIndex[key]; ok && strings.TrimSpace(existing.SourceQuote) != "" {
+			continue
+		}
+		edgeIndex[key] = edge
+	}
+	out := make([]PreviewEdge, 0, len(pathIDs)-1)
+	for i := 0; i+1 < len(pathIDs); i++ {
+		from := strings.TrimSpace(pathIDs[i])
+		to := strings.TrimSpace(pathIDs[i+1])
+		if from == "" || to == "" || from == to {
+			continue
+		}
+		edge, ok := edgeIndex[from+"->"+to]
+		if !ok {
+			edge = fallbackPreviewEdgeForPathSegment(from, to, nodes)
+		}
+		if strings.TrimSpace(edge.From) == "" {
+			edge.From = from
+		}
+		if strings.TrimSpace(edge.To) == "" {
+			edge.To = to
+		}
+		out = append(out, edge)
+	}
+	return out
+}
+
+func fallbackPreviewEdgeForPathSegment(from, to string, nodes map[string]graphNode) PreviewEdge {
+	edge := PreviewEdge{From: from, To: to}
+	quotes := []string{strings.TrimSpace(nodes[from].SourceQuote), strings.TrimSpace(nodes[to].SourceQuote)}
+	edge.SourceQuote = strings.Join(nonEmptyStrings(quotes...), " / ")
+	return edge
 }
 
 func hasEdge(edges []graphEdge, from, to string) bool {
@@ -4364,6 +4430,126 @@ func renderOffGraphDetails(items []offGraphItem, cn func(id, fallback string) st
 		details = append(details, entry)
 	}
 	return details
+}
+
+func renderTransmissionPathDetails(paths []renderedPath, cn func(id, fallback string) string) []map[string]any {
+	details := make([]map[string]any, 0, len(paths))
+	for _, path := range paths {
+		transmission := renderPathToTransmission(path, cn)
+		if strings.TrimSpace(transmission.Driver) == "" || strings.TrimSpace(transmission.Target) == "" {
+			continue
+		}
+		edgeEvidence := renderPathEdgeEvidence(path, cn)
+		entry := map[string]any{
+			"kind":          "inference_path",
+			"from":          transmission.Driver,
+			"to":            transmission.Target,
+			"steps":         compile.CloneStrings(transmission.Steps),
+			"edge_evidence": edgeEvidence,
+		}
+		if branch := strings.TrimSpace(path.branchID); branch != "" {
+			entry["branch"] = branch
+		}
+		if context := renderPathEvidenceContext(edgeEvidence); context != "" {
+			entry["source_quote"] = context
+			entry["context"] = context
+		}
+		details = append(details, entry)
+	}
+	return details
+}
+
+func renderPathEdgeEvidence(path renderedPath, cn func(id, fallback string) string) []map[string]any {
+	nodes := renderedPathNodeIndex(path)
+	edges := path.edges
+	if len(edges) == 0 {
+		edges = fallbackEdgesForRenderedPath(path)
+	}
+	out := make([]map[string]any, 0, len(edges))
+	for _, edge := range edges {
+		from := strings.TrimSpace(edge.From)
+		to := strings.TrimSpace(edge.To)
+		if from == "" || to == "" || from == to {
+			continue
+		}
+		fromNode := nodes[from]
+		toNode := nodes[to]
+		sourceQuote := strings.TrimSpace(edge.SourceQuote)
+		if sourceQuote == "" {
+			sourceQuote = strings.Join(nonEmptyStrings(fromNode.SourceQuote, toNode.SourceQuote), " / ")
+		}
+		item := map[string]any{
+			"from":      from,
+			"to":        to,
+			"from_text": cn(fromNode.ID, fromNode.Text),
+			"to_text":   cn(toNode.ID, toNode.Text),
+		}
+		if sourceQuote != "" {
+			item["source_quote"] = sourceQuote
+		}
+		if reason := strings.TrimSpace(edge.Reason); reason != "" {
+			item["reason"] = reason
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func renderedPathNodeIndex(path renderedPath) map[string]graphNode {
+	out := map[string]graphNode{}
+	if id := strings.TrimSpace(path.driver.ID); id != "" {
+		out[id] = path.driver
+	}
+	for _, step := range path.steps {
+		if id := strings.TrimSpace(step.ID); id != "" {
+			out[id] = step
+		}
+	}
+	if id := strings.TrimSpace(path.target.ID); id != "" {
+		out[id] = path.target
+	}
+	return out
+}
+
+func fallbackEdgesForRenderedPath(path renderedPath) []PreviewEdge {
+	nodeIDs := renderedPathNodeIDs(path)
+	if len(nodeIDs) < 2 {
+		return nil
+	}
+	nodes := renderedPathNodeIndex(path)
+	out := make([]PreviewEdge, 0, len(nodeIDs)-1)
+	for i := 0; i+1 < len(nodeIDs); i++ {
+		out = append(out, fallbackPreviewEdgeForPathSegment(nodeIDs[i], nodeIDs[i+1], nodes))
+	}
+	return out
+}
+
+func renderPathEvidenceContext(edgeEvidence []map[string]any) string {
+	parts := make([]string, 0, len(edgeEvidence)*2)
+	for _, item := range edgeEvidence {
+		parts = append(parts, detailMapString(item, "source_quote"), detailMapString(item, "reason"))
+	}
+	return strings.Join(nonEmptyStrings(parts...), " / ")
+}
+
+func detailMapString(item map[string]any, key string) string {
+	if item == nil {
+		return ""
+	}
+	if value, ok := item[key].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
+func nonEmptyStrings(values ...string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func authorClaimKindForOffGraphRole(role string) string {

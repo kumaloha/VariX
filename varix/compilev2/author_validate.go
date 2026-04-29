@@ -25,11 +25,23 @@ type authorClaimCandidate struct {
 }
 
 type authorInferenceCandidate struct {
-	InferenceID string   `json:"inference_id"`
-	From        string   `json:"from"`
-	To          string   `json:"to"`
-	Steps       []string `json:"steps,omitempty"`
-	Branch      string   `json:"branch,omitempty"`
+	InferenceID  string                    `json:"inference_id"`
+	From         string                    `json:"from"`
+	To           string                    `json:"to"`
+	Steps        []string                  `json:"steps,omitempty"`
+	Branch       string                    `json:"branch,omitempty"`
+	SourceQuote  string                    `json:"source_quote,omitempty"`
+	Context      string                    `json:"context,omitempty"`
+	EdgeEvidence []authorInferenceEvidence `json:"edge_evidence,omitempty"`
+}
+
+type authorInferenceEvidence struct {
+	From        string `json:"from,omitempty"`
+	To          string `json:"to,omitempty"`
+	FromText    string `json:"from_text,omitempty"`
+	ToText      string `json:"to_text,omitempty"`
+	SourceQuote string `json:"source_quote,omitempty"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 func (c *Client) AuthorValidatePreviewResult(ctx context.Context, bundle compile.Bundle, result FlowPreviewResult) (FlowPreviewResult, error) {
@@ -134,6 +146,7 @@ For each claim candidate:
 
 For each inference candidate:
 - Judge whether the author actually makes that inferential jump and whether the stated premises support it.
+- When edge_evidence/source_quote/context is present, use it as provenance for the displayed transmission path. If a displayed edge lacks author support, mark the inference weak, unsupported_jump, or not_author_inference instead of repairing it into another path.
 - Use "sound", "weak", "unsupported_jump", or "not_author_inference".
 
 Return strict JSON only:
@@ -317,6 +330,7 @@ func hiddenDetailString(item map[string]any, key string) string {
 func collectAuthorInferenceCandidates(out compile.Output) []authorInferenceCandidate {
 	candidates := make([]authorInferenceCandidate, 0)
 	seen := map[string]struct{}{}
+	provenance := authorInferenceProvenanceByKey(out.Details.Items)
 	add := func(path compile.TransmissionPath, branch string) {
 		from := strings.TrimSpace(path.Driver)
 		to := strings.TrimSpace(path.Target)
@@ -324,11 +338,15 @@ func collectAuthorInferenceCandidates(out compile.Output) []authorInferenceCandi
 			return
 		}
 		steps := cloneStrings(path.Steps)
-		key := branch + "\x00" + from + "\x00" + strings.Join(steps, "\x00") + "\x00" + to
+		key := authorInferenceProvenanceKey(branch, from, steps, to)
 		if _, ok := seen[key]; ok {
 			return
 		}
 		seen[key] = struct{}{}
+		item := provenance[key]
+		if item == nil && strings.TrimSpace(branch) == "" {
+			item = provenance[authorInferenceProvenanceKey("", from, steps, to)]
+		}
 		id := fmt.Sprintf("inference-%03d", len(candidates)+1)
 		candidates = append(candidates, authorInferenceCandidate{
 			InferenceID: id,
@@ -337,6 +355,7 @@ func collectAuthorInferenceCandidates(out compile.Output) []authorInferenceCandi
 			Steps:       steps,
 			Branch:      strings.TrimSpace(branch),
 		})
+		applyAuthorInferenceProvenance(&candidates[len(candidates)-1], item)
 	}
 	for _, path := range out.TransmissionPaths {
 		add(path, "")
@@ -348,6 +367,111 @@ func collectAuthorInferenceCandidates(out compile.Output) []authorInferenceCandi
 		}
 	}
 	return candidates
+}
+
+func authorInferenceProvenanceByKey(items []map[string]any) map[string]map[string]any {
+	out := make(map[string]map[string]any, len(items))
+	for _, item := range items {
+		if hiddenDetailString(item, "kind") != "inference_path" {
+			continue
+		}
+		from := hiddenDetailString(item, "from")
+		to := hiddenDetailString(item, "to")
+		if from == "" || to == "" {
+			continue
+		}
+		steps := hiddenDetailStringSlice(item, "steps")
+		branch := hiddenDetailString(item, "branch")
+		out[authorInferenceProvenanceKey(branch, from, steps, to)] = item
+		out[authorInferenceProvenanceKey("", from, steps, to)] = item
+	}
+	return out
+}
+
+func authorInferenceProvenanceKey(branch, from string, steps []string, to string) string {
+	return strings.TrimSpace(branch) + "\x00" + strings.TrimSpace(from) + "\x00" + strings.Join(trimmedStringSlice(steps), "\x00") + "\x00" + strings.TrimSpace(to)
+}
+
+func applyAuthorInferenceProvenance(candidate *authorInferenceCandidate, item map[string]any) {
+	if candidate == nil || item == nil {
+		return
+	}
+	candidate.SourceQuote = hiddenDetailString(item, "source_quote")
+	candidate.Context = hiddenDetailString(item, "context")
+	candidate.EdgeEvidence = hiddenDetailInferenceEvidence(item, "edge_evidence")
+}
+
+func hiddenDetailStringSlice(item map[string]any, key string) []string {
+	if item == nil {
+		return nil
+	}
+	value, ok := item[key]
+	if !ok || value == nil {
+		return nil
+	}
+	switch typed := value.(type) {
+	case []string:
+		return trimmedStringSlice(typed)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, raw := range typed {
+			if value, ok := raw.(string); ok {
+				out = append(out, value)
+			}
+		}
+		return trimmedStringSlice(out)
+	default:
+		return nil
+	}
+}
+
+func hiddenDetailInferenceEvidence(item map[string]any, key string) []authorInferenceEvidence {
+	if item == nil {
+		return nil
+	}
+	value, ok := item[key]
+	if !ok || value == nil {
+		return nil
+	}
+	var rawItems []map[string]any
+	switch typed := value.(type) {
+	case []map[string]any:
+		rawItems = typed
+	case []any:
+		for _, raw := range typed {
+			if rawMap, ok := raw.(map[string]any); ok {
+				rawItems = append(rawItems, rawMap)
+			}
+		}
+	}
+	out := make([]authorInferenceEvidence, 0, len(rawItems))
+	for _, raw := range rawItems {
+		evidence := authorInferenceEvidence{
+			From:        hiddenDetailString(raw, "from"),
+			To:          hiddenDetailString(raw, "to"),
+			FromText:    hiddenDetailString(raw, "from_text"),
+			ToText:      hiddenDetailString(raw, "to_text"),
+			SourceQuote: hiddenDetailString(raw, "source_quote"),
+			Reason:      hiddenDetailString(raw, "reason"),
+		}
+		if evidence != (authorInferenceEvidence{}) {
+			out = append(out, evidence)
+		}
+	}
+	return out
+}
+
+func trimmedStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func normalizeAuthorValidation(validation compile.AuthorValidation, claims []authorClaimCandidate, inferences []authorInferenceCandidate, model string) compile.AuthorValidation {

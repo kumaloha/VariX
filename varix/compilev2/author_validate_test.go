@@ -94,7 +94,7 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	if !strings.Contains(userPrompt, `"source_quote": "The bank cut rates by 25 bps"`) {
 		t.Fatalf("user prompt missing proof provenance source_quote: %s", userPrompt)
 	}
-	for _, want := range []string{"Split compound proof points", "normalize units", "range_covered", "attribution_ok", "do not silently rewrite the subject"} {
+	for _, want := range []string{"Split compound proof points", "normalize units", "range_covered", "attribution_ok", "do not silently rewrite the subject", "edge_evidence"} {
 		if !strings.Contains(req.System, want) {
 			t.Fatalf("system prompt missing %q: %s", want, req.System)
 		}
@@ -150,6 +150,76 @@ func TestRenderOffGraphDetailsPreservesSourceQuote(t *testing.T) {
 	}
 	if item["source_quote"] != "The GB200 NVL72 rack weighs 1.36 metric tons." {
 		t.Fatalf("source_quote = %#v, want preserved source quote", item["source_quote"])
+	}
+}
+
+func TestCollectAuthorInferenceCandidatesCarriesEdgeProvenance(t *testing.T) {
+	candidates := collectAuthorInferenceCandidates(compile.Output{
+		TransmissionPaths: []compile.TransmissionPath{{
+			Driver: "Rates fall",
+			Steps:  []string{"Liquidity improves"},
+			Target: "Stocks rise",
+		}},
+		Details: compile.HiddenDetails{Items: []map[string]any{{
+			"kind":         "inference_path",
+			"from":         "Rates fall",
+			"steps":        []string{"Liquidity improves"},
+			"to":           "Stocks rise",
+			"source_quote": "The author says rate cuts improve liquidity and can lift stocks.",
+			"edge_evidence": []map[string]any{{
+				"from":         "n1",
+				"to":           "n2",
+				"from_text":    "Rates fall",
+				"to_text":      "Liquidity improves",
+				"source_quote": "rate cuts improve liquidity",
+				"reason":       "lower rates loosen financial conditions",
+			}},
+		}}},
+	})
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %#v, want one inference candidate", candidates)
+	}
+	candidate := candidates[0]
+	if !strings.Contains(candidate.SourceQuote, "rate cuts improve liquidity") {
+		t.Fatalf("source_quote = %q, want path provenance", candidate.SourceQuote)
+	}
+	if len(candidate.EdgeEvidence) != 1 {
+		t.Fatalf("edge evidence = %#v, want one edge item", candidate.EdgeEvidence)
+	}
+	if candidate.EdgeEvidence[0].FromText != "Rates fall" || candidate.EdgeEvidence[0].ToText != "Liquidity improves" {
+		t.Fatalf("edge evidence = %#v, want rendered endpoint text", candidate.EdgeEvidence[0])
+	}
+}
+
+func TestRenderTransmissionPathDetailsPreservesEdgeQuotes(t *testing.T) {
+	details := renderTransmissionPathDetails([]renderedPath{{
+		branchID: "branch-1",
+		driver:   graphNode{ID: "n1", Text: "Rates fall"},
+		steps:    []graphNode{{ID: "n2", Text: "Liquidity improves"}},
+		target:   graphNode{ID: "n3", Text: "Stocks rise"},
+		edges: []PreviewEdge{
+			{From: "n1", To: "n2", SourceQuote: "lower rates improve liquidity", Reason: "funding costs fall"},
+			{From: "n2", To: "n3", SourceQuote: "liquidity can lift stocks"},
+		},
+	}}, func(id, fallback string) string {
+		return fallback
+	})
+	if len(details) != 1 {
+		t.Fatalf("details = %#v, want one inference path detail", details)
+	}
+	item := details[0]
+	if item["kind"] != "inference_path" || item["branch"] != "branch-1" {
+		t.Fatalf("item = %#v, want branch inference detail", item)
+	}
+	evidence, ok := item["edge_evidence"].([]map[string]any)
+	if !ok || len(evidence) != 2 {
+		t.Fatalf("edge_evidence = %#v, want two edge evidence items", item["edge_evidence"])
+	}
+	if evidence[0]["source_quote"] != "lower rates improve liquidity" || evidence[1]["source_quote"] != "liquidity can lift stocks" {
+		t.Fatalf("edge evidence = %#v, want preserved source quotes", evidence)
+	}
+	if !strings.Contains(item["context"].(string), "funding costs fall") {
+		t.Fatalf("context = %#v, want edge reason included", item["context"])
 	}
 }
 
