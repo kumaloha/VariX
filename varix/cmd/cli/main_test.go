@@ -4215,12 +4215,14 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 						ClaimID: "claim-001",
 						Text:    "目标B",
 						Status:  c.AuthorClaimUnverified,
+						Reason:  "缺少外部证据",
 					}},
 					InferenceChecks: []c.AuthorInferenceCheck{{
 						InferenceID: "inference-001",
 						From:        "驱动A",
 						To:          "目标B",
 						Status:      c.AuthorInferenceUnsupportedJump,
+						Reason:      "中间条件不成立",
 					}},
 				},
 			},
@@ -4238,7 +4240,7 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Branches", "分支论点", "Anchor: 总前提", "Branch driver: 分支机制", "驱动A -> 中间步骤 -> 目标B", "Logic chain", "Author validation", "Verdict: mixed", "Claims: supported 1, contradicted 0, unverified 1, interpretive 0", "Path 驱动A -> 目标B: unsupported_jump", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Branches", "分支论点", "Anchor: 总前提", "Branch driver: 分支机制", "驱动A -> 中间步骤 -> 目标B", "Logic chain", "Author validation", "Verdict: mixed", "Claims: supported 1, contradicted 0, unverified 1, interpretive 0", "Claim 目标B: unverified — 说明: 缺少外部证据", "Path 驱动A -> 目标B: unsupported_jump — 说明: 中间条件不成立", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}

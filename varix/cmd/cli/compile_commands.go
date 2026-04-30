@@ -1135,7 +1135,7 @@ func authorValidationSummaryLines(validation c.AuthorValidation) []string {
 		if check.Status != c.AuthorClaimContradicted && check.Status != c.AuthorClaimUnverified && check.Status != c.AuthorClaimNotAuthorClaim {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("Claim %s: %s", truncate(check.Text, 42), check.Status))
+		lines = append(lines, fmt.Sprintf("Claim %s: %s%s", truncate(check.Text, 42), check.Status, authorValidationNoteSuffix(firstNonEmpty(check.DecisionNote, check.Reason))))
 		if len(lines) >= 6 {
 			break
 		}
@@ -1144,12 +1144,20 @@ func authorValidationSummaryLines(validation c.AuthorValidation) []string {
 		if check.Status != c.AuthorInferenceWeak && check.Status != c.AuthorInferenceUnsupportedJump && check.Status != c.AuthorInferenceNotAuthorInference {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("Path %s -> %s: %s", truncate(check.From, 24), truncate(check.To, 24), check.Status))
+		lines = append(lines, fmt.Sprintf("Path %s -> %s: %s%s", truncate(check.From, 24), truncate(check.To, 24), check.Status, authorValidationNoteSuffix(firstNonEmpty(check.DecisionNote, check.Reason))))
 		if len(lines) >= 6 {
 			break
 		}
 	}
 	return lines
+}
+
+func authorValidationNoteSuffix(note string) string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return ""
+	}
+	return " — 说明: " + truncate(note, 160)
 }
 
 func firstNonEmpty(values ...string) string {

@@ -2,6 +2,8 @@ package compilev2
 
 import (
 	"context"
+	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -10,20 +12,30 @@ import (
 )
 
 func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) {
-	rt := &fakeRuntime{responses: []llm.Response{{
-		Text: `{
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{
+			"claim_plans":[
+				{"claim_id":"claim-001","text":"Rates fall","claim_kind":"number_trend","needs_validation":true,"atomic_claims":[{"text":"Policy rate fell","subject":"policy rate","metric":"rate change","original_value":"downward move","unit":"bps","time_window":"article period","source_type":"official","series":"central-bank-policy-rate","preferred_sources":["central bank release"],"queries":["policy rate cut official release"],"comparison_rule":"official policy-rate change is negative"}],"required_evidence":[{"description":"Confirm the policy rate changed downward","subject":"policy rate","metric":"rate change","time_window":"article period","source_type":"official","status":"unverified","reason":"Need official rate data.","series":"central-bank-policy-rate","preferred_sources":["central bank release"],"queries":["policy rate cut official release"],"comparison_rule":"official policy-rate change is negative"}],"preferred_sources":["central bank release"],"queries":["policy rate cut official release"]},
+				{"claim_id":"claim-004","text":"Policy rate declined by 25 bps","needs_validation":true,"required_evidence":[{"description":"Confirm the policy rate declined by 25 bps","subject":"policy rate","metric":"basis-point change","time_window":"article period","source_type":"official","status":"unverified","reason":"Need official basis-point change."}],"preferred_sources":["central bank release"],"queries":["policy rate declined 25 bps central bank release"]}
+			],
+			"inference_plans":[
+				{"inference_id":"inference-001","from":"Rates fall","to":"Stocks will rise","steps":["Liquidity improves"],"required_evidence":[{"description":"Check whether market liquidity proxies improved after the rate move","subject":"risk assets","metric":"liquidity proxy","time_window":"after rate move","source_type":"market_data","status":"unverified","reason":"Need market liquidity data."}],"queries":["liquidity proxy after rate cut"]}
+			]
+		}`},
+		{Text: `{
 			"summary":{"verdict":"mixed"},
 			"claim_checks":[
 				{"claim_id":"claim-001","text":"Rates fall","claim_type":"fact","status":"supported","required_evidence":[{"description":"Confirm the policy rate changed downward","subject":"policy rate","metric":"rate change","time_window":"article period","source_type":"official","status":"supported","evidence":["source says rates fell"],"reason":"The official source reports a rate cut."}],"evidence":["source says rates fell"],"reason":"The author states this and it matches available evidence.","subclaims":[{"text":"Rates fall","subject":"policy rate","metric":"change","status":"supported","evidence":["source says rates fell"],"reason":"Matched source."}]},
 				{"claim_id":"claim-002","text":"Stocks will rise","claim_type":"forecast","status":"interpretive","reason":"This is an unresolved forecast."},
 				{"claim_id":"claim-003","text":"Liquidity improves","claim_type":"interpretation","status":"interpretive","reason":"This is a rendered mechanism node."},
-				{"claim_id":"claim-004","text":"Policy rate declined by 25 bps","claim_type":"number","status":"supported","evidence":["The bank cut rates by 25 bps"],"reason":"The concrete evidence point is supported."}
+				{"claim_id":"claim-004","text":"Policy rate declined by 25 bps","claim_type":"number","status":"supported","required_evidence":[{"description":"Confirm the policy rate declined by 25 bps","subject":"policy rate","metric":"basis-point change","time_window":"article period","source_type":"official","status":"supported","evidence":["Central bank release says the policy rate declined by 25 bps"],"reason":"The official release matches the evidence point."}],"evidence":["Central bank release says the policy rate declined by 25 bps"],"reason":"The concrete evidence point is supported."}
 			],
 			"inference_checks":[
 				{"inference_id":"inference-001","from":"Rates fall","to":"Stocks will rise","steps":["Liquidity improves"],"status":"weak","required_evidence":[{"description":"Check whether market liquidity proxies improved after the rate move","subject":"risk assets","metric":"liquidity proxy","time_window":"after rate move","source_type":"market_data","status":"unverified","reason":"No market liquidity data was returned."}],"reason":"The mechanism is plausible but not established."}
 			]
 		}`,
-	}}}
+		},
+	}}
 	client := &Client{runtime: rt, model: "author-model"}
 	result, err := client.AuthorValidatePreviewResult(context.Background(), compile.Bundle{
 		UnitID:     "twitter:author-validate",
@@ -77,20 +89,30 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	if got := result.Render.AuthorValidation.InferenceChecks[0].RequiredEvidence; len(got) != 1 || got[0].SourceType != "market_data" || got[0].Status != compile.AuthorClaimUnverified {
 		t.Fatalf("inference required evidence = %#v, want unverified market-data requirement", got)
 	}
+	if got := result.Render.AuthorValidation.VerificationPlan.ClaimPlans; len(got) == 0 || got[0].AtomicClaims[0].Series != "central-bank-policy-rate" || got[0].AtomicClaims[0].ComparisonRule == "" {
+		t.Fatalf("verification plan = %#v, want persisted executable atomic data spec", result.Render.AuthorValidation.VerificationPlan)
+	}
 	if got := result.Metrics["author_validate_ms"]; got < 0 {
 		t.Fatalf("author_validate_ms = %d", got)
 	}
-	if len(rt.requests) != 1 {
-		t.Fatalf("requests = %d, want one author validation request", len(rt.requests))
+	if len(rt.requests) != 2 {
+		t.Fatalf("requests = %d, want plan plus judgment requests", len(rt.requests))
 	}
-	req := rt.requests[0]
+	planReq := rt.requests[0]
+	if planReq.Search {
+		t.Fatal("author validation plan request Search = true, want false")
+	}
+	if !strings.Contains(planReq.System, "verification plan") || strings.Contains(planReq.System, `"claim_checks"`) {
+		t.Fatalf("plan system prompt = %q, want verification-plan-only prompt", planReq.System)
+	}
+	req := rt.requests[1]
 	if !req.Search {
-		t.Fatal("author validation request Search = false, want true for author fact checks")
+		t.Fatal("author validation judgment request Search = false, want true for author fact checks")
 	}
 	if !strings.Contains(req.System, "Validate ONLY what the author claims") || !strings.Contains(req.System, "Do not critique the extraction pipeline") {
 		t.Fatalf("system prompt = %q, want author-only validation boundary", req.System)
 	}
-	if len(req.UserParts) == 0 || !strings.Contains(req.UserParts[len(req.UserParts)-1].Text, "claim_candidates") || !strings.Contains(req.UserParts[len(req.UserParts)-1].Text, "inference_candidates") {
+	if len(req.UserParts) == 0 || !strings.Contains(req.UserParts[len(req.UserParts)-1].Text, "claim_candidates") || !strings.Contains(req.UserParts[len(req.UserParts)-1].Text, "inference_candidates") || !strings.Contains(req.UserParts[len(req.UserParts)-1].Text, "verification_plan") {
 		t.Fatalf("user prompt missing candidates: %#v", req.UserParts)
 	}
 	userPrompt := req.UserParts[len(req.UserParts)-1].Text
@@ -107,10 +129,368 @@ func TestAuthorValidatePreviewResultValidatesAuthorOnlyWithSearch(t *testing.T) 
 	if !strings.Contains(userPrompt, `"source_quote": "The bank cut rates by 25 bps"`) {
 		t.Fatalf("user prompt missing proof provenance source_quote: %s", userPrompt)
 	}
-	for _, want := range []string{"Validate only externally checkable point claims", "required_evidence", "metric, date/window, denominator/base", "do not substitute YTD for MTD", "post date", "nearest close used", "data requirements needed to support the jump", "deferred to inference validation", "Do not use \"unverified\" for abstract claims", "Split compound proof points", "normalize units", "range_covered", "attribution_ok", "comparison_base", "scope_status", "denominator", "do not silently rewrite the subject", "edge_evidence", "implicit premises are externally supported", "missing_links for unverified or contradicted intermediate premises"} {
+	if !strings.Contains(userPrompt, `"current_date"`) {
+		t.Fatalf("user prompt missing current_date: %s", userPrompt)
+	}
+	for _, want := range []string{"Validate only externally checkable point claims", "required_evidence", "metric, date/window, denominator/base", "current_date", "not future-dated", "search the cited source name plus the metric and value", "do not substitute YTD for MTD", "post date", "nearest close used", "data requirements needed to support the jump", "deferred to inference validation", "Do not use \"unverified\" for abstract claims", "Split compound proof points", "normalize units", "range_covered", "attribution_ok", "comparison_base", "scope_status", "denominator", "do not silently rewrite the subject", "edge_evidence", "implicit premises are externally supported", "missing_links for unverified or contradicted intermediate premises"} {
 		if !strings.Contains(req.System, want) {
 			t.Fatalf("system prompt missing %q: %s", want, req.System)
 		}
+	}
+	for _, want := range []string{"original_value", "unit", "series", "comparison_rule", "preferred_sources", "FRED:WRESBAL"} {
+		if !strings.Contains(planReq.System, want) {
+			t.Fatalf("plan system prompt missing %q: %s", want, planReq.System)
+		}
+	}
+}
+
+func TestAuthorValidatePreviewResultRetriesInvalidJSON(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"claim_plans":[{"claim_id":"claim-001","text":"Policy rate declined by 25 bps","needs_validation":true}],"inference_plans":[]}`},
+		{Text: `{"summary":{"verdict":"mixed"},"claim_checks":[}}`},
+		{Text: `{
+			"summary":{"verdict":"mixed"},
+			"claim_checks":[
+				{"claim_id":"claim-001","text":"Policy rate declined by 25 bps","claim_type":"number","status":"supported","required_evidence":[{"description":"Confirm policy rate change","subject":"policy rate","metric":"basis-point change","time_window":"article period","source_type":"official","status":"supported","evidence":["Central bank release says the policy rate declined by 25 bps"],"reason":"Official release matches."}],"reason":"Official source supports it."}
+			],
+			"inference_checks":[]
+		}`},
+	}}
+	client := &Client{runtime: rt, model: "author-model"}
+	result, err := client.AuthorValidatePreviewResult(context.Background(), compile.Bundle{
+		UnitID:     "twitter:retry-author-validate",
+		Source:     "twitter",
+		ExternalID: "retry-author-validate",
+		Content:    "The author says the policy rate declined by 25 bps.",
+	}, FlowPreviewResult{
+		Render: compile.Output{
+			EvidenceNodes: []string{"Policy rate declined by 25 bps"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AuthorValidatePreviewResult() error = %v", err)
+	}
+	if len(rt.requests) != 3 {
+		t.Fatalf("requests = %d, want parse retry", len(rt.requests))
+	}
+	if !strings.Contains(rt.requests[2].System, "previous response was invalid JSON") {
+		t.Fatalf("retry system prompt = %q, want strict JSON retry instruction", rt.requests[2].System)
+	}
+	if result.AuthorValidation == nil || len(result.AuthorValidation.ClaimChecks) != 1 {
+		t.Fatalf("author validation = %#v, want parsed retry result", result.AuthorValidation)
+	}
+}
+
+func TestAuthorValidatePreviewResultIncludesExternalEvidenceHints(t *testing.T) {
+	originalBuilder := buildAuthorExternalEvidenceHints
+	buildAuthorExternalEvidenceHints = func(_ context.Context, claims []authorClaimCandidate, plan authorVerificationPlan) ([]authorExternalEvidenceHint, error) {
+		if len(claims) == 0 {
+			t.Fatal("claims missing from evidence hint builder")
+		}
+		if len(plan.ClaimPlans) == 0 || plan.ClaimPlans[0].RequiredEvidence[0].Metric != "production shut-ins" {
+			t.Fatalf("plan = %#v, want EIA production shut-ins plan", plan)
+		}
+		return []authorExternalEvidenceHint{{
+			ClaimID: claims[0].ClaimID,
+			Query:   "site:eia.gov STEO April 2026 production shut-ins 9.1 million b/d",
+			Results: []authorExternalEvidenceResult{{
+				URL:     "https://www.eia.gov/outlooks/steo/report/global_oil.php/",
+				Title:   "EIA Short-Term Energy Outlook - Global Oil Markets",
+				Excerpt: "We assess that production shut-ins will rise to 9.1 million b/d in April.",
+			}},
+		}}, nil
+	}
+	defer func() { buildAuthorExternalEvidenceHints = originalBuilder }()
+
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{
+			"claim_plans":[
+				{"claim_id":"claim-001","text":"中东石油减产量达每天910万桶","needs_validation":true,"required_evidence":[{"description":"Check EIA oil production shut-ins","subject":"Middle East oil supply","metric":"production shut-ins","time_window":"April 2026","source_type":"official","status":"unverified","reason":"Need EIA STEO value."}],"preferred_sources":["EIA STEO"],"queries":["EIA STEO April 2026 production shut-ins 9.1 million b/d"]}
+			],
+			"inference_plans":[]
+		}`},
+		{Text: `{
+			"summary":{"verdict":"mixed"},
+			"claim_checks":[
+				{"claim_id":"claim-001","text":"中东石油减产量达每天910万桶","claim_type":"number","status":"unverified","required_evidence":[{"description":"Check EIA oil production shut-ins","subject":"Middle East oil supply","metric":"production shut-ins","time_window":"April 2026","source_type":"official","status":"unverified","reason":"Model failed to use the exact EIA hint."}],"reason":"Unverified."}
+			],
+			"inference_checks":[]
+		}`,
+		},
+	}}
+	client := &Client{runtime: rt, model: "author-model"}
+	result, err := client.AuthorValidatePreviewResult(context.Background(), compile.Bundle{
+		UnitID:     "youtube:eia-hint",
+		Source:     "youtube",
+		ExternalID: "eia-hint",
+		Content:    "美国能源信息署的数据，中东减产量到四月份已经达到了每天910万桶。",
+	}, FlowPreviewResult{
+		Render: compile.Output{
+			EvidenceNodes: []string{"中东石油减产量达每天910万桶"},
+			Details: compile.HiddenDetails{Items: []map[string]any{{
+				"kind":         "proof_point",
+				"text":         "中东石油减产量达每天910万桶",
+				"source_quote": "美国能源信息署的数据，中东减产量到四月份已经达到了每天910万桶",
+			}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AuthorValidatePreviewResult() error = %v", err)
+	}
+	if got := result.AuthorValidation.ClaimChecks[0].Status; got != compile.AuthorClaimSupported {
+		t.Fatalf("claim status = %q, want supported from exact external evidence hint", got)
+	}
+	if evidence := strings.Join(result.AuthorValidation.ClaimChecks[0].Evidence, " "); !strings.Contains(evidence, "9.1 million b/d") || !strings.Contains(evidence, "eia.gov") {
+		t.Fatalf("claim evidence = %#v, want exact EIA hint carried into supported judgment", result.AuthorValidation.ClaimChecks[0].Evidence)
+	}
+	if len(rt.requests) != 2 {
+		t.Fatalf("requests = %d, want plan plus judgment", len(rt.requests))
+	}
+	userPrompt := rt.requests[1].UserParts[len(rt.requests[1].UserParts)-1].Text
+	for _, want := range []string{"external_evidence_hints", "eia.gov/outlooks/steo", "9.1 million b/d"} {
+		if !strings.Contains(userPrompt, want) {
+			t.Fatalf("user prompt missing %q: %s", want, userPrompt)
+		}
+	}
+}
+
+func TestNormalizeAuthorVerificationPlanEnrichesExecutableMarketDataSpecs(t *testing.T) {
+	plan := normalizeAuthorVerificationPlan(authorVerificationPlan{
+		ClaimPlans: []authorClaimVerificationPlan{
+			{
+				ClaimID:         "claim-reserves",
+				Text:            "美国商业银行准备金规模从2025年8月触顶后持续下滑",
+				NeedsValidation: true,
+				RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+					Description: "Bank reserves peak and trough data",
+					Subject:     "US Bank Reserves",
+					Metric:      "Reserve balances",
+					TimeWindow:  "August 2025 to November 2025",
+					SourceType:  "official",
+					Status:      compile.AuthorClaimUnverified,
+				}},
+			},
+			{
+				ClaimID:         "claim-tga",
+				Text:            "美国财政部TGA余额预计在2026年4月中下旬达到峰值1.05万亿美元",
+				NeedsValidation: true,
+				RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+					Description: "US Treasury Quarterly Refunding Announcement forecast",
+					Subject:     "US Treasury General Account (TGA)",
+					Metric:      "Balance forecast",
+					TimeWindow:  "April 2026",
+					SourceType:  "official",
+					Status:      compile.AuthorClaimUnverified,
+				}},
+			},
+			{
+				ClaimID:         "claim-stablecoin",
+				Text:            "稳定币发行量在2026年初至2月中旬累计减少100亿美元",
+				NeedsValidation: true,
+				RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+					Description: "Stablecoin supply change data",
+					Subject:     "USDT, USDC",
+					Metric:      "Circulating supply decrease",
+					TimeWindow:  "January 2026 to mid-February 2026",
+					SourceType:  "market_data",
+					Status:      compile.AuthorClaimUnverified,
+				}},
+			},
+			{
+				ClaimID:         "claim-etf",
+				Text:            "比特币现货ETF从2025年10月开始出现持续性净流出",
+				NeedsValidation: true,
+				RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+					Description: "Bitcoin spot ETF flow data",
+					Subject:     "Bitcoin Spot ETFs",
+					Metric:      "Net flows",
+					TimeWindow:  "October 2025 to March 2026",
+					SourceType:  "market_data",
+					Status:      compile.AuthorClaimUnverified,
+				}},
+			},
+			{
+				ClaimID:         "claim-legal",
+				Text:            "Jane Street涉嫌长期操纵比特币市场并已引发集体诉讼",
+				NeedsValidation: true,
+				RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+					Description: "Legal filing or credible financial news report",
+					Subject:     "Jane Street",
+					Metric:      "Manipulation allegations status",
+					TimeWindow:  "February 2026",
+					SourceType:  "news",
+					Status:      compile.AuthorClaimUnverified,
+				}},
+			},
+		},
+	})
+
+	byID := map[string]compile.AuthorEvidenceRequirement{}
+	for _, claimPlan := range plan.ClaimPlans {
+		if len(claimPlan.RequiredEvidence) > 0 {
+			byID[claimPlan.ClaimID] = claimPlan.RequiredEvidence[0]
+		}
+	}
+	if got := byID["claim-reserves"]; got.Series != "FRED:WRESBAL" || !containsString(got.PreferredSources, "Federal Reserve H.4.1") || got.ComparisonRule == "" {
+		t.Fatalf("reserve requirement = %#v, want FRED/H.4.1 executable spec", got)
+	}
+	if got := byID["claim-tga"]; got.Series != "FRED:WTREGEN" || !containsString(got.PreferredSources, "US Treasury Quarterly Refunding Announcement") || got.ComparisonRule == "" {
+		t.Fatalf("tga requirement = %#v, want Treasury/FRED executable spec", got)
+	}
+	if got := byID["claim-stablecoin"]; !containsString(got.PreferredSources, "DeFiLlama stablecoins") || got.ComparisonRule == "" {
+		t.Fatalf("stablecoin requirement = %#v, want stablecoin data vendors", got)
+	}
+	if got := byID["claim-etf"]; !containsString(got.PreferredSources, "Farside Investors") || got.ComparisonRule == "" {
+		t.Fatalf("etf requirement = %#v, want ETF flow data vendors", got)
+	}
+	if got := byID["claim-legal"]; !containsString(got.PreferredSources, "CourtListener") || got.ComparisonRule == "" {
+		t.Fatalf("legal requirement = %#v, want legal/news data vendors", got)
+	}
+}
+
+func TestBuildFREDEvidenceHintFromCSV(t *testing.T) {
+	result, ok := buildFREDEvidenceResultFromCSV("WRESBAL", "2025-08 to 2025-11", "3.4T to 2.85T", "Verify peak and drop", `observation_date,WRESBAL
+2025-07-30,3300.0
+2025-08-06,3400.0
+2025-09-03,3200.0
+2025-11-26,2850.0
+2025-12-03,2900.0
+`)
+	if !ok {
+		t.Fatal("buildFREDEvidenceResultFromCSV() ok = false, want true")
+	}
+	if result.URL == "" || !strings.Contains(result.Title, "FRED WRESBAL") {
+		t.Fatalf("result = %#v, want FRED title/url", result)
+	}
+	for _, want := range []string{"2025-08-06=3400", "2025-11-26=2850", "min 2025-11-26=2850", "max 2025-08-06=3400", "author value 3.4T to 2.85T"} {
+		if !strings.Contains(result.Excerpt, want) {
+			t.Fatalf("excerpt = %q, missing %q", result.Excerpt, want)
+		}
+	}
+}
+
+func TestBuildStablecoinEvidenceResultFromJSON(t *testing.T) {
+	result, ok := buildStablecoinEvidenceResultFromJSON("USDT", "2026-01-01 to 2026-02-15", "-4B", `{
+		"symbol":"USDT",
+		"chainBalances":{
+			"Ethereum":{"tokens":[
+				{"date":1767225600,"circulating":{"peggedUSD":100000000000}},
+				{"date":1771113600,"circulating":{"peggedUSD":96000000000}}
+			]},
+			"Tron":{"tokens":[
+				{"date":1767225600,"circulating":{"peggedUSD":50000000000}},
+				{"date":1771113600,"circulating":{"peggedUSD":50000000000}}
+			]}
+		}
+	}`)
+	if !ok {
+		t.Fatal("buildStablecoinEvidenceResultFromJSON() ok = false, want true")
+	}
+	for _, want := range []string{"USDT", "2026-01-01=150000000000", "2026-02-15=146000000000", "delta=-4000000000", "author value -4B"} {
+		if !strings.Contains(result.Excerpt, want) {
+			t.Fatalf("excerpt = %q, missing %q", result.Excerpt, want)
+		}
+	}
+}
+
+func TestBuildBitcoinETFEvidenceResultFromSoSoValueJSON(t *testing.T) {
+	result, ok := buildBitcoinETFEvidenceResultFromSoSoValueJSON("2026-01 to 2026-03", `{
+		"code":0,
+		"data":[
+			{"date":"2026-03-03","totalNetInflow":100000000},
+			{"date":"2026-03-04","totalNetInflow":-50000000},
+			{"date":"2026-03-05","totalNetInflow":-25000000}
+		]
+	}`)
+	if !ok {
+		t.Fatal("buildBitcoinETFEvidenceResultFromSoSoValueJSON() ok = false, want true")
+	}
+	for _, want := range []string{"SoSoValue BTC spot ETF flows", "positive_days=1", "negative_days=2", "sum=25000000", "continuous_outflow=false"} {
+		if !strings.Contains(result.Excerpt, want) {
+			t.Fatalf("excerpt = %q, missing %q", result.Excerpt, want)
+		}
+	}
+}
+
+func TestBuildCourtListenerEvidenceResultFromJSON(t *testing.T) {
+	result, ok := buildCourtListenerEvidenceResultFromJSON("Jane Street Bitcoin manipulation", `{
+		"count": 70,
+		"results": [
+			{"caseName":"Snyder v. Jane Street Group, LLC","court":"District Court, S.D. New York","dateFiled":"2026-02-24","docketNumber":"1:26-cv-01536","cause":"15:78m(a) Securities Exchange Act","docket_absolute_url":"/docket/72321910/snyder-v-jane-street-group-llc/"}
+		]
+	}`)
+	if !ok {
+		t.Fatal("buildCourtListenerEvidenceResultFromJSON() ok = false, want true")
+	}
+	for _, want := range []string{"CourtListener search", "count=70", "Snyder v. Jane Street Group, LLC", "2026-02-24", "Securities Exchange Act"} {
+		if !strings.Contains(result.Excerpt, want) {
+			t.Fatalf("excerpt = %q, missing %q", result.Excerpt, want)
+		}
+	}
+}
+
+func TestParseAuthorComparableNumbersPreservesStablecoinDecrease(t *testing.T) {
+	got := parseAuthorComparableNumbers("USDT发行量减少40亿美元，USDC decreased -6 billion USD, total -10B")
+	if len(got) < 3 {
+		t.Fatalf("numbers = %#v, want three decrease values", got)
+	}
+	wants := []float64{-4, -6, -10}
+	for i, want := range wants {
+		if got[i].Value != want || got[i].Unit != "billion" {
+			t.Fatalf("numbers[%d] = %#v, want %v billion", i, got[i], want)
+		}
+	}
+}
+
+func TestLiveAuthorEvidenceFetchesBitcoinETFWhenEnabled(t *testing.T) {
+	if os.Getenv("RUN_LIVE_AUTHOR_EVIDENCE") != "1" {
+		t.Skip("set RUN_LIVE_AUTHOR_EVIDENCE=1 to exercise live ETF evidence fetching")
+	}
+	result, ok := fetchBitcoinETFEvidenceResult(context.Background(), &http.Client{}, "2026-01 to 2026-03")
+	if !ok {
+		t.Fatal("fetchBitcoinETFEvidenceResult() ok = false, want true")
+	}
+	if !strings.Contains(result.Excerpt, "SoSoValue BTC spot ETF flows") || !strings.Contains(result.Excerpt, "positive_days=") {
+		t.Fatalf("result = %#v, want SoSoValue ETF flow excerpt", result)
+	}
+}
+
+func TestLiveAuthorEvidenceFetchesCourtListenerWhenEnabled(t *testing.T) {
+	if os.Getenv("RUN_LIVE_AUTHOR_EVIDENCE") != "1" {
+		t.Skip("set RUN_LIVE_AUTHOR_EVIDENCE=1 to exercise live CourtListener evidence fetching")
+	}
+	result, ok := fetchCourtListenerEvidenceResult(context.Background(), &http.Client{}, "Jane Street Bitcoin manipulation")
+	if !ok {
+		t.Fatal("fetchCourtListenerEvidenceResult() ok = false, want true")
+	}
+	if !strings.Contains(result.Excerpt, "CourtListener search") || !strings.Contains(result.Excerpt, "Jane Street") {
+		t.Fatalf("result = %#v, want CourtListener Jane Street excerpt", result)
+	}
+}
+
+func TestLiveAuthorEvidenceFetchesFREDWhenEnabled(t *testing.T) {
+	if os.Getenv("RUN_LIVE_AUTHOR_EVIDENCE") != "1" {
+		t.Skip("set RUN_LIVE_AUTHOR_EVIDENCE=1 to exercise live FRED evidence fetching")
+	}
+	result, ok := fetchFREDEvidenceResult(context.Background(), &http.Client{}, "WRESBAL", "2025-08 to 2025-11", "3.4T to 2.85T", "trend check")
+	if !ok {
+		t.Fatal("fetchFREDEvidenceResult() ok = false, want true")
+	}
+	if !strings.Contains(result.Excerpt, "FRED WRESBAL") || !strings.Contains(result.Excerpt, "2025-08") {
+		t.Fatalf("result = %#v, want WRESBAL excerpt", result)
+	}
+}
+
+func TestLiveAuthorEvidenceFetchesStablecoinWhenEnabled(t *testing.T) {
+	if os.Getenv("RUN_LIVE_AUTHOR_EVIDENCE") != "1" {
+		t.Skip("set RUN_LIVE_AUTHOR_EVIDENCE=1 to exercise live stablecoin evidence fetching")
+	}
+	result, ok := fetchStablecoinEvidenceResult(context.Background(), &http.Client{}, "USDT", "2026-01 to 2026-02-15", "-4B")
+	if !ok {
+		t.Fatal("fetchStablecoinEvidenceResult() ok = false, want true")
+	}
+	if !strings.Contains(result.Excerpt, "DeFiLlama stablecoin USDT") || !strings.Contains(result.Excerpt, "delta=") {
+		t.Fatalf("result = %#v, want DeFiLlama stablecoin excerpt with delta", result)
 	}
 }
 
@@ -370,6 +750,399 @@ func TestNormalizeAuthorValidationBackfillsMissingCandidates(t *testing.T) {
 	}
 	if validation.Summary.Verdict != "mixed" {
 		t.Fatalf("verdict = %q, want mixed", validation.Summary.Verdict)
+	}
+}
+
+func TestNormalizeAuthorValidationRejectsAuthorOnlySupportedClaimEvidence(t *testing.T) {
+	validation := normalizeAuthorValidation(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID:   "claim-001",
+			Text:      "中东石油减产量达每天910万桶",
+			ClaimType: "number",
+			Status:    compile.AuthorClaimSupported,
+			RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+				Description: "Middle East oil production reduction volume",
+				Subject:     "Middle East Oil Supply",
+				Metric:      "Daily production cut (bpd)",
+				TimeWindow:  "April 2026",
+				SourceType:  "official",
+				Status:      compile.AuthorClaimSupported,
+				Evidence:    []string{"Author cites EIA data for 9.1M bpd reduction"},
+				Reason:      "Specific numeric claim attributed to EIA.",
+			}},
+			Evidence: []string{"美国能源信息署的数据 中东减产量到四月份 已经达到了每天910万桶"},
+			Reason:   "Direct numeric claim with source attribution.",
+		}},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Kind: "proof_point", Text: "中东石油减产量达每天910万桶"}}, nil, "model")
+
+	check := validation.ClaimChecks[0]
+	if check.Status != compile.AuthorClaimUnverified {
+		t.Fatalf("claim status = %q, want unverified when supported evidence is only author citation", check.Status)
+	}
+	if !strings.Contains(check.Reason, "external evidence") {
+		t.Fatalf("reason = %q, want external evidence downgrade reason", check.Reason)
+	}
+	if validation.Summary.UnverifiedClaims != 1 || validation.Summary.SupportedClaims != 0 {
+		t.Fatalf("summary = %#v, want downgraded unverified claim", validation.Summary)
+	}
+}
+
+func TestNormalizeAuthorValidationPreservesSupportedClaimWithExternalEvidence(t *testing.T) {
+	validation := normalizeAuthorValidation(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID:   "claim-001",
+			Text:      "中东石油减产量达每天910万桶",
+			ClaimType: "number",
+			Status:    compile.AuthorClaimSupported,
+			RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+				Description: "Middle East oil production reduction volume",
+				Subject:     "Middle East Oil Supply",
+				Metric:      "Daily production shut-ins (bpd)",
+				TimeWindow:  "April 2026",
+				SourceType:  "official",
+				Status:      compile.AuthorClaimSupported,
+				Evidence:    []string{"EIA April 2026 STEO reports production shut-ins will rise to 9.1 million b/d in April."},
+				Reason:      "Official EIA source matches the figure and time window.",
+			}},
+			Evidence: []string{"EIA April 2026 STEO: production shut-ins rise to 9.1 million b/d."},
+			Reason:   "Official source supports the numeric claim.",
+		}},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Kind: "proof_point", Text: "中东石油减产量达每天910万桶"}}, nil, "model")
+
+	if validation.ClaimChecks[0].Status != compile.AuthorClaimSupported {
+		t.Fatalf("claim status = %q, want supported with external evidence", validation.ClaimChecks[0].Status)
+	}
+}
+
+func TestNormalizeAuthorValidationRejectsVagueExternalSupportedEvidence(t *testing.T) {
+	validation := normalizeAuthorValidation(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID:   "claim-001",
+			Text:      "一级Crypto VC管理规模扩张",
+			ClaimType: "fact",
+			Status:    compile.AuthorClaimSupported,
+			RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+				Description: "Crypto VC AUM growth",
+				Subject:     "Crypto VC",
+				Metric:      "AUM Growth",
+				SourceType:  "market_data",
+				Status:      compile.AuthorClaimSupported,
+				Evidence:    []string{"Industry reports (e.g., Preqin/PitchBook) show significant growth in crypto VC AUM."},
+				Reason:      "Industry reports support the trend.",
+			}},
+			Evidence: []string{"Market data shows VC-backed tokens often face selling pressure."},
+			Reason:   "Supported by industry trends.",
+		}},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Kind: "render_node", Text: "一级Crypto VC管理规模扩张"}}, nil, "model")
+
+	if validation.ClaimChecks[0].Status != compile.AuthorClaimUnverified {
+		t.Fatalf("claim status = %q, want unverified when evidence names vague reports without a concrete source/value", validation.ClaimChecks[0].Status)
+	}
+}
+
+func TestNormalizeAuthorValidationUsesFREDHintForNumericSupport(t *testing.T) {
+	validation := normalizeAuthorValidationWithHints(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID:   "claim-001",
+			Text:      "美国商业银行准备金规模从2025年8月触顶后持续下滑，从3.4万亿到2.85万亿",
+			ClaimType: "number",
+			Status:    compile.AuthorClaimUnverified,
+			RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+				Description:   "Reserve balance trend",
+				Metric:        "Reserve Balances",
+				OriginalValue: "3.4T to 2.85T",
+				Series:        "FRED:WRESBAL",
+				Status:        compile.AuthorClaimUnverified,
+			}},
+		}},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Kind: "proof_point", Text: "美国商业银行准备金规模从2025年8月触顶后持续下滑，从3.4万亿到2.85万亿"}}, nil, "model", []authorExternalEvidenceHint{{
+		ClaimID: "claim-001",
+		Query:   "FRED WRESBAL",
+		Results: []authorExternalEvidenceResult{{
+			URL:     "https://fred.stlouisfed.org/series/WRESBAL",
+			Title:   "FRED WRESBAL",
+			Excerpt: "FRED WRESBAL observations for Aug 2025 to Nov 2025: first 2025-08-06=3332492, last 2025-11-26=2896586, min 2025-11-12=2855030, max 2025-08-06=3332492. author value 3.4T to 2.85T.",
+		}},
+	}})
+
+	check := validation.ClaimChecks[0]
+	if check.Status != compile.AuthorClaimSupported {
+		t.Fatalf("claim status = %q, want supported from numeric FRED hint", check.Status)
+	}
+	if !strings.Contains(strings.Join(check.Evidence, " "), "FRED WRESBAL") {
+		t.Fatalf("evidence = %#v, want FRED hint appended", check.Evidence)
+	}
+}
+
+func TestNormalizeAuthorValidationUsesStablecoinHintForContradiction(t *testing.T) {
+	validation := normalizeAuthorValidationWithHints(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID:   "claim-001",
+			Text:      "稳定币发行量在2026年初至2月中旬累计减少100亿美元",
+			ClaimType: "number",
+			Status:    compile.AuthorClaimUnverified,
+			RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+				Description:   "Stablecoin supply decline",
+				Metric:        "Supply Change",
+				OriginalValue: "-10 billion USD",
+				Series:        "DeFiLlama",
+				Status:        compile.AuthorClaimUnverified,
+			}},
+		}},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Kind: "proof_point", Text: "稳定币发行量在2026年初至2月中旬累计减少100亿美元"}}, nil, "model", []authorExternalEvidenceHint{{
+		ClaimID: "claim-001",
+		Query:   "DeFiLlama stablecoins",
+		Results: []authorExternalEvidenceResult{{
+			URL:     "https://stablecoins.llama.fi/stablecoin/1",
+			Title:   "DeFiLlama stablecoin USDT",
+			Excerpt: "DeFiLlama stablecoin USDT circulating supply for 2026-01 to 2026-02-15: first 2026-01-01=150000000000, last 2026-02-15=146300000000, delta=-3700000000. author value -10B.",
+		}},
+	}})
+
+	check := validation.ClaimChecks[0]
+	if check.Status != compile.AuthorClaimContradicted {
+		t.Fatalf("claim status = %q, want contradicted from DeFiLlama delta mismatch", check.Status)
+	}
+	if !strings.Contains(check.DecisionNote, "口径:") || !strings.Contains(check.DecisionNote, "判定:") || !strings.Contains(check.DecisionNote, "Supply Change") {
+		t.Fatalf("decision_note = %q, want basis and judgment for explanation column", check.DecisionNote)
+	}
+	if !strings.Contains(strings.Join(check.Evidence, " "), "DeFiLlama stablecoin USDT") {
+		t.Fatalf("evidence = %#v, want stablecoin hint appended", check.Evidence)
+	}
+}
+
+func TestNormalizeAuthorValidationUsesETFHintForContinuousOutflowContradiction(t *testing.T) {
+	validation := normalizeAuthorValidationWithHints(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID:   "claim-001",
+			Text:      "比特币现货ETF从2025年10月开始出现持续性净流出",
+			ClaimType: "fact",
+			Status:    compile.AuthorClaimUnverified,
+			RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+				Description:   "Bitcoin spot ETF net flow trend",
+				Metric:        "Net Flows",
+				OriginalValue: "continuous net outflow",
+				Series:        "SoSoValue BTC spot ETF",
+				Status:        compile.AuthorClaimUnverified,
+			}},
+		}},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Kind: "proof_point", Text: "比特币现货ETF从2025年10月开始出现持续性净流出"}}, nil, "model", []authorExternalEvidenceHint{{
+		ClaimID: "claim-001",
+		Query:   "SoSoValue Bitcoin ETF flows",
+		Results: []authorExternalEvidenceResult{{
+			URL:     "https://open.sosovalue.xyz/openapi/v1/etf/us-btc-spot/historicalInflowChart",
+			Title:   "SoSoValue BTC spot ETF flows",
+			Excerpt: "SoSoValue BTC spot ETF flows for 2026-01 to 2026-03: first 2026-03-03=100000000, last 2026-03-05=-25000000, sum=25000000, positive_days=1, negative_days=2, continuous_outflow=false.",
+		}},
+	}})
+
+	check := validation.ClaimChecks[0]
+	if check.Status != compile.AuthorClaimContradicted {
+		t.Fatalf("claim status = %q, want contradicted from positive ETF flow day", check.Status)
+	}
+}
+
+func TestNormalizeAuthorValidationReappliesETFHintAfterAuthorOnlyDowngrade(t *testing.T) {
+	validation := normalizeAuthorValidationWithHints(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID:   "claim-001",
+			Text:      "比特币现货ETF从2025年10月开始出现持续性净流出",
+			ClaimType: "fact",
+			Status:    compile.AuthorClaimSupported,
+			RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+				Description:   "Bitcoin spot ETF net flow trend",
+				Metric:        "Net Flows",
+				OriginalValue: "continuous net outflow",
+				Series:        "SoSoValue BTC spot ETF",
+				Status:        compile.AuthorClaimSupported,
+				Evidence:      []string{"Author says ETF flows were negative."},
+			}},
+			Evidence: []string{"Author cites ETF outflows."},
+			Reason:   "The author states this trend.",
+		}},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Kind: "proof_point", Text: "比特币现货ETF从2025年10月开始出现持续性净流出"}}, nil, "model", []authorExternalEvidenceHint{{
+		ClaimID: "claim-001",
+		Query:   "SoSoValue Bitcoin ETF flows",
+		Results: []authorExternalEvidenceResult{{
+			URL:     "https://open.sosovalue.xyz/openapi/v1/etf/us-btc-spot/historicalInflowChart",
+			Title:   "SoSoValue BTC spot ETF flows",
+			Excerpt: "SoSoValue BTC spot ETF flows for 2025-10 to 2026-03: sum=-1640000000, positive_days=40, negative_days=72, continuous_outflow=false.",
+		}},
+	}})
+
+	check := validation.ClaimChecks[0]
+	if check.Status != compile.AuthorClaimContradicted {
+		t.Fatalf("claim status = %q, want contradicted after author-only supported claim is downgraded and hint reapplied", check.Status)
+	}
+}
+
+func TestNormalizeAuthorValidationETFHintOverridesSupportedContinuousOutflow(t *testing.T) {
+	validation := normalizeAuthorValidationWithHints(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID:   "claim-001",
+			Text:      "比特币现货ETF从2025年10月开始出现持续性净流出",
+			ClaimType: "market_flow",
+			Status:    compile.AuthorClaimSupported,
+			RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+				Description:   "Bitcoin spot ETF net flow trend",
+				Metric:        "Net Flows",
+				OriginalValue: "continuous net outflow",
+				Series:        "Farside Investors",
+				Status:        compile.AuthorClaimSupported,
+				Evidence:      []string{"Farside showed cumulative net outflows."},
+				Reason:        "Cumulative net outflow trend confirmed.",
+			}},
+			Evidence: []string{"Farside cumulative flow data."},
+			Reason:   "Net outflow trend confirmed.",
+		}},
+	}, []authorClaimCandidate{{ClaimID: "claim-001", Kind: "proof_point", Text: "比特币现货ETF从2025年10月开始出现持续性净流出"}}, nil, "model", []authorExternalEvidenceHint{{
+		ClaimID: "claim-001",
+		Query:   "SoSoValue Bitcoin ETF flows",
+		Results: []authorExternalEvidenceResult{{
+			URL:     "https://open.sosovalue.xyz/openapi/v1/etf/us-btc-spot/historicalInflowChart",
+			Title:   "SoSoValue BTC spot ETF flows",
+			Excerpt: "SoSoValue BTC spot ETF flows for 2025-10 onwards: sum=3419179392.82, positive_days=13, negative_days=10, continuous_outflow=false.",
+		}},
+	}})
+
+	check := validation.ClaimChecks[0]
+	if check.Status != compile.AuthorClaimContradicted {
+		t.Fatalf("claim status = %q, want local continuous_outflow=false hint to override model-supported cumulative-flow judgment", check.Status)
+	}
+	if !strings.Contains(check.DecisionNote, "continuous") && !strings.Contains(check.DecisionNote, "qualitative") {
+		t.Fatalf("decision_note = %q, want qualitative contradiction explanation", check.DecisionNote)
+	}
+}
+
+func TestNormalizeAuthorValidationDowngradesSpecificLegalMethodWithOnlyDocketEvidence(t *testing.T) {
+	validation := normalizeAuthorValidation(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID:   "claim-001",
+			Text:      "Jane Street操纵手法为每日定时大额抛售触发爆仓后低位补仓，已引发集体诉讼",
+			ClaimType: "fact",
+			Status:    compile.AuthorClaimSupported,
+			RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+				Description: "Court filings regarding Jane Street lawsuit",
+				Subject:     "Jane Street",
+				Metric:      "Legal Action",
+				SourceType:  "legal",
+				Status:      compile.AuthorClaimSupported,
+				Evidence: []string{
+					"CourtListener: Snyder v. Jane Street Group, LLC (2026-02-24, District Court, S.D. New York, docket 1:26-cv-01536)",
+				},
+				Reason: "Court records confirm a lawsuit exists.",
+			}},
+			Evidence: []string{
+				"CourtListener legal search (https://www.courtlistener.com/docket/72321910/snyder-v-jane-street-group-llc/): CourtListener search \"Jane Street Bitcoin manipulation\": count=70; top: Snyder v. Jane Street Group, LLC (2026-02-24, District Court, S.D. New York, docket 1:26-cv-01536).",
+			},
+			Reason: "Court records confirm the lawsuit exists.",
+		}},
+	}, []authorClaimCandidate{{
+		ClaimID: "claim-001",
+		Kind:    "proof_point",
+		Text:    "Jane Street操纵手法为每日定时大额抛售触发爆仓后低位补仓，已引发集体诉讼",
+	}}, nil, "model")
+
+	check := validation.ClaimChecks[0]
+	if check.Status != compile.AuthorClaimUnverified {
+		t.Fatalf("claim status = %q, want unverified because docket evidence does not verify trading method", check.Status)
+	}
+	if !strings.Contains(check.Reason, "specific trading-method detail") {
+		t.Fatalf("reason = %q, want scope warning", check.Reason)
+	}
+	if !strings.Contains(check.DecisionNote, "口径:") || !strings.Contains(check.DecisionNote, "判定:") || !strings.Contains(check.DecisionNote, "specific trading-method detail") {
+		t.Fatalf("decision_note = %q, want scope reason in explanation column", check.DecisionNote)
+	}
+}
+
+func TestNormalizeAuthorValidationKeepsDeFiLlamaSupportedEvidence(t *testing.T) {
+	validation := normalizeAuthorValidation(compile.AuthorValidation{
+		ClaimChecks: []compile.AuthorClaimCheck{{
+			ClaimID:   "claim-001",
+			Text:      "USDC发行量近三周回升，USDT发行量仍无起色",
+			ClaimType: "number",
+			Status:    compile.AuthorClaimSupported,
+			RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+				Description: "Stablecoin supply data for USDC and USDT",
+				Subject:     "Stablecoins",
+				Metric:      "Circulating Supply Change",
+				SourceType:  "market_data",
+				Status:      compile.AuthorClaimSupported,
+				Evidence: []string{
+					"DeFiLlama USDC: 2026-03-01=75.23B, 2026-03-31=77.38B (+2.16B increase); DeFiLlama USDT: 2026-03-01=183.48B, 2026-03-31=184.19B (+0.71B, relatively flat)",
+				},
+				Reason: "DeFiLlama data supports both trend checks.",
+			}},
+			Evidence: []string{
+				"DeFiLlama USDC/USDT supply data supports the stated trend.",
+			},
+			Reason: "DeFiLlama data confirms the trend.",
+		}},
+	}, []authorClaimCandidate{{
+		ClaimID: "claim-001",
+		Kind:    "proof_point",
+		Text:    "USDC发行量近三周回升，USDT发行量仍无起色",
+	}}, nil, "model")
+
+	if validation.ClaimChecks[0].Status != compile.AuthorClaimSupported {
+		t.Fatalf("claim status = %q, want supported with DeFiLlama evidence", validation.ClaimChecks[0].Status)
+	}
+}
+
+func TestNormalizeAuthorValidationDowngradesAuthorOnlySoundInferenceAndDedupes(t *testing.T) {
+	validation := normalizeAuthorValidation(compile.AuthorValidation{
+		InferenceChecks: []compile.AuthorInferenceCheck{
+			{
+				InferenceID: "inference-001",
+				From:        "全球石油供应缺口约7-10%",
+				Steps:       []string{"美国财政应对空间有限", "美联储大概率选择印钞"},
+				To:          "对冲通胀资产上涨",
+				Status:      compile.AuthorInferenceSound,
+				RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+					Description: "Chain from supply shock to fiscal constraint to monetary easing",
+					Subject:     "Macro policy response",
+					Metric:      "Policy sequence",
+					TimeWindow:  "2026",
+					SourceType:  "author_source",
+					Status:      compile.AuthorClaimSupported,
+					Evidence:    []string{"Author explicitly maps this sequence as the core thesis."},
+					Reason:      "Author explicitly constructs the transmission path.",
+				}},
+				Evidence: []string{"作者明确说油价冲击导致财政压力并迫使印钞"},
+				Reason:   "Author explicitly constructs the transmission path.",
+			},
+			{
+				InferenceID: "inference-002",
+				From:        "全球石油供应缺口约7-10%",
+				Steps:       []string{"美国财政应对空间有限", "美联储大概率选择印钞"},
+				To:          "对冲通胀资产上涨",
+				Status:      compile.AuthorInferenceSound,
+				RequiredEvidence: []compile.AuthorEvidenceRequirement{{
+					Description: "Duplicate of inference-001",
+					Subject:     "Macro policy response",
+					Metric:      "Policy sequence",
+					TimeWindow:  "2026",
+					SourceType:  "author_source",
+					Status:      compile.AuthorClaimSupported,
+					Evidence:    []string{"Same as inference-001"},
+					Reason:      "Identical logical path.",
+				}},
+			},
+		},
+	}, nil, []authorInferenceCandidate{
+		{InferenceID: "inference-001", From: "全球石油供应缺口约7-10%", Steps: []string{"美国财政应对空间有限", "美联储大概率选择印钞"}, To: "对冲通胀资产上涨"},
+		{InferenceID: "inference-002", From: "全球石油供应缺口约7-10%", Steps: []string{"美国财政应对空间有限", "美联储大概率选择印钞"}, To: "对冲通胀资产上涨"},
+	}, "model")
+
+	if len(validation.InferenceChecks) != 1 {
+		t.Fatalf("inference checks = %#v, want duplicate path collapsed", validation.InferenceChecks)
+	}
+	check := validation.InferenceChecks[0]
+	if check.Status != compile.AuthorInferenceWeak {
+		t.Fatalf("inference status = %q, want weak without external premise evidence", check.Status)
+	}
+	if len(check.MissingLinks) == 0 || !strings.Contains(strings.Join(check.MissingLinks, " "), "external") {
+		t.Fatalf("missing_links = %#v, want external evidence gap", check.MissingLinks)
 	}
 }
 
