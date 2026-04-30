@@ -17,6 +17,10 @@ import (
 var defaultSubjectExperienceHorizons = []string{"1w", "1m", "1q", "1y", "2y", "5y"}
 
 func (s *SQLiteStore) GetSubjectExperienceMemory(ctx context.Context, userID, subject string, horizons []string, now time.Time, refresh bool) (memory.SubjectExperienceMemory, error) {
+	return s.getSubjectExperienceMemoryWithHorizonInputs(ctx, userID, subject, horizons, now, refresh, nil)
+}
+
+func (s *SQLiteStore) getSubjectExperienceMemoryWithHorizonInputs(ctx context.Context, userID, subject string, horizons []string, now time.Time, refresh bool, preloaded map[string]memory.SubjectHorizonMemory) (memory.SubjectExperienceMemory, error) {
 	userID, err := normalizeRequiredUserID(userID)
 	if err != nil {
 		return memory.SubjectExperienceMemory{}, err
@@ -36,6 +40,10 @@ func (s *SQLiteStore) GetSubjectExperienceMemory(ctx context.Context, userID, su
 	}
 	horizonMemories := make([]memory.SubjectHorizonMemory, 0, len(horizons))
 	for _, horizon := range horizons {
+		if item, ok := preloaded[strings.TrimSpace(horizon)]; ok {
+			horizonMemories = append(horizonMemories, item)
+			continue
+		}
 		item, err := s.GetSubjectHorizonMemory(ctx, userID, subject, horizon, now, refresh)
 		if err != nil {
 			return memory.SubjectExperienceMemory{}, err

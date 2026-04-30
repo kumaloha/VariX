@@ -209,6 +209,27 @@ func TestSQLiteStore_RunProjectionDirtySweepAvoidsDuplicateBaseProjectionRefresh
 	}
 }
 
+func TestSQLiteStore_RunProjectionDirtyMarkStoresRefreshedSubjectHorizonForExperience(t *testing.T) {
+	store := newSubjectTimelineTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	graph := subjectTimelineSubgraph("state-horizon", now, []graphmodel.GraphNode{
+		subjectHorizonNode("target", "state-horizon", "美股", "继续走强", now, graphmodel.GraphRoleTarget),
+	})
+	if err := store.PersistMemoryContentGraphDeferred(ctx, "u-state-horizon", graph, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraphDeferred() error = %v", err)
+	}
+	state := &projectionDirtyUserState{}
+	err := store.runProjectionDirtyMark(ctx, ProjectionDirtyMark{UserID: "u-state-horizon", Layer: "subject-horizon", Subject: "美股", Horizon: "1w"}, now, state)
+	if err != nil {
+		t.Fatalf("runProjectionDirtyMark(subject-horizon) error = %v", err)
+	}
+	preloaded := state.preloadedSubjectHorizons("美股", []string{"1w"})
+	if got := preloaded["1w"].SampleCount; got != 1 {
+		t.Fatalf("preloaded 1w SampleCount = %d, want refreshed horizon memory in sweep state", got)
+	}
+}
+
 func TestRunProjectionDirtyMarkGroupsProcessesDifferentUsersConcurrently(t *testing.T) {
 	marks := []ProjectionDirtyMark{
 		{ID: 1, UserID: "u-concurrent-a", Layer: "subject-timeline", Subject: "美股"},
@@ -235,7 +256,7 @@ func TestRunProjectionDirtyMarkGroupsProcessesDifferentUsersConcurrently(t *test
 		atomic.AddInt32(&active, -1)
 		return nil
 	}
-	clearer := func(context.Context, ProjectionDirtyMark) error { return nil }
+	clearer := func(context.Context, []ProjectionDirtyMark) error { return nil }
 	done := make(chan ProjectionDirtySweepResult, 1)
 
 	go func() {
@@ -250,6 +271,30 @@ func TestRunProjectionDirtyMarkGroupsProcessesDifferentUsersConcurrently(t *test
 	result := <-done
 	if result.Completed != 2 || result.Failed != 0 {
 		t.Fatalf("result = %#v, want both marks completed", result)
+	}
+}
+
+func TestRunProjectionDirtyMarkGroupsClearsSuccessfulMarksInOneBatch(t *testing.T) {
+	marks := []ProjectionDirtyMark{
+		{ID: 1, UserID: "u-batch-clear", Layer: "subject-timeline", Subject: "美股"},
+		{ID: 2, UserID: "u-batch-clear", Layer: "subject-horizon", Subject: "美股", Horizon: "1w"},
+	}
+	clearCalls := 0
+	cleared := 0
+	runner := func(context.Context, ProjectionDirtyMark, *projectionDirtyUserState) error { return nil }
+	clearer := func(_ context.Context, marks []ProjectionDirtyMark) error {
+		clearCalls++
+		cleared += len(marks)
+		return nil
+	}
+
+	result := runProjectionDirtyMarkGroups(context.Background(), marks, 1, runner, clearer)
+
+	if result.Completed != 2 || result.Failed != 0 {
+		t.Fatalf("result = %#v, want both marks completed", result)
+	}
+	if clearCalls != 1 || cleared != 2 {
+		t.Fatalf("clearCalls/cleared = %d/%d, want one batch clear with both marks", clearCalls, cleared)
 	}
 }
 

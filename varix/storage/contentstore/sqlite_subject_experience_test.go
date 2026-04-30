@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/memory"
 )
 
 func TestSQLiteStore_GetSubjectExperienceMemoryDerivesReusableDriverLessonsAcrossHorizons(t *testing.T) {
@@ -128,6 +129,37 @@ func TestSQLiteStore_GetSubjectExperienceMemoryReusesFreshCacheWhenHorizonInputs
 	}
 	if second.GeneratedAt != first.GeneratedAt || second.CacheStatus != "fresh" {
 		t.Fatalf("cache result generated/status = %s/%s, want reused %s/fresh", second.GeneratedAt, second.CacheStatus, first.GeneratedAt)
+	}
+}
+
+func TestSQLiteStore_GetSubjectExperienceMemoryUsesPreloadedHorizonInputs(t *testing.T) {
+	store := newSubjectTimelineTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	preloaded := memory.SubjectHorizonMemory{
+		UserID:           "u-experience-preload",
+		Subject:          "美股",
+		CanonicalSubject: "美股",
+		Horizon:          "1w",
+		GeneratedAt:      now.Format(time.RFC3339),
+		InputHash:        "preloaded-hash",
+		SampleCount:      7,
+		KeyChanges:       []memory.SubjectHorizonChange{{When: now.Format(time.RFC3339), Subject: "美股", ChangeText: "继续走强"}},
+	}
+
+	out, err := store.getSubjectExperienceMemoryWithHorizonInputs(ctx, "u-experience-preload", "美股", []string{"1w"}, now, false, map[string]memory.SubjectHorizonMemory{"1w": preloaded})
+	if err != nil {
+		t.Fatalf("getSubjectExperienceMemoryWithHorizonInputs() error = %v", err)
+	}
+	if len(out.HorizonSummaries) != 1 || out.HorizonSummaries[0].SampleCount != 7 {
+		t.Fatalf("HorizonSummaries = %#v, want preloaded sample count", out.HorizonSummaries)
+	}
+	var horizonRows int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subject_horizon_memories WHERE user_id = ?`, "u-experience-preload").Scan(&horizonRows); err != nil {
+		t.Fatalf("subject_horizon_memories count query error = %v", err)
+	}
+	if horizonRows != 0 {
+		t.Fatalf("subject_horizon_memories rows = %d, want no horizon DB build/read path for preloaded horizon", horizonRows)
 	}
 }
 

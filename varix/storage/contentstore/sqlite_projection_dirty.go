@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kumaloha/VariX/varix/memory"
 )
 
 const ProjectionDirtyPending = "pending"
@@ -53,11 +55,12 @@ type projectionDirtyExecer interface {
 type projectionDirtyUserState struct {
 	eventRefreshed    bool
 	paradigmRefreshed bool
+	subjectHorizons   map[string]memory.SubjectHorizonMemory
 }
 
 type projectionDirtyMarkRunner func(context.Context, ProjectionDirtyMark, *projectionDirtyUserState) error
 
-type projectionDirtyMarkClearer func(context.Context, ProjectionDirtyMark) error
+type projectionDirtyMarkClearer func(context.Context, []ProjectionDirtyMark) error
 
 func (s *SQLiteStore) MarkProjectionDirty(ctx context.Context, mark ProjectionDirtyMark, at time.Time) error {
 	return markProjectionDirty(ctx, s.db, mark, at)
@@ -178,7 +181,7 @@ func (s *SQLiteStore) RunProjectionDirtySweepWithWorkers(ctx context.Context, us
 	}
 	result = mergeProjectionDirtySweepResult(result, runProjectionDirtyMarkGroups(ctx, marks, workers, func(ctx context.Context, mark ProjectionDirtyMark, state *projectionDirtyUserState) error {
 		return s.runProjectionDirtyMark(ctx, mark, now, state)
-	}, s.ClearProjectionDirtyMark))
+	}, s.ClearProjectionDirtyMarks))
 	remaining, err := s.countProjectionDirtyMarks(ctx, userID)
 	if err != nil {
 		return result, err
@@ -253,6 +256,7 @@ func groupProjectionDirtyMarksByUser(marks []ProjectionDirtyMark) [][]Projection
 func runProjectionDirtyMarkGroup(ctx context.Context, marks []ProjectionDirtyMark, runner projectionDirtyMarkRunner, clearer projectionDirtyMarkClearer) ProjectionDirtySweepResult {
 	result := ProjectionDirtySweepResult{Layers: map[string]int{}}
 	state := &projectionDirtyUserState{}
+	successful := make([]ProjectionDirtyMark, 0, len(marks))
 	for _, mark := range orderProjectionDirtyMarksForSweep(marks) {
 		if err := ctx.Err(); err != nil {
 			result.Failed++
@@ -264,11 +268,16 @@ func runProjectionDirtyMarkGroup(ctx context.Context, marks []ProjectionDirtyMar
 			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
 			continue
 		}
-		if err := clearer(ctx, mark); err != nil {
+		successful = append(successful, mark)
+	}
+	if len(successful) > 0 {
+		if err := clearer(ctx, successful); err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
-			continue
+			result.Errors = append(result.Errors, projectionDirtySweepError(successful[0], err))
+			successful = nil
 		}
+	}
+	for _, mark := range successful {
 		result.Completed++
 		result.Layers[strings.TrimSpace(mark.Layer)]++
 	}
@@ -347,16 +356,56 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 		if strings.TrimSpace(mark.Subject) == "" || strings.TrimSpace(mark.Horizon) == "" {
 			return fmt.Errorf("subject-horizon mark requires subject and horizon")
 		}
-		_, err = s.GetSubjectHorizonMemory(ctx, userID, mark.Subject, mark.Horizon, now, true)
+		var item memory.SubjectHorizonMemory
+		item, err = s.GetSubjectHorizonMemory(ctx, userID, mark.Subject, mark.Horizon, now, true)
+		if err == nil && state != nil {
+			state.storeSubjectHorizon(item)
+		}
 	case "subject-experience":
 		if strings.TrimSpace(mark.Subject) == "" {
 			return fmt.Errorf("subject-experience mark requires subject")
 		}
-		_, err = s.GetSubjectExperienceMemory(ctx, userID, mark.Subject, defaultSubjectExperienceHorizons, now, false)
+		preloaded := map[string]memory.SubjectHorizonMemory(nil)
+		if state != nil {
+			preloaded = state.preloadedSubjectHorizons(mark.Subject, defaultSubjectExperienceHorizons)
+		}
+		_, err = s.getSubjectExperienceMemoryWithHorizonInputs(ctx, userID, mark.Subject, defaultSubjectExperienceHorizons, now, false, preloaded)
 	default:
 		err = fmt.Errorf("unsupported projection layer %q", mark.Layer)
 	}
 	return err
+}
+
+func (state *projectionDirtyUserState) storeSubjectHorizon(item memory.SubjectHorizonMemory) {
+	if state == nil || strings.TrimSpace(item.Horizon) == "" {
+		return
+	}
+	if state.subjectHorizons == nil {
+		state.subjectHorizons = map[string]memory.SubjectHorizonMemory{}
+	}
+	state.subjectHorizons[subjectHorizonStateKey(item.CanonicalSubject, item.Horizon)] = item
+	state.subjectHorizons[subjectHorizonStateKey(item.Subject, item.Horizon)] = item
+}
+
+func (state *projectionDirtyUserState) preloadedSubjectHorizons(subject string, horizons []string) map[string]memory.SubjectHorizonMemory {
+	if state == nil || len(state.subjectHorizons) == 0 {
+		return nil
+	}
+	out := map[string]memory.SubjectHorizonMemory{}
+	for _, horizon := range horizons {
+		key := subjectHorizonStateKey(subject, horizon)
+		if item, ok := state.subjectHorizons[key]; ok {
+			out[strings.TrimSpace(horizon)] = item
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func subjectHorizonStateKey(subject, horizon string) string {
+	return normalizeDirtyDimension(subject) + "\x00" + strings.TrimSpace(horizon)
 }
 
 func (s *SQLiteStore) countProjectionDirtyMarks(ctx context.Context, userID string) (int, error) {
@@ -384,6 +433,52 @@ func projectionDirtySweepError(mark ProjectionDirtyMark, err error) ProjectionDi
 }
 
 func (s *SQLiteStore) ClearProjectionDirtyMark(ctx context.Context, mark ProjectionDirtyMark) error {
+	return s.ClearProjectionDirtyMarks(ctx, []ProjectionDirtyMark{mark})
+}
+
+func (s *SQLiteStore) ClearProjectionDirtyMarks(ctx context.Context, marks []ProjectionDirtyMark) error {
+	if len(marks) == 0 {
+		return nil
+	}
+	if len(marks) == 1 {
+		return s.clearProjectionDirtyMark(ctx, marks[0])
+	}
+	ids := make([]int64, 0, len(marks))
+	for _, mark := range marks {
+		if mark.ID <= 0 {
+			return s.clearProjectionDirtyMarksIndividually(ctx, marks)
+		}
+		ids = append(ids, mark.ID)
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM projection_dirty_marks WHERE dirty_id IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != int64(len(ids)) {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *SQLiteStore) clearProjectionDirtyMarksIndividually(ctx context.Context, marks []ProjectionDirtyMark) error {
+	for _, mark := range marks {
+		if err := s.clearProjectionDirtyMark(ctx, mark); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SQLiteStore) clearProjectionDirtyMark(ctx context.Context, mark ProjectionDirtyMark) error {
 	if mark.ID > 0 {
 		result, err := s.db.ExecContext(ctx, `DELETE FROM projection_dirty_marks WHERE dirty_id = ?`, mark.ID)
 		if err != nil {
