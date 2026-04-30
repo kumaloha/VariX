@@ -358,6 +358,66 @@ func TestRunProjectionDirtyMarkGroupProcessesSubjectHorizonsConcurrentlyBeforeEx
 	}
 }
 
+func TestProjectionDirtyUserStateMemoryContentGraphsCoalescesConcurrentLoads(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	state := &projectionDirtyUserState{}
+	loadStarted := make(chan struct{}, 2)
+	releaseLoad := make(chan struct{})
+	var loadCalls int32
+	load := func(ctx context.Context, userID string) ([]graphmodel.ContentSubgraph, error) {
+		atomic.AddInt32(&loadCalls, 1)
+		loadStarted <- struct{}{}
+		select {
+		case <-releaseLoad:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return []graphmodel.ContentSubgraph{{SourceExternalID: "source-1"}}, nil
+	}
+	done := make(chan []graphmodel.ContentSubgraph, 2)
+	errs := make(chan error, 2)
+	go func() {
+		graphs, err := state.memoryContentGraphs(ctx, "u-graphs", load)
+		done <- graphs
+		errs <- err
+	}()
+	select {
+	case <-loadStarted:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("first content graph load did not start")
+	}
+	go func() {
+		graphs, err := state.memoryContentGraphs(ctx, "u-graphs", load)
+		done <- graphs
+		errs <- err
+	}()
+	select {
+	case <-loadStarted:
+		t.Fatal("second concurrent content graph request started a duplicate load")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseLoad)
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("memoryContentGraphs() error = %v", err)
+		}
+		if got := <-done; len(got) != 1 || got[0].SourceExternalID != "source-1" {
+			t.Fatalf("graphs = %#v, want shared loaded graph", got)
+		}
+	}
+	if got := atomic.LoadInt32(&loadCalls); got != 1 {
+		t.Fatalf("load calls = %d, want one coalesced load", got)
+	}
+	graphs, err := state.memoryContentGraphs(ctx, "u-graphs", load)
+	if err != nil {
+		t.Fatalf("memoryContentGraphs(cached) error = %v", err)
+	}
+	if len(graphs) != 1 || atomic.LoadInt32(&loadCalls) != 1 {
+		t.Fatalf("cached graphs/load calls = %#v/%d, want cached reuse", graphs, loadCalls)
+	}
+}
+
 func TestRunProjectionDirtyMarkGroupsClearsSuccessfulMarksInOneBatch(t *testing.T) {
 	marks := []ProjectionDirtyMark{
 		{ID: 1, UserID: "u-batch-clear", Layer: "subject-timeline", Subject: "美股"},

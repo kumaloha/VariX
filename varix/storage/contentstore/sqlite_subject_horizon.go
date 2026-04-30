@@ -23,6 +23,10 @@ type subjectHorizonSpec struct {
 }
 
 func (s *SQLiteStore) GetSubjectHorizonMemory(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool) (memory.SubjectHorizonMemory, error) {
+	return s.getSubjectHorizonMemoryWithContentGraphs(ctx, userID, subject, horizon, now, refresh, nil, false)
+}
+
+func (s *SQLiteStore) getSubjectHorizonMemoryWithContentGraphs(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool, graphInputs []graphmodel.ContentSubgraph, hasGraphInputs bool) (memory.SubjectHorizonMemory, error) {
 	userID, err := normalizeRequiredUserID(userID)
 	if err != nil {
 		return memory.SubjectHorizonMemory{}, err
@@ -49,7 +53,13 @@ func (s *SQLiteStore) GetSubjectHorizonMemory(ctx context.Context, userID, subje
 			return cached, nil
 		}
 	}
-	out, err := s.buildSubjectHorizonMemory(ctx, userID, subject, canonicalSubject, spec, now)
+	if !hasGraphInputs {
+		graphInputs, err = s.ListMemoryContentGraphs(ctx, userID)
+		if err != nil {
+			return memory.SubjectHorizonMemory{}, err
+		}
+	}
+	out, err := s.buildSubjectHorizonMemoryFromGraphs(ctx, userID, subject, canonicalSubject, spec, now, graphInputs, map[string]string{})
 	if err != nil {
 		return memory.SubjectHorizonMemory{}, err
 	}
@@ -103,13 +113,19 @@ func (s *SQLiteStore) getCachedSubjectHorizonMemory(ctx context.Context, userID,
 }
 
 func (s *SQLiteStore) buildSubjectHorizonMemory(ctx context.Context, userID, subject, canonicalSubject string, spec subjectHorizonSpec, now time.Time) (memory.SubjectHorizonMemory, error) {
-	windowStart := spec.WindowStart(now).UTC()
-	windowEnd := now.UTC()
 	graphs, err := s.ListMemoryContentGraphs(ctx, userID)
 	if err != nil {
 		return memory.SubjectHorizonMemory{}, err
 	}
-	cache := map[string]string{}
+	return s.buildSubjectHorizonMemoryFromGraphs(ctx, userID, subject, canonicalSubject, spec, now, graphs, map[string]string{})
+}
+
+func (s *SQLiteStore) buildSubjectHorizonMemoryFromGraphs(ctx context.Context, userID, subject, canonicalSubject string, spec subjectHorizonSpec, now time.Time, graphs []graphmodel.ContentSubgraph, cache map[string]string) (memory.SubjectHorizonMemory, error) {
+	windowStart := spec.WindowStart(now).UTC()
+	windowEnd := now.UTC()
+	if cache == nil {
+		cache = map[string]string{}
+	}
 	keyChanges := make([]memory.SubjectHorizonChange, 0)
 	driverClusters := map[string]*memory.SubjectHorizonDriver{}
 	evidenceRefs := make([]string, 0)

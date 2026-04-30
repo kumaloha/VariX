@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
 )
 
@@ -60,6 +61,14 @@ type projectionDirtyUserState struct {
 	eventRefreshed    bool
 	paradigmRefreshed bool
 	subjectHorizons   map[string]memory.SubjectHorizonMemory
+	contentGraphs     map[string][]graphmodel.ContentSubgraph
+	contentGraphLoads map[string]*projectionDirtyContentGraphLoad
+}
+
+type projectionDirtyContentGraphLoad struct {
+	done   chan struct{}
+	graphs []graphmodel.ContentSubgraph
+	err    error
 }
 
 type projectionDirtyMarkRunner func(context.Context, ProjectionDirtyMark, *projectionDirtyUserState) error
@@ -458,7 +467,16 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 			return fmt.Errorf("subject-horizon mark requires subject and horizon")
 		}
 		var item memory.SubjectHorizonMemory
-		item, err = s.GetSubjectHorizonMemory(ctx, userID, mark.Subject, mark.Horizon, now, true)
+		var graphs []graphmodel.ContentSubgraph
+		hasGraphInputs := false
+		if state != nil {
+			graphs, err = state.memoryContentGraphs(ctx, userID, s.ListMemoryContentGraphs)
+			if err != nil {
+				return err
+			}
+			hasGraphInputs = true
+		}
+		item, err = s.getSubjectHorizonMemoryWithContentGraphs(ctx, userID, mark.Subject, mark.Horizon, now, true, graphs, hasGraphInputs)
 		if err == nil && state != nil {
 			state.storeSubjectHorizon(item)
 		}
@@ -475,6 +493,55 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 		err = fmt.Errorf("unsupported projection layer %q", mark.Layer)
 	}
 	return err
+}
+
+func (state *projectionDirtyUserState) memoryContentGraphs(ctx context.Context, userID string, load func(context.Context, string) ([]graphmodel.ContentSubgraph, error)) ([]graphmodel.ContentSubgraph, error) {
+	if state == nil {
+		return load(ctx, userID)
+	}
+	userID = strings.TrimSpace(userID)
+	state.mu.Lock()
+	if state.contentGraphs != nil {
+		if graphs, ok := state.contentGraphs[userID]; ok {
+			state.mu.Unlock()
+			return graphs, nil
+		}
+	}
+	if state.contentGraphLoads == nil {
+		state.contentGraphLoads = map[string]*projectionDirtyContentGraphLoad{}
+	}
+	if inFlight := state.contentGraphLoads[userID]; inFlight != nil {
+		done := inFlight.done
+		state.mu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		state.mu.Lock()
+		graphs, err := inFlight.graphs, inFlight.err
+		state.mu.Unlock()
+		return graphs, err
+	}
+	inFlight := &projectionDirtyContentGraphLoad{done: make(chan struct{})}
+	state.contentGraphLoads[userID] = inFlight
+	state.mu.Unlock()
+
+	graphs, err := load(ctx, userID)
+
+	state.mu.Lock()
+	inFlight.graphs = graphs
+	inFlight.err = err
+	if err == nil {
+		if state.contentGraphs == nil {
+			state.contentGraphs = map[string][]graphmodel.ContentSubgraph{}
+		}
+		state.contentGraphs[userID] = graphs
+	}
+	delete(state.contentGraphLoads, userID)
+	close(inFlight.done)
+	state.mu.Unlock()
+	return graphs, err
 }
 
 func (state *projectionDirtyUserState) storeSubjectHorizon(item memory.SubjectHorizonMemory) {
