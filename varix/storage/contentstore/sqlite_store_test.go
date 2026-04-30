@@ -3,12 +3,29 @@ package contentstore
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
+
+func TestSQLiteStore_EnablesWALJournalMode(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+	var mode string
+	if err := store.db.QueryRowContext(context.Background(), `PRAGMA journal_mode`).Scan(&mode); err != nil {
+		t.Fatalf("PRAGMA journal_mode error = %v", err)
+	}
+	if strings.ToLower(mode) != "wal" {
+		t.Fatalf("journal_mode = %q, want wal", mode)
+	}
+}
 
 func TestSQLiteStore_MarkProcessedAndIsProcessed(t *testing.T) {
 	root := t.TempDir()

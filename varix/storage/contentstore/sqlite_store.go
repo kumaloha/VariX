@@ -33,6 +33,15 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 		db.Close()
 		return nil, fmt.Errorf("set busy timeout: %w", err)
 	}
+	var journalMode string
+	if err := db.QueryRow("PRAGMA journal_mode = WAL").Scan(&journalMode); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("enable WAL journal mode: %w", err)
+	}
+	if strings.ToLower(strings.TrimSpace(journalMode)) != "wal" {
+		db.Close()
+		return nil, fmt.Errorf("enable WAL journal mode: got %q", journalMode)
+	}
 	store := &SQLiteStore{db: db}
 	if err := store.init(); err != nil {
 		db.Close()
@@ -46,7 +55,7 @@ func sqliteStoreDSN(path string) string {
 	if strings.Contains(path, "?") {
 		separator = "&"
 	}
-	return path + separator + "_pragma=busy_timeout%3D5000&_pragma=foreign_keys%3DON"
+	return path + separator + "_pragma=busy_timeout%3D5000&_pragma=foreign_keys%3DON&_pragma=journal_mode%28WAL%29"
 }
 
 func (s *SQLiteStore) Close() error {
