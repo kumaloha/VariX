@@ -197,7 +197,7 @@ func TestRunMemoryEventGraphsRunRecomputesProjection(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "manual-eg", ArticleID: "manual-eg", SourcePlatform: "twitter", SourceExternalID: "manual-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "manual-eg", SourcePlatform: "twitter", SourceExternalID: "manual-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "manual-eg", SourcePlatform: "twitter", SourceExternalID: "manual-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("manual-eg", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-run", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -237,7 +237,7 @@ func TestRunMemoryParadigmsRunRecomputesProjection(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "manual-pg", ArticleID: "manual-pg", SourcePlatform: "twitter", SourceExternalID: "manual-pg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "manual-pg", SourcePlatform: "twitter", SourceExternalID: "manual-pg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "manual-pg", SourcePlatform: "twitter", SourceExternalID: "manual-pg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("manual-pg", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-run", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -277,7 +277,7 @@ func TestRunMemoryEventGraphsSupportsScopeFilter(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "filter-eg", ArticleID: "filter-eg", SourcePlatform: "twitter", SourceExternalID: "filter-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "filter-eg", SourcePlatform: "twitter", SourceExternalID: "filter-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "filter-eg", SourcePlatform: "twitter", SourceExternalID: "filter-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("filter-eg", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-filter", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -316,7 +316,7 @@ func TestRunMemoryParadigmsSupportsSubjectFilter(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "filter-pg", ArticleID: "filter-pg", SourcePlatform: "twitter", SourceExternalID: "filter-pg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "filter-pg", SourcePlatform: "twitter", SourceExternalID: "filter-pg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "filter-pg", SourcePlatform: "twitter", SourceExternalID: "filter-pg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("filter-pg", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-filter", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -433,7 +433,7 @@ func TestRunMemoryParadigmsCardPrintsReadableSections(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "card-pg", ArticleID: "card-pg", SourcePlatform: "twitter", SourceExternalID: "card-pg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-pg", SourcePlatform: "twitter", SourceExternalID: "card-pg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "card-pg", SourcePlatform: "twitter", SourceExternalID: "card-pg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("card-pg", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-card", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -556,7 +556,7 @@ func TestRunMemoryEventGraphsSupportsSubjectFilter(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "subject-eg-cli", ArticleID: "subject-eg-cli", SourcePlatform: "twitter", SourceExternalID: "subject-eg-cli", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "subject-eg-cli", SourcePlatform: "twitter", SourceExternalID: "subject-eg-cli", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "subject-eg-cli", SourcePlatform: "twitter", SourceExternalID: "subject-eg-cli", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("subject-eg-cli", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-subject", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -639,7 +639,7 @@ func TestRunMemoryProjectAllRebuildsEventAndParadigmLayers(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "project-all", ArticleID: "project-all", SourcePlatform: "twitter", SourceExternalID: "project-all", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "project-all", SourcePlatform: "twitter", SourceExternalID: "project-all", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "project-all", SourcePlatform: "twitter", SourceExternalID: "project-all", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("project-all", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-project-all", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -807,7 +807,7 @@ func TestRunMemoryBackfillAllRebuildsAggregateLayers(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "bf-all", ArticleID: "bf-all", SourcePlatform: "twitter", SourceExternalID: "bf-all", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "bf-all", SourcePlatform: "twitter", SourceExternalID: "bf-all", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "bf-all", SourcePlatform: "twitter", SourceExternalID: "bf-all", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("bf-all", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-backfill-all", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -846,7 +846,7 @@ func TestRunMemoryBackfillEventRebuildsEventLayer(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "bf-event", ArticleID: "bf-event", SourcePlatform: "twitter", SourceExternalID: "bf-event", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "bf-event", SourcePlatform: "twitter", SourceExternalID: "bf-event", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "bf-event", SourcePlatform: "twitter", SourceExternalID: "bf-event", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("bf-event", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-backfill-event", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -885,7 +885,7 @@ func TestRunMemoryBackfillParadigmRebuildsParadigmLayer(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "bf-paradigm", ArticleID: "bf-paradigm", SourcePlatform: "twitter", SourceExternalID: "bf-paradigm", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "bf-paradigm", SourcePlatform: "twitter", SourceExternalID: "bf-paradigm", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "bf-paradigm", SourcePlatform: "twitter", SourceExternalID: "bf-paradigm", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("bf-paradigm", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-backfill-paradigm", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -924,7 +924,7 @@ func TestRunMemoryBackfillGlobalV2RebuildsGlobalLayer(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "bf-global-v2", ArticleID: "bf-global-v2", SourcePlatform: "twitter", SourceExternalID: "bf-global-v2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "bf-global-v2", SourcePlatform: "twitter", SourceExternalID: "bf-global-v2", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "bf-global-v2", SourcePlatform: "twitter", SourceExternalID: "bf-global-v2", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("bf-global-v2", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-backfill-global-v2", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -963,7 +963,7 @@ func TestRunMemoryEventGraphsCombinesScopeAndSubjectFilters(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "combo-eg", ArticleID: "combo-eg", SourcePlatform: "twitter", SourceExternalID: "combo-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "combo-eg", SourcePlatform: "twitter", SourceExternalID: "combo-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "combo-eg", SourcePlatform: "twitter", SourceExternalID: "combo-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("combo-eg", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-combo-eg", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -1046,7 +1046,7 @@ func TestRunMemoryEventGraphsCardSupportsSubjectFilter(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "card-subject-eg", ArticleID: "card-subject-eg", SourcePlatform: "twitter", SourceExternalID: "card-subject-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-subject-eg", SourcePlatform: "twitter", SourceExternalID: "card-subject-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "card-subject-eg", SourcePlatform: "twitter", SourceExternalID: "card-subject-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("card-subject-eg", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-card-subject", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -1545,7 +1545,7 @@ func TestRunMemoryParadigmsCardSupportsSubjectFilter(t *testing.T) {
 		}
 		now := time.Now().UTC()
 		for _, sg := range []graphmodel.ContentSubgraph{
-			{ID: "card-subject-pg-1", ArticleID: "card-subject-pg-1", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-subject-pg-1", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "card-subject-pg-1", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-1", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
+			testDriverTargetSubgraph("card-subject-pg-1", now),
 			{ID: "card-subject-pg-2", ArticleID: "card-subject-pg-2", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-subject-pg-2", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "card-subject-pg-2", SourcePlatform: "twitter", SourceExternalID: "card-subject-pg-2", RawText: "欧股承压", SubjectText: "欧股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
 		} {
 			if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-card-subject", sg, now); err != nil {
@@ -1634,7 +1634,7 @@ func TestRunMemoryEventGraphsCardSupportsScopeFilter(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "card-scope-eg", ArticleID: "card-scope-eg", SourcePlatform: "twitter", SourceExternalID: "card-scope-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "card-scope-eg", SourcePlatform: "twitter", SourceExternalID: "card-scope-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "card-scope-eg", SourcePlatform: "twitter", SourceExternalID: "card-scope-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("card-scope-eg", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-card-scope", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -1669,7 +1669,7 @@ func TestRunMemoryEventGraphsCardShowsNoMatchMessageForEmptyFilter(t *testing.T)
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "empty-eg", ArticleID: "empty-eg", SourcePlatform: "twitter", SourceExternalID: "empty-eg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "empty-eg", SourcePlatform: "twitter", SourceExternalID: "empty-eg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "empty-eg", SourcePlatform: "twitter", SourceExternalID: "empty-eg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("empty-eg", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-empty-eg", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -1704,7 +1704,7 @@ func TestRunMemoryParadigmsCardShowsNoMatchMessageForEmptyFilter(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "empty-pg", ArticleID: "empty-pg", SourcePlatform: "twitter", SourceExternalID: "empty-pg", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "empty-pg", SourcePlatform: "twitter", SourceExternalID: "empty-pg", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "empty-pg", SourcePlatform: "twitter", SourceExternalID: "empty-pg", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("empty-pg", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-empty-pg", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -1774,7 +1774,7 @@ func TestRunMemoryEventEvidencePrintsPersistedLinks(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "ev-cli", ArticleID: "ev-cli", SourcePlatform: "twitter", SourceExternalID: "ev-cli", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "ev-cli", SourcePlatform: "twitter", SourceExternalID: "ev-cli", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "ev-cli", SourcePlatform: "twitter", SourceExternalID: "ev-cli", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("ev-cli", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-ev-cli", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -1812,7 +1812,7 @@ func TestRunMemoryParadigmEvidencePrintsPersistedLinks(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		sg := graphmodel.ContentSubgraph{ID: "pev-cli", ArticleID: "pev-cli", SourcePlatform: "twitter", SourceExternalID: "pev-cli", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "pev-cli", SourcePlatform: "twitter", SourceExternalID: "pev-cli", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "pev-cli", SourcePlatform: "twitter", SourceExternalID: "pev-cli", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("pev-cli", time.Now().UTC())
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-pev-cli", sg, time.Now().UTC()); err != nil {
 			return nil, err
 		}
@@ -1845,7 +1845,7 @@ func TestRunMemoryEventEvidenceSupportsEventGraphIDFilter(t *testing.T) {
 		}
 		now := time.Now().UTC()
 		for _, sg := range []graphmodel.ContentSubgraph{
-			{ID: "ee-filter-1", ArticleID: "ee-filter-1", SourcePlatform: "twitter", SourceExternalID: "ee-filter-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "ee-filter-1", SourcePlatform: "twitter", SourceExternalID: "ee-filter-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "ee-filter-1", SourcePlatform: "twitter", SourceExternalID: "ee-filter-1", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
+			testDriverTargetSubgraph("ee-filter-1", now),
 			{ID: "ee-filter-2", ArticleID: "ee-filter-2", SourcePlatform: "twitter", SourceExternalID: "ee-filter-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "ee-filter-2", SourcePlatform: "twitter", SourceExternalID: "ee-filter-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "ee-filter-2", SourcePlatform: "twitter", SourceExternalID: "ee-filter-2", RawText: "欧股承压", SubjectText: "欧股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
 		} {
 			if err := store.PersistMemoryContentGraph(context.Background(), "u-ee-filter", sg, now); err != nil {
@@ -1887,7 +1887,7 @@ func TestRunMemoryParadigmEvidenceSupportsParadigmIDFilter(t *testing.T) {
 		}
 		now := time.Now().UTC()
 		for _, sg := range []graphmodel.ContentSubgraph{
-			{ID: "pe-filter-1", ArticleID: "pe-filter-1", SourcePlatform: "twitter", SourceExternalID: "pe-filter-1", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "pe-filter-1", SourcePlatform: "twitter", SourceExternalID: "pe-filter-1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "pe-filter-1", SourcePlatform: "twitter", SourceExternalID: "pe-filter-1", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
+			testDriverTargetSubgraph("pe-filter-1", now),
 			{ID: "pe-filter-2", ArticleID: "pe-filter-2", SourcePlatform: "twitter", SourceExternalID: "pe-filter-2", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "pe-filter-2", SourcePlatform: "twitter", SourceExternalID: "pe-filter-2", RawText: "欧洲央行放缓缩表", SubjectText: "欧洲央行", ChangeText: "放缓缩表", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "pe-filter-2", SourcePlatform: "twitter", SourceExternalID: "pe-filter-2", RawText: "欧股承压", SubjectText: "欧股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}},
 		} {
 			if err := store.PersistMemoryContentGraph(context.Background(), "u-pe-filter", sg, now); err != nil {
@@ -1928,7 +1928,7 @@ func TestRunMemoryEventEvidenceShowsNoMatchMessageForUnknownID(t *testing.T) {
 			return nil, err
 		}
 		now := time.Now().UTC()
-		sg := graphmodel.ContentSubgraph{ID: "empty-ee", ArticleID: "empty-ee", SourcePlatform: "twitter", SourceExternalID: "empty-ee", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "empty-ee", SourcePlatform: "twitter", SourceExternalID: "empty-ee", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "empty-ee", SourcePlatform: "twitter", SourceExternalID: "empty-ee", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("empty-ee", now)
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-empty-ee", sg, now); err != nil {
 			return nil, err
 		}
@@ -1960,7 +1960,7 @@ func TestRunMemoryParadigmEvidenceShowsNoMatchMessageForUnknownID(t *testing.T) 
 			return nil, err
 		}
 		now := time.Now().UTC()
-		sg := graphmodel.ContentSubgraph{ID: "empty-pe", ArticleID: "empty-pe", SourcePlatform: "twitter", SourceExternalID: "empty-pe", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "empty-pe", SourcePlatform: "twitter", SourceExternalID: "empty-pe", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "empty-pe", SourcePlatform: "twitter", SourceExternalID: "empty-pe", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("empty-pe", now)
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-empty-pe", sg, now); err != nil {
 			return nil, err
 		}
@@ -1992,7 +1992,7 @@ func TestRunMemoryEventEvidenceCardPrintsReadableSections(t *testing.T) {
 			return nil, err
 		}
 		now := time.Now().UTC()
-		sg := graphmodel.ContentSubgraph{ID: "event-evi-card", ArticleID: "event-evi-card", SourcePlatform: "twitter", SourceExternalID: "event-evi-card", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "event-evi-card", SourcePlatform: "twitter", SourceExternalID: "event-evi-card", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "event-evi-card", SourcePlatform: "twitter", SourceExternalID: "event-evi-card", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("event-evi-card", now)
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-event-evi-card", sg, now); err != nil {
 			return nil, err
 		}
@@ -2026,7 +2026,7 @@ func TestRunMemoryParadigmEvidenceCardPrintsReadableSections(t *testing.T) {
 			return nil, err
 		}
 		now := time.Now().UTC()
-		sg := graphmodel.ContentSubgraph{ID: "paradigm-evi-card", ArticleID: "paradigm-evi-card", SourcePlatform: "twitter", SourceExternalID: "paradigm-evi-card", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "n1", SourceArticleID: "paradigm-evi-card", SourcePlatform: "twitter", SourceExternalID: "paradigm-evi-card", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"}, {ID: "n2", SourceArticleID: "paradigm-evi-card", SourcePlatform: "twitter", SourceExternalID: "paradigm-evi-card", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		sg := testDriverTargetSubgraph("paradigm-evi-card", now)
 		if err := store.PersistMemoryContentGraph(context.Background(), "u-paradigm-evi-card", sg, now); err != nil {
 			return nil, err
 		}
@@ -2041,5 +2041,25 @@ func TestRunMemoryParadigmEvidenceCardPrintsReadableSections(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
 		}
+	}
+}
+
+func testDriverTargetSubgraph(id string, at time.Time) graphmodel.ContentSubgraph {
+	stamp := at.Format(time.RFC3339)
+	node := func(nodeID, raw, subject, change string, kind graphmodel.NodeKind, role graphmodel.GraphRole, status graphmodel.VerificationStatus) graphmodel.GraphNode {
+		return graphmodel.GraphNode{ID: nodeID, SourceArticleID: id, SourcePlatform: "twitter", SourceExternalID: id, RawText: raw, SubjectText: subject, ChangeText: change, Kind: kind, GraphRole: role, IsPrimary: true, VerificationStatus: status, TimeBucket: "1w"}
+	}
+	return graphmodel.ContentSubgraph{
+		ID:               id,
+		ArticleID:        id,
+		SourcePlatform:   "twitter",
+		SourceExternalID: id,
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       stamp,
+		UpdatedAt:        stamp,
+		Nodes: []graphmodel.GraphNode{
+			node("n1", "美联储加息0.25%", "美联储", "加息0.25%", graphmodel.NodeKindObservation, graphmodel.GraphRoleDriver, graphmodel.VerificationPending),
+			node("n2", "未来一周美股承压", "美股", "承压", graphmodel.NodeKindPrediction, graphmodel.GraphRoleTarget, graphmodel.VerificationProved),
+		},
 	}
 }
