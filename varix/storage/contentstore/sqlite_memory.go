@@ -147,7 +147,11 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 	if err != nil {
 		return memory.AcceptResult{}, err
 	}
-	if err := persistMemoryContentGraphTx(ctx, tx, req.UserID, record, now); err != nil {
+	subgraph, err := persistMemoryContentGraphTx(ctx, tx, req.UserID, record, now)
+	if err != nil {
+		return memory.AcceptResult{}, err
+	}
+	if err := markContentGraphProjectionDirty(ctx, tx, req.UserID, subgraph, now); err != nil {
 		return memory.AcceptResult{}, err
 	}
 
@@ -194,9 +198,6 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 	}
 
 	if err := tx.Commit(); err != nil {
-		return memory.AcceptResult{}, err
-	}
-	if err := s.refreshProjectionLayersForUser(ctx, req.UserID, now); err != nil {
 		return memory.AcceptResult{}, err
 	}
 

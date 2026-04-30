@@ -2812,6 +2812,30 @@ func TestRunCompileRejectsUnknownPipeline(t *testing.T) {
 	}
 }
 
+func TestParseCompileLLMCacheMode(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want contentstore.LLMCacheMode
+	}{
+		{"", contentstore.LLMCacheReadThrough},
+		{"read-through", contentstore.LLMCacheReadThrough},
+		{"refresh", contentstore.LLMCacheRefresh},
+		{"off", contentstore.LLMCacheOff},
+	}
+	for _, tt := range tests {
+		got, err := parseCompileLLMCacheMode(tt.raw)
+		if err != nil {
+			t.Fatalf("parseCompileLLMCacheMode(%q) error = %v", tt.raw, err)
+		}
+		if got != tt.want {
+			t.Fatalf("parseCompileLLMCacheMode(%q) = %q, want %q", tt.raw, got, tt.want)
+		}
+	}
+	if _, err := parseCompileLLMCacheMode("bogus"); err == nil {
+		t.Fatal("parseCompileLLMCacheMode(bogus) error = nil")
+	}
+}
+
 func TestSelectCompileClientKeepsLegacyPipelineIsolated(t *testing.T) {
 	prevBuildCompileClient := buildCompileClient
 	prevBuildCompileClientNoVerify := buildCompileClientNoVerify
@@ -5349,7 +5373,7 @@ func TestRunMemoryEventGraphsPrintsProjectedEventGraphs(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"memory", "event-graphs", "--user", "u-event-cli"}, "/tmp/project", &stdout, &stderr)
+	code := run([]string{"memory", "event-graphs", "--run", "--user", "u-event-cli"}, "/tmp/project", &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("event-graphs code = %d, stderr = %s", code, stderr.String())
 	}
@@ -5399,7 +5423,7 @@ func TestRunMemoryParadigmsPrintsProjectedParadigms(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"memory", "paradigms", "--user", "u-paradigm-cli"}, "/tmp/project", &stdout, &stderr)
+	code := run([]string{"memory", "paradigms", "--run", "--user", "u-paradigm-cli"}, "/tmp/project", &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("paradigms code = %d, stderr = %s", code, stderr.String())
 	}
@@ -6143,6 +6167,53 @@ func TestRunMemoryProjectAllRebuildsEventAndParadigmLayers(t *testing.T) {
 		if !ok || number < 0 {
 			t.Fatalf("project-all metrics[%q] = %#v, want non-negative number", key, value)
 		}
+	}
+}
+
+func TestRunMemoryProjectionSweepProcessesPendingMarks(t *testing.T) {
+	prevBuildApp := buildApp
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		buildApp = prevBuildApp
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	buildApp = func(projectRoot string) (*bootstrap.App, error) {
+		app := &bootstrap.App{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+		sg := graphmodel.ContentSubgraph{ID: "projection-sweep", ArticleID: "projection-sweep", SourcePlatform: "twitter", SourceExternalID: "projection-sweep", CompileVersion: graphmodel.CompileBridgeVersion, CompiledAt: now.Format(time.RFC3339), UpdatedAt: now.Format(time.RFC3339), Nodes: []graphmodel.GraphNode{{ID: "driver", SourceArticleID: "projection-sweep", SourcePlatform: "twitter", SourceExternalID: "projection-sweep", RawText: "油价继续上涨", SubjectText: "油价", ChangeText: "继续上涨", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}, {ID: "target", SourceArticleID: "projection-sweep", SourcePlatform: "twitter", SourceExternalID: "projection-sweep", RawText: "美股从纪录高位回落", SubjectText: "美股", ChangeText: "从纪录高位回落", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "1w"}}}
+		if err := store.PersistMemoryContentGraphDeferred(context.Background(), "u-projection-sweep", sg, now); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"memory", "projection-sweep", "--user", "u-projection-sweep", "--limit", "100"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("memory projection-sweep code = %d, stderr = %s", code, stderr.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal(projection-sweep) error = %v", err)
+	}
+	if scanned, _ := out["scanned"].(float64); scanned == 0 {
+		t.Fatalf("projection-sweep output = %#v, want scanned > 0", out)
+	}
+	if failed, _ := out["failed"].(float64); failed != 0 {
+		t.Fatalf("projection-sweep output = %#v, want failed=0", out)
+	}
+	if remaining, _ := out["remaining"].(float64); remaining != 0 {
+		t.Fatalf("projection-sweep output = %#v, want remaining=0", out)
 	}
 }
 

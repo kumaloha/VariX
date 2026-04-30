@@ -65,6 +65,29 @@ func selectCompileClient(projectRoot, pipeline string, noVerify bool) (compileCl
 	}
 }
 
+func parseCompileLLMCacheMode(value string) (contentstore.LLMCacheMode, error) {
+	switch strings.TrimSpace(value) {
+	case "", string(contentstore.LLMCacheReadThrough):
+		return contentstore.LLMCacheReadThrough, nil
+	case string(contentstore.LLMCacheRefresh):
+		return contentstore.LLMCacheRefresh, nil
+	case string(contentstore.LLMCacheOff):
+		return contentstore.LLMCacheOff, nil
+	default:
+		return "", fmt.Errorf("unsupported --llm-cache %q; supported: read-through, refresh, off", value)
+	}
+}
+
+func flagWasSet(fs *flag.FlagSet, name string) bool {
+	found := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
+}
+
 func runCompileCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, compileCommandUsage)
@@ -116,7 +139,13 @@ func runCompileBatchRun(args []string, projectRoot string, stdout, stderr io.Wri
 	externalID := fs.String("id", "", "optional single external id (requires --platform)")
 	stopAfter := fs.String("stop-after", "", "stop preview after a compile stage (extract|refine|aggregate|support|collapse|relations|spines|classify)")
 	itemTimeout := fs.Duration("item-timeout", 30*time.Minute, "per-sample preview timeout")
+	llmCache := fs.String("llm-cache", string(contentstore.LLMCacheReadThrough), "LLM cache mode: read-through, refresh, off")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cacheMode, err := parseCompileLLMCacheMode(*llmCache)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	if strings.TrimSpace(*pipeline) != "v2" {
@@ -146,6 +175,7 @@ func runCompileBatchRun(args []string, projectRoot string, stdout, stderr io.Wri
 		fmt.Fprintln(stderr, "compile v2 client config missing")
 		return 1
 	}
+	client.EnableLLMCache(store, cacheMode)
 
 	ctx := context.Background()
 	var refs []contentstore.RawCaptureRef
@@ -591,6 +621,7 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	noVerify := fs.Bool("no-verify", false, "skip compile-time verification and retrieval")
 	pipeline := fs.String("pipeline", "legacy", "compile pipeline: legacy | v2")
 	timeout := fs.Duration("timeout", 20*time.Minute, "compile timeout")
+	llmCache := fs.String("llm-cache", string(contentstore.LLMCacheReadThrough), "LLM cache mode for v2: read-through, refresh, off")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -598,6 +629,14 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	if strings.TrimSpace(*rawURL) == "" && !hasContentTarget(*platform, *externalID) {
 		fmt.Fprintln(stderr, "usage: varix compile run --url <url> | --platform <platform> --id <external_id>")
 		return 2
+	}
+	cacheMode, err := parseCompileLLMCacheMode(*llmCache)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if *force && !flagWasSet(fs, "llm-cache") {
+		cacheMode = contentstore.LLMCacheRefresh
 	}
 
 	app, store, err := openAppStore(projectRoot)
@@ -617,6 +656,9 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	if client == nil {
 		fmt.Fprintln(stderr, "compile client config missing")
 		return 1
+	}
+	if v2Client, ok := client.(*cv2.Client); ok {
+		v2Client.EnableLLMCache(store, cacheMode)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)

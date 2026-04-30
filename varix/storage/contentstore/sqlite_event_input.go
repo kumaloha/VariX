@@ -91,6 +91,10 @@ func persistMemoryContentGraphSubgraphTx(ctx context.Context, tx *sql.Tx, userID
 }
 
 func (s *SQLiteStore) markContentGraphProjectionDirty(ctx context.Context, userID string, subgraph graphmodel.ContentSubgraph, at time.Time) error {
+	return markContentGraphProjectionDirty(ctx, s.db, userID, subgraph, at)
+}
+
+func markContentGraphProjectionDirty(ctx context.Context, execer projectionDirtyExecer, userID string, subgraph graphmodel.ContentSubgraph, at time.Time) error {
 	sourceRef := strings.TrimSpace(subgraph.SourcePlatform + ":" + subgraph.SourceExternalID)
 	baseMarks := []ProjectionDirtyMark{
 		{UserID: userID, Layer: "event", Reason: "content_graph_changed", SourceRef: sourceRef},
@@ -98,7 +102,7 @@ func (s *SQLiteStore) markContentGraphProjectionDirty(ctx context.Context, userI
 		{UserID: userID, Layer: "global-v2", Reason: "content_graph_changed", SourceRef: sourceRef},
 	}
 	for _, mark := range baseMarks {
-		if err := s.MarkProjectionDirty(ctx, mark, at); err != nil {
+		if err := markProjectionDirty(ctx, execer, mark, at); err != nil {
 			return err
 		}
 	}
@@ -114,15 +118,15 @@ func (s *SQLiteStore) markContentGraphProjectionDirty(ctx context.Context, userI
 		subjects[subject] = struct{}{}
 	}
 	for subject := range subjects {
-		if err := s.MarkProjectionDirty(ctx, ProjectionDirtyMark{UserID: userID, Layer: "subject-timeline", Subject: subject, Reason: "content_graph_changed", SourceRef: sourceRef}, at); err != nil {
+		if err := markProjectionDirty(ctx, execer, ProjectionDirtyMark{UserID: userID, Layer: "subject-timeline", Subject: subject, Reason: "content_graph_changed", SourceRef: sourceRef}, at); err != nil {
 			return err
 		}
 		for _, horizon := range []string{"1w", "1m", "1q", "1y", "2y", "5y"} {
-			if err := s.MarkProjectionDirty(ctx, ProjectionDirtyMark{UserID: userID, Layer: "subject-horizon", Subject: subject, Horizon: horizon, Reason: "content_graph_changed", SourceRef: sourceRef}, at); err != nil {
+			if err := markProjectionDirty(ctx, execer, ProjectionDirtyMark{UserID: userID, Layer: "subject-horizon", Subject: subject, Horizon: horizon, Reason: "content_graph_changed", SourceRef: sourceRef}, at); err != nil {
 				return err
 			}
 		}
-		if err := s.MarkProjectionDirty(ctx, ProjectionDirtyMark{UserID: userID, Layer: "subject-experience", Subject: subject, Reason: "content_graph_changed", SourceRef: sourceRef}, at); err != nil {
+		if err := markProjectionDirty(ctx, execer, ProjectionDirtyMark{UserID: userID, Layer: "subject-experience", Subject: subject, Reason: "content_graph_changed", SourceRef: sourceRef}, at); err != nil {
 			return err
 		}
 	}

@@ -4116,7 +4116,7 @@ func stageJSONCall(ctx context.Context, rt runtimeChat, model string, bundle com
 		return err
 	}
 	req.JSONSchema = stageJSONSchema(stageName)
-	resp, err := rt.Call(ctx, req)
+	resp, err := callStageRuntime(ctx, rt, stageName, req)
 	if err != nil {
 		return err
 	}

@@ -264,7 +264,7 @@ func TestSQLiteStore_ListEventGraphsBySubjectSupportsAliasLookup(t *testing.T) {
 	}
 }
 
-func TestSQLiteStore_AcceptMemoryNodesAlsoProjectsEventGraphs(t *testing.T) {
+func TestSQLiteStore_ProjectionSweepBuildsEventGraphsAfterAccept(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
 	if err != nil {
@@ -299,12 +299,15 @@ func TestSQLiteStore_AcceptMemoryNodesAlsoProjectsEventGraphs(t *testing.T) {
 	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-auto-event", SourcePlatform: "twitter", SourceExternalID: "ea1", NodeIDs: []string{"n1", "n2"}}); err != nil {
 		t.Fatalf("AcceptMemoryNodes() error = %v", err)
 	}
+	if _, err := store.RunProjectionDirtySweep(context.Background(), "u-auto-event", 100, time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("RunProjectionDirtySweep() error = %v", err)
+	}
 	graphs, err := store.ListEventGraphs(context.Background(), "u-auto-event")
 	if err != nil {
 		t.Fatalf("ListEventGraphs() error = %v", err)
 	}
 	if len(graphs) != 2 {
-		t.Fatalf("len(ListEventGraphs()) = %d, want 2 auto-projected event graphs", len(graphs))
+		t.Fatalf("len(ListEventGraphs()) = %d, want 2 event graphs after projection sweep", len(graphs))
 	}
 }
 

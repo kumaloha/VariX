@@ -13,6 +13,7 @@ import (
 
 	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/config"
+	"github.com/kumaloha/VariX/varix/storage/contentstore"
 	"github.com/kumaloha/forge/llm"
 )
 
@@ -26,6 +27,13 @@ type Client struct {
 	runtime     runtimeChat
 	model       string
 	projectRoot string
+}
+
+func (c *Client) EnableLLMCache(store LLMCacheStore, mode contentstore.LLMCacheMode) {
+	if c == nil || c.runtime == nil || store == nil {
+		return
+	}
+	c.runtime = newCachedRuntime(c.runtime, store, mode)
 }
 
 func NewClientFromConfig(projectRoot string, httpClient *http.Client) *Client {

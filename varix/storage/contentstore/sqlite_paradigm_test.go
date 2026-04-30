@@ -349,7 +349,7 @@ func TestSQLiteStore_ListParadigmsBySubjectSupportsTargetAliasLookup(t *testing.
 	}
 }
 
-func TestSQLiteStore_AcceptMemoryNodesAlsoProjectsParadigms(t *testing.T) {
+func TestSQLiteStore_ProjectionSweepBuildsParadigmsAfterAccept(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
 	if err != nil {
@@ -385,12 +385,15 @@ func TestSQLiteStore_AcceptMemoryNodesAlsoProjectsParadigms(t *testing.T) {
 	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{UserID: "u-auto-paradigm", SourcePlatform: "twitter", SourceExternalID: "pa1", NodeIDs: []string{"n1", "n2"}}); err != nil {
 		t.Fatalf("AcceptMemoryNodes() error = %v", err)
 	}
+	if _, err := store.RunProjectionDirtySweep(context.Background(), "u-auto-paradigm", 100, time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("RunProjectionDirtySweep() error = %v", err)
+	}
 	items, err := store.ListParadigms(context.Background(), "u-auto-paradigm")
 	if err != nil {
 		t.Fatalf("ListParadigms() error = %v", err)
 	}
 	if len(items) != 1 {
-		t.Fatalf("len(ListParadigms()) = %d, want 1 auto-projected paradigm", len(items))
+		t.Fatalf("len(ListParadigms()) = %d, want 1 paradigm after projection sweep", len(items))
 	}
 }
 

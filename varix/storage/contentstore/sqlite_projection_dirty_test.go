@@ -91,6 +91,44 @@ func TestSQLiteStore_PersistMemoryContentGraphDeferredMarksDirtyWithoutProjectio
 	}
 }
 
+func TestSQLiteStore_RunProjectionDirtySweepRefreshesDeferredMarks(t *testing.T) {
+	store := newSubjectTimelineTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	graph := subjectTimelineSubgraph("sweep", now, []graphmodel.GraphNode{
+		subjectHorizonNode("driver", "sweep", "油价", "继续上涨", now, graphmodel.GraphRoleDriver),
+		subjectHorizonNode("target", "sweep", "美股", "从纪录高位回落", now, graphmodel.GraphRoleTarget),
+	})
+
+	if err := store.PersistMemoryContentGraphDeferred(ctx, "u-sweep", graph, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraphDeferred() error = %v", err)
+	}
+	result, err := store.RunProjectionDirtySweep(ctx, "u-sweep", 100, now)
+	if err != nil {
+		t.Fatalf("RunProjectionDirtySweep() error = %v; result = %#v", err, result)
+	}
+	if result.Scanned == 0 || result.Completed != result.Scanned || result.Failed != 0 || result.Remaining != 0 {
+		t.Fatalf("sweep result = %#v, want all scanned marks completed", result)
+	}
+	if result.Layers["event"] != 1 || result.Layers["subject-horizon"] == 0 || result.Layers["subject-experience"] == 0 {
+		t.Fatalf("sweep layers = %#v, want event and subject cache layers refreshed", result.Layers)
+	}
+	var eventCount int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_graphs WHERE user_id = ?`, "u-sweep").Scan(&eventCount); err != nil {
+		t.Fatalf("event_graphs count query error = %v", err)
+	}
+	if eventCount == 0 {
+		t.Fatal("event graph count = 0, want refreshed projection")
+	}
+	var horizonCount int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subject_horizon_memories WHERE user_id = ? AND canonical_subject = ? AND horizon = ?`, "u-sweep", "美股", "1w").Scan(&horizonCount); err != nil {
+		t.Fatalf("subject_horizon_memories count query error = %v", err)
+	}
+	if horizonCount != 1 {
+		t.Fatalf("subject horizon cache count = %d, want 1", horizonCount)
+	}
+}
+
 func hasDirtyMark(marks []ProjectionDirtyMark, layer, subject, horizon string) bool {
 	for _, mark := range marks {
 		if mark.Layer == layer && mark.Subject == subject && mark.Horizon == horizon {

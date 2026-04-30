@@ -16,7 +16,7 @@ import (
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
-const memoryCommandUsage = "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|subject-timeline|subject-horizon|subject-experience|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert> ..."
+const memoryCommandUsage = "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|subject-timeline|subject-horizon|subject-experience|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|projection-sweep|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert> ..."
 const globalV2ItemTypeUsage = "item-type must be one of: card, conclusion, conflict"
 
 func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -73,6 +73,8 @@ func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Write
 		return runMemoryParadigmEvidence(args[1:], projectRoot, stdout, stderr)
 	case "project-all":
 		return runMemoryProjectAll(args[1:], projectRoot, stdout, stderr)
+	case "projection-sweep":
+		return runMemoryProjectionSweep(args[1:], projectRoot, stdout, stderr)
 	case "backfill":
 		return runMemoryBackfill(args[1:], projectRoot, stdout, stderr)
 	case "cleanup-stale":
@@ -1697,6 +1699,42 @@ func runMemoryProjectAll(args []string, projectRoot string, stdout, stderr io.Wr
 			"global_v2_rebuild_ms":   globalDurationMS,
 		},
 	}, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return 0
+}
+
+func runMemoryProjectionSweep(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory projection-sweep", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	userID := fs.String("user", "", "optional user id; empty sweeps all pending users")
+	limit := fs.Int("limit", 100, "max dirty projection marks to process")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *limit <= 0 {
+		fmt.Fprintln(stderr, "usage: varix memory projection-sweep [--user <user_id>] [--limit <n>]")
+		return 2
+	}
+	store, err := openStore(projectRoot)
+	if err != nil {
+		writeErr(stderr, err)
+		return 1
+	}
+	defer store.Close()
+	result, err := store.RunProjectionDirtySweep(context.Background(), strings.TrimSpace(*userID), *limit, currentUTC())
+	if err != nil {
+		payload, marshalErr := json.MarshalIndent(result, "", "  ")
+		if marshalErr == nil {
+			fmt.Fprintln(stdout, string(payload))
+		}
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	payload, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

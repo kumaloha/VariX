@@ -72,6 +72,60 @@ func TestSQLiteStore_AcceptMemoryNodesPersistsGraphFirstContentMemorySnapshot(t 
 	}
 }
 
+func TestSQLiteStore_AcceptMemoryNodesDefersProjectionRefreshAndMarksDirty(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	record := compile.Record{
+		UnitID:         "unit-memory-defer",
+		Source:         "twitter",
+		ExternalID:     "mg-defer",
+		RootExternalID: "root-mg-defer",
+		Model:          "qwen3.6-plus",
+		CompiledAt:     time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC),
+		Output: compile.Output{
+			Summary: "summary text",
+			Graph: compile.ReasoningGraph{
+				Nodes: []compile.GraphNode{
+					{ID: "n1", Kind: compile.NodeFact, Text: "油价上涨", OccurredAt: time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)},
+					{ID: "n2", Kind: compile.NodePrediction, Text: "美股承压", PredictionStartAt: time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC), PredictionDueAt: time.Date(2026, 4, 28, 0, 0, 0, 0, time.UTC)},
+				},
+				Edges: []compile.GraphEdge{{From: "n1", To: "n2", Kind: compile.EdgePositive}},
+			},
+			Details: compile.HiddenDetails{Caveats: []string{"detail"}},
+		},
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), record); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+	if _, err := store.AcceptMemoryNodes(context.Background(), memory.AcceptRequest{
+		UserID:           "u-accept-defer",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "mg-defer",
+		NodeIDs:          []string{"n1", "n2"},
+	}); err != nil {
+		t.Fatalf("AcceptMemoryNodes() error = %v", err)
+	}
+	var eventCount int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM event_graphs WHERE user_id = ?`, "u-accept-defer").Scan(&eventCount); err != nil {
+		t.Fatalf("event graph count query error = %v", err)
+	}
+	if eventCount != 0 {
+		t.Fatalf("event graph count = %d, want accept to defer projection refresh", eventCount)
+	}
+	marks, err := store.ListProjectionDirtyMarks(context.Background(), "u-accept-defer", 100)
+	if err != nil {
+		t.Fatalf("ListProjectionDirtyMarks() error = %v", err)
+	}
+	if !hasDirtyMark(marks, "event", "", "") || !hasDirtyMark(marks, "paradigm", "", "") {
+		t.Fatalf("dirty marks = %#v, want event and paradigm pending marks", marks)
+	}
+}
+
 func TestSQLiteStore_AcceptMemoryNodesUpdatesExistingGraphFirstContentMemorySnapshot(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))

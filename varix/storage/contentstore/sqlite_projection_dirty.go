@@ -24,7 +24,34 @@ type ProjectionDirtyMark struct {
 	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
+type ProjectionDirtySweepResult struct {
+	UserID    string                      `json:"user_id,omitempty"`
+	Limit     int                         `json:"limit"`
+	Scanned   int                         `json:"scanned"`
+	Completed int                         `json:"completed"`
+	Failed    int                         `json:"failed"`
+	Remaining int                         `json:"remaining"`
+	Layers    map[string]int              `json:"layers,omitempty"`
+	Errors    []ProjectionDirtySweepError `json:"errors,omitempty"`
+}
+
+type ProjectionDirtySweepError struct {
+	DirtyID int64  `json:"dirty_id,omitempty"`
+	Layer   string `json:"layer"`
+	Subject string `json:"subject,omitempty"`
+	Horizon string `json:"horizon,omitempty"`
+	Error   string `json:"error"`
+}
+
+type projectionDirtyExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
 func (s *SQLiteStore) MarkProjectionDirty(ctx context.Context, mark ProjectionDirtyMark, at time.Time) error {
+	return markProjectionDirty(ctx, s.db, mark, at)
+}
+
+func markProjectionDirty(ctx context.Context, execer projectionDirtyExecer, mark ProjectionDirtyMark, at time.Time) error {
 	userID, err := normalizeRequiredUserID(mark.UserID)
 	if err != nil {
 		return err
@@ -35,7 +62,7 @@ func (s *SQLiteStore) MarkProjectionDirty(ctx context.Context, mark ProjectionDi
 	}
 	at = normalizeRecordedTime(at)
 	now := currentSQLiteTimestamp()
-	_, err = s.db.ExecContext(ctx, `INSERT INTO projection_dirty_marks(user_id, layer, subject, ticker, horizon, reason, source_ref, status, dirty_at, updated_at)
+	_, err = execer.ExecContext(ctx, `INSERT INTO projection_dirty_marks(user_id, layer, subject, ticker, horizon, reason, source_ref, status, dirty_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, layer, subject, ticker, horizon) DO UPDATE SET
 			reason = excluded.reason,
@@ -85,6 +112,107 @@ func (s *SQLiteStore) ListProjectionDirtyMarks(ctx context.Context, userID strin
 		out = append(out, mark)
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLiteStore) RunProjectionDirtySweep(ctx context.Context, userID string, limit int, now time.Time) (ProjectionDirtySweepResult, error) {
+	userID = strings.TrimSpace(userID)
+	if limit <= 0 {
+		limit = 100
+	}
+	now = normalizeRecordedTime(now)
+	result := ProjectionDirtySweepResult{
+		UserID: userID,
+		Limit:  limit,
+		Layers: map[string]int{},
+	}
+	marks, err := s.ListProjectionDirtyMarks(ctx, userID, limit)
+	if err != nil {
+		return result, err
+	}
+	result.Scanned = len(marks)
+	for _, mark := range marks {
+		if err := s.runProjectionDirtyMark(ctx, mark, now); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
+			continue
+		}
+		if err := s.ClearProjectionDirtyMark(ctx, mark); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
+			continue
+		}
+		result.Completed++
+		result.Layers[strings.TrimSpace(mark.Layer)]++
+	}
+	remaining, err := s.countProjectionDirtyMarks(ctx, userID)
+	if err != nil {
+		return result, err
+	}
+	result.Remaining = remaining
+	if result.Completed == 0 {
+		result.Layers = nil
+	}
+	if result.Failed > 0 {
+		return result, fmt.Errorf("projection dirty sweep failed for %d mark(s)", result.Failed)
+	}
+	return result, nil
+}
+
+func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark ProjectionDirtyMark, now time.Time) error {
+	userID, err := normalizeRequiredUserID(mark.UserID)
+	if err != nil {
+		return err
+	}
+	switch strings.TrimSpace(mark.Layer) {
+	case "event":
+		_, err = s.RunEventGraphProjection(ctx, userID, now)
+	case "paradigm":
+		_, err = s.RunParadigmProjection(ctx, userID, now)
+	case "global-v2":
+		_, err = s.RunGlobalMemoryOrganizationV2(ctx, userID, now)
+	case "subject-timeline":
+		if strings.TrimSpace(mark.Subject) == "" {
+			return fmt.Errorf("subject-timeline mark requires subject")
+		}
+		_, err = s.BuildSubjectTimeline(ctx, userID, mark.Subject, now)
+	case "subject-horizon":
+		if strings.TrimSpace(mark.Subject) == "" || strings.TrimSpace(mark.Horizon) == "" {
+			return fmt.Errorf("subject-horizon mark requires subject and horizon")
+		}
+		_, err = s.GetSubjectHorizonMemory(ctx, userID, mark.Subject, mark.Horizon, now, true)
+	case "subject-experience":
+		if strings.TrimSpace(mark.Subject) == "" {
+			return fmt.Errorf("subject-experience mark requires subject")
+		}
+		_, err = s.GetSubjectExperienceMemory(ctx, userID, mark.Subject, defaultSubjectExperienceHorizons, now, false)
+	default:
+		err = fmt.Errorf("unsupported projection layer %q", mark.Layer)
+	}
+	return err
+}
+
+func (s *SQLiteStore) countProjectionDirtyMarks(ctx context.Context, userID string) (int, error) {
+	query := `SELECT COUNT(*) FROM projection_dirty_marks WHERE status = ?`
+	args := []any{ProjectionDirtyPending}
+	if strings.TrimSpace(userID) != "" {
+		query += ` AND user_id = ?`
+		args = append(args, strings.TrimSpace(userID))
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func projectionDirtySweepError(mark ProjectionDirtyMark, err error) ProjectionDirtySweepError {
+	return ProjectionDirtySweepError{
+		DirtyID: mark.ID,
+		Layer:   strings.TrimSpace(mark.Layer),
+		Subject: strings.TrimSpace(mark.Subject),
+		Horizon: strings.TrimSpace(mark.Horizon),
+		Error:   err.Error(),
+	}
 }
 
 func (s *SQLiteStore) ClearProjectionDirtyMark(ctx context.Context, mark ProjectionDirtyMark) error {
