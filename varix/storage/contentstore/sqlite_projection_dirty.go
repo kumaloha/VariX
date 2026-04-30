@@ -12,7 +12,10 @@ import (
 	"github.com/kumaloha/VariX/varix/memory"
 )
 
-const ProjectionDirtyPending = "pending"
+const (
+	ProjectionDirtyPending        = "pending"
+	projectionDirtySubjectWorkers = 4
+)
 
 type ProjectionDirtyMark struct {
 	ID        int64  `json:"dirty_id,omitempty"`
@@ -53,6 +56,7 @@ type projectionDirtyExecer interface {
 }
 
 type projectionDirtyUserState struct {
+	mu                sync.Mutex
 	eventRefreshed    bool
 	paradigmRefreshed bool
 	subjectHorizons   map[string]memory.SubjectHorizonMemory
@@ -257,18 +261,17 @@ func runProjectionDirtyMarkGroup(ctx context.Context, marks []ProjectionDirtyMar
 	result := ProjectionDirtySweepResult{Layers: map[string]int{}}
 	state := &projectionDirtyUserState{}
 	successful := make([]ProjectionDirtyMark, 0, len(marks))
-	for _, mark := range orderProjectionDirtyMarksForSweep(marks) {
-		if err := ctx.Err(); err != nil {
-			result.Failed++
-			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
+	for _, phase := range projectionDirtyMarkGroupPhases(orderProjectionDirtyMarksForSweep(marks)) {
+		if phase.concurrent {
+			outcomes := runProjectionDirtyMarksConcurrently(ctx, phase.marks, projectionDirtySubjectWorkers, runner, state)
+			for _, outcome := range outcomes {
+				recordProjectionDirtyRunOutcome(&result, &successful, outcome)
+			}
 			continue
 		}
-		if err := runner(ctx, mark, state); err != nil {
-			result.Failed++
-			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
-			continue
+		for _, mark := range phase.marks {
+			recordProjectionDirtyRunOutcome(&result, &successful, runProjectionDirtyMarkWithState(ctx, mark, runner, state))
 		}
-		successful = append(successful, mark)
 	}
 	if len(successful) > 0 {
 		if err := clearer(ctx, successful); err != nil {
@@ -285,6 +288,104 @@ func runProjectionDirtyMarkGroup(ctx context.Context, marks []ProjectionDirtyMar
 		result.Layers = nil
 	}
 	return result
+}
+
+type projectionDirtyMarkPhase struct {
+	marks      []ProjectionDirtyMark
+	concurrent bool
+}
+
+type projectionDirtyRunOutcome struct {
+	mark ProjectionDirtyMark
+	err  error
+}
+
+func projectionDirtyMarkGroupPhases(marks []ProjectionDirtyMark) []projectionDirtyMarkPhase {
+	var base []ProjectionDirtyMark
+	var global []ProjectionDirtyMark
+	var timeline []ProjectionDirtyMark
+	var horizons []ProjectionDirtyMark
+	var experience []ProjectionDirtyMark
+	var other []ProjectionDirtyMark
+	for _, mark := range marks {
+		switch strings.TrimSpace(mark.Layer) {
+		case "event", "paradigm":
+			base = append(base, mark)
+		case "global-v2":
+			global = append(global, mark)
+		case "subject-timeline":
+			timeline = append(timeline, mark)
+		case "subject-horizon":
+			horizons = append(horizons, mark)
+		case "subject-experience":
+			experience = append(experience, mark)
+		default:
+			other = append(other, mark)
+		}
+	}
+	phases := make([]projectionDirtyMarkPhase, 0, 6)
+	appendPhase := func(items []ProjectionDirtyMark, concurrent bool) {
+		if len(items) > 0 {
+			phases = append(phases, projectionDirtyMarkPhase{marks: items, concurrent: concurrent})
+		}
+	}
+	appendPhase(base, false)
+	appendPhase(global, false)
+	appendPhase(timeline, false)
+	appendPhase(horizons, true)
+	appendPhase(experience, false)
+	appendPhase(other, false)
+	return phases
+}
+
+func runProjectionDirtyMarksConcurrently(ctx context.Context, marks []ProjectionDirtyMark, workers int, runner projectionDirtyMarkRunner, state *projectionDirtyUserState) []projectionDirtyRunOutcome {
+	if len(marks) == 0 {
+		return nil
+	}
+	if workers <= 0 || workers > len(marks) {
+		workers = len(marks)
+	}
+	jobs := make(chan ProjectionDirtyMark)
+	outcomes := make(chan projectionDirtyRunOutcome, len(marks))
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for mark := range jobs {
+				outcomes <- runProjectionDirtyMarkWithState(ctx, mark, runner, state)
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, mark := range marks {
+			jobs <- mark
+		}
+	}()
+	wg.Wait()
+	close(outcomes)
+	out := make([]projectionDirtyRunOutcome, 0, len(marks))
+	for outcome := range outcomes {
+		out = append(out, outcome)
+	}
+	return out
+}
+
+func runProjectionDirtyMarkWithState(ctx context.Context, mark ProjectionDirtyMark, runner projectionDirtyMarkRunner, state *projectionDirtyUserState) projectionDirtyRunOutcome {
+	if err := ctx.Err(); err != nil {
+		return projectionDirtyRunOutcome{mark: mark, err: err}
+	}
+	return projectionDirtyRunOutcome{mark: mark, err: runner(ctx, mark, state)}
+}
+
+func recordProjectionDirtyRunOutcome(result *ProjectionDirtySweepResult, successful *[]ProjectionDirtyMark, outcome projectionDirtyRunOutcome) {
+	if outcome.err != nil {
+		result.Failed++
+		result.Errors = append(result.Errors, projectionDirtySweepError(outcome.mark, outcome.err))
+		return
+	}
+	*successful = append(*successful, outcome.mark)
 }
 
 func mergeProjectionDirtySweepResult(base ProjectionDirtySweepResult, add ProjectionDirtySweepResult) ProjectionDirtySweepResult {
@@ -380,6 +481,8 @@ func (state *projectionDirtyUserState) storeSubjectHorizon(item memory.SubjectHo
 	if state == nil || strings.TrimSpace(item.Horizon) == "" {
 		return
 	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
 	if state.subjectHorizons == nil {
 		state.subjectHorizons = map[string]memory.SubjectHorizonMemory{}
 	}
@@ -388,7 +491,12 @@ func (state *projectionDirtyUserState) storeSubjectHorizon(item memory.SubjectHo
 }
 
 func (state *projectionDirtyUserState) preloadedSubjectHorizons(subject string, horizons []string) map[string]memory.SubjectHorizonMemory {
-	if state == nil || len(state.subjectHorizons) == 0 {
+	if state == nil {
+		return nil
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.subjectHorizons) == 0 {
 		return nil
 	}
 	out := map[string]memory.SubjectHorizonMemory{}

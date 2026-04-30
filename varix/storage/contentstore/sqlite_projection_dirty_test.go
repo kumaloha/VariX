@@ -274,6 +274,90 @@ func TestRunProjectionDirtyMarkGroupsProcessesDifferentUsersConcurrently(t *test
 	}
 }
 
+func TestRunProjectionDirtyMarkGroupProcessesSubjectHorizonsConcurrentlyBeforeExperience(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	marks := []ProjectionDirtyMark{
+		{ID: 1, UserID: "u-subject-concurrent", Layer: "event"},
+		{ID: 2, UserID: "u-subject-concurrent", Layer: "subject-horizon", Subject: "美股", Horizon: "1w"},
+		{ID: 3, UserID: "u-subject-concurrent", Layer: "subject-horizon", Subject: "美股", Horizon: "1m"},
+		{ID: 4, UserID: "u-subject-concurrent", Layer: "subject-experience", Subject: "美股"},
+	}
+	horizonStarted := make(chan struct{}, 2)
+	releaseHorizons := make(chan struct{})
+	done := make(chan ProjectionDirtySweepResult, 1)
+	var eventDone int32
+	var activeHorizons int32
+	var maxActiveHorizons int32
+	var experienceStarted int32
+	runner := func(ctx context.Context, mark ProjectionDirtyMark, state *projectionDirtyUserState) error {
+		switch mark.Layer {
+		case "event":
+			atomic.StoreInt32(&eventDone, 1)
+			return nil
+		case "subject-horizon":
+			if atomic.LoadInt32(&eventDone) != 1 {
+				t.Errorf("subject-horizon started before event completed")
+			}
+			nowActive := atomic.AddInt32(&activeHorizons, 1)
+			for {
+				previous := atomic.LoadInt32(&maxActiveHorizons)
+				if nowActive <= previous || atomic.CompareAndSwapInt32(&maxActiveHorizons, previous, nowActive) {
+					break
+				}
+			}
+			horizonStarted <- struct{}{}
+			select {
+			case <-releaseHorizons:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			atomic.AddInt32(&activeHorizons, -1)
+			return nil
+		case "subject-experience":
+			if got := atomic.LoadInt32(&activeHorizons); got != 0 {
+				t.Errorf("subject-experience started while %d horizons are still active", got)
+			}
+			atomic.StoreInt32(&experienceStarted, 1)
+			return nil
+		default:
+			t.Fatalf("unexpected layer %q", mark.Layer)
+			return nil
+		}
+	}
+	clearer := func(context.Context, []ProjectionDirtyMark) error { return nil }
+
+	go func() {
+		done <- runProjectionDirtyMarkGroup(ctx, marks, runner, clearer)
+	}()
+	select {
+	case <-horizonStarted:
+	case <-time.After(200 * time.Millisecond):
+		close(releaseHorizons)
+		t.Fatal("first subject-horizon mark did not start")
+	}
+	select {
+	case <-horizonStarted:
+	case <-time.After(200 * time.Millisecond):
+		close(releaseHorizons)
+		t.Fatal("second subject-horizon mark did not start while first was active")
+	}
+	if got := atomic.LoadInt32(&maxActiveHorizons); got < 2 {
+		t.Fatalf("max active subject-horizon runners = %d, want concurrent horizon refreshes", got)
+	}
+	if got := atomic.LoadInt32(&experienceStarted); got != 0 {
+		t.Fatal("subject-experience started before subject-horizon refreshes were released")
+	}
+	close(releaseHorizons)
+	result := <-done
+	if result.Completed != 4 || result.Failed != 0 {
+		t.Fatalf("result = %#v, want all marks completed", result)
+	}
+	if got := atomic.LoadInt32(&experienceStarted); got != 1 {
+		t.Fatal("subject-experience did not run after subject horizons completed")
+	}
+}
+
 func TestRunProjectionDirtyMarkGroupsClearsSuccessfulMarksInOneBatch(t *testing.T) {
 	marks := []ProjectionDirtyMark{
 		{ID: 1, UserID: "u-batch-clear", Layer: "subject-timeline", Subject: "美股"},

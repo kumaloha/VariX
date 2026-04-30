@@ -21,7 +21,7 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", sqliteStoreDSN(path))
 	if err != nil {
 		return nil, err
 	}
@@ -39,6 +39,14 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+func sqliteStoreDSN(path string) string {
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+	return path + separator + "_pragma=busy_timeout%3D5000&_pragma=foreign_keys%3DON"
 }
 
 func (s *SQLiteStore) Close() error {
