@@ -20,6 +20,8 @@ func TestSQLiteStore_RunEventGraphProjectionPersistsGroupedGraphs(t *testing.T) 
 	defer store.Close()
 
 	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	firstAt := now.Add(-24 * time.Hour)
+	secondAt := now
 	sg1 := graphmodel.ContentSubgraph{
 		ID:               "sg1",
 		ArticleID:        "unit-1",
@@ -29,8 +31,8 @@ func TestSQLiteStore_RunEventGraphProjectionPersistsGroupedGraphs(t *testing.T) 
 		CompiledAt:       now.Format(time.RFC3339),
 		UpdatedAt:        now.Format(time.RFC3339),
 		Nodes: []graphmodel.GraphNode{
-			{ID: "d1", SourceArticleID: "unit-1", SourcePlatform: "twitter", SourceExternalID: "e1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
-			{ID: "t1", SourceArticleID: "unit-1", SourcePlatform: "twitter", SourceExternalID: "e1", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "d1", SourceArticleID: "unit-1", SourcePlatform: "twitter", SourceExternalID: "e1", RawText: "美联储加息0.25%", SubjectText: "美联储", ChangeText: "加息0.25%", TimeStart: firstAt.Format(time.RFC3339), Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "t1", SourceArticleID: "unit-1", SourcePlatform: "twitter", SourceExternalID: "e1", RawText: "未来一周美股承压", SubjectText: "美股", ChangeText: "承压", TimeStart: firstAt.Format(time.RFC3339), Kind: graphmodel.NodeKindPrediction, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
 		},
 	}
 	sg2 := graphmodel.ContentSubgraph{
@@ -42,8 +44,8 @@ func TestSQLiteStore_RunEventGraphProjectionPersistsGroupedGraphs(t *testing.T) 
 		CompiledAt:       now.Format(time.RFC3339),
 		UpdatedAt:        now.Format(time.RFC3339),
 		Nodes: []graphmodel.GraphNode{
-			{ID: "d2", SourceArticleID: "unit-2", SourcePlatform: "twitter", SourceExternalID: "e2", RawText: "联储继续收紧", SubjectText: "美联储", ChangeText: "继续收紧", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
-			{ID: "t2", SourceArticleID: "unit-2", SourcePlatform: "twitter", SourceExternalID: "e2", RawText: "最近一周美股回撤", SubjectText: "美股", ChangeText: "回撤", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "d2", SourceArticleID: "unit-2", SourcePlatform: "twitter", SourceExternalID: "e2", RawText: "联储继续收紧", SubjectText: "美联储", ChangeText: "继续收紧", TimeStart: secondAt.Format(time.RFC3339), Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
+			{ID: "t2", SourceArticleID: "unit-2", SourcePlatform: "twitter", SourceExternalID: "e2", RawText: "最近一周美股回撤", SubjectText: "美股", ChangeText: "回撤", TimeStart: secondAt.Format(time.RFC3339), Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationPending, TimeBucket: "1w"},
 		},
 	}
 	for _, sg := range []graphmodel.ContentSubgraph{sg1, sg2} {
@@ -83,6 +85,9 @@ func TestSQLiteStore_RunEventGraphProjectionPersistsGroupedGraphs(t *testing.T) 
 	}
 	if byScope["target"].SourceSubgraphCount != 2 || byScope["target"].PrimaryNodeCount != 2 {
 		t.Fatalf("target summary = %#v, want SourceSubgraphCount=2 PrimaryNodeCount=2", byScope["target"])
+	}
+	if byScope["target"].TimeStart != firstAt.Format(time.RFC3339) || byScope["target"].TimeEnd != secondAt.Format(time.RFC3339) {
+		t.Fatalf("target time window = %s..%s, want %s..%s", byScope["target"].TimeStart, byScope["target"].TimeEnd, firstAt.Format(time.RFC3339), secondAt.Format(time.RFC3339))
 	}
 	if len(byScope["target"].RepresentativeChanges) != 2 {
 		t.Fatalf("target RepresentativeChanges = %#v, want 2 distinct changes", byScope["target"].RepresentativeChanges)

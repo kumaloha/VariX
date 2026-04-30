@@ -94,6 +94,54 @@ func TestSQLiteStore_RunParadigmProjectionBuildsGroupedParadigms(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_RunParadigmProjectionDeletesStaleParadigms(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	sg := graphmodel.ContentSubgraph{
+		ID:               "stale-paradigm",
+		ArticleID:        "stale-paradigm",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "stale-paradigm",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{
+			{ID: "d1", SourceArticleID: "stale-paradigm", SourcePlatform: "twitter", SourceExternalID: "stale-paradigm", RawText: "AI投资叙事降温", SubjectText: "AI投资叙事", ChangeText: "降温", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleDriver, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "day"},
+			{ID: "t1", SourceArticleID: "stale-paradigm", SourcePlatform: "twitter", SourceExternalID: "stale-paradigm", RawText: "美股回落", SubjectText: "美股", ChangeText: "回落", Kind: graphmodel.NodeKindObservation, GraphRole: graphmodel.GraphRoleTarget, IsPrimary: true, VerificationStatus: graphmodel.VerificationProved, TimeBucket: "day"},
+		},
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-stale-paradigm", sg, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph() error = %v", err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO paradigms(paradigm_id, user_id, driver_subject, target_subject, time_bucket, payload_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		buildParadigmID("u-stale-paradigm", "AI股票", "美股", "day"),
+		"u-stale-paradigm",
+		"AI股票",
+		"美股",
+		"day",
+		`{"paradigm_id":"stale","user_id":"u-stale-paradigm","driver_subject":"AI股票","target_subject":"美股","time_bucket":"day"}`,
+		now.Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("insert stale paradigm error = %v", err)
+	}
+
+	if _, err := store.RunParadigmProjection(context.Background(), "u-stale-paradigm", now); err != nil {
+		t.Fatalf("RunParadigmProjection() error = %v", err)
+	}
+	got, err := store.ListParadigmsBySubject(context.Background(), "u-stale-paradigm", "美股")
+	if err != nil {
+		t.Fatalf("ListParadigmsBySubject() error = %v", err)
+	}
+	if len(got) != 1 || got[0].DriverSubject != "AI投资叙事" {
+		t.Fatalf("paradigms = %#v, want only current AI投资叙事 -> 美股 paradigm", got)
+	}
+}
+
 func TestSQLiteStore_RunParadigmProjectionHonorsCanonicalAliasMapping(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))

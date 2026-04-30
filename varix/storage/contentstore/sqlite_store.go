@@ -544,6 +544,36 @@ func (s *SQLiteStore) init() error {
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_event_graph_evidence_unique
 			ON event_graph_evidence_links(event_graph_id, subgraph_id, node_id)`,
+		`CREATE TABLE IF NOT EXISTS subject_horizon_memories (
+			user_id TEXT NOT NULL,
+			subject TEXT NOT NULL,
+			canonical_subject TEXT NOT NULL,
+			horizon TEXT NOT NULL,
+			window_start TEXT NOT NULL,
+			window_end TEXT NOT NULL,
+			refresh_policy TEXT NOT NULL,
+			next_refresh_at TEXT NOT NULL,
+			input_hash TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			generated_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(user_id, canonical_subject, horizon)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_subject_horizon_user_subject
+			ON subject_horizon_memories(user_id, canonical_subject, horizon)`,
+		`CREATE TABLE IF NOT EXISTS subject_experience_memories (
+			user_id TEXT NOT NULL,
+			subject TEXT NOT NULL,
+			canonical_subject TEXT NOT NULL,
+			horizon_set TEXT NOT NULL,
+			input_hash TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			generated_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(user_id, canonical_subject, horizon_set)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_subject_experience_user_subject
+			ON subject_experience_memories(user_id, canonical_subject, horizon_set)`,
 		`CREATE TABLE IF NOT EXISTS paradigms (
 			paradigm_id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,

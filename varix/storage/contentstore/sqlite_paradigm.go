@@ -122,6 +122,7 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 		return nil, err
 	}
 	out := make([]ParadigmRecord, 0, len(byKey))
+	keepParadigmIDs := make([]string, 0, len(byKey))
 	for _, st := range byKey {
 		subgraphs := uniqueStrings(st.subgraphs)
 		eventGraphs := uniqueStrings(st.eventGraphs)
@@ -152,6 +153,10 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 			return nil, err
 		}
 		out = append(out, record)
+		keepParadigmIDs = append(keepParadigmIDs, record.ParadigmID)
+	}
+	if err := s.deleteStaleParadigms(ctx, userID, keepParadigmIDs); err != nil {
+		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].DriverSubject != out[j].DriverSubject {
@@ -163,6 +168,52 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 		return out[i].TimeBucket < out[j].TimeBucket
 	})
 	return out, nil
+}
+
+func (s *SQLiteStore) deleteStaleParadigms(ctx context.Context, userID string, keepParadigmIDs []string) error {
+	userID = strings.TrimSpace(userID)
+	keep := uniqueStrings(filterNonBlank(keepParadigmIDs))
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	args := []any{userID}
+	query := `SELECT paradigm_id FROM paradigms WHERE user_id = ?`
+	if len(keep) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(keep)), ",")
+		query += ` AND paradigm_id NOT IN (` + placeholders + `)`
+		for _, id := range keep {
+			args = append(args, id)
+		}
+	}
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	staleIDs := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		staleIDs = append(staleIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, id := range staleIDs {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM paradigm_evidence_links WHERE paradigm_id = ?`, id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM paradigms WHERE paradigm_id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) ListParadigmsBySubject(ctx context.Context, userID, subject string) ([]ParadigmRecord, error) {

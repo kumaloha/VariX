@@ -17,6 +17,8 @@ type EventInputCandidate struct {
 	Scope             string   `json:"scope"`
 	AnchorSubject     string   `json:"anchor_subject"`
 	TimeBucket        string   `json:"time_bucket"`
+	TimeStart         string   `json:"time_start,omitempty"`
+	TimeEnd           string   `json:"time_end,omitempty"`
 	SourceSubgraphIDs []string `json:"source_subgraph_ids,omitempty"`
 	SourceArticleIDs  []string `json:"source_article_ids,omitempty"`
 	NodeIDs           []string `json:"node_ids,omitempty"`
@@ -111,6 +113,7 @@ func (s *SQLiteStore) BuildEventInputCandidates(ctx context.Context, userID stri
 			candidate.SourceSubgraphIDs = append(candidate.SourceSubgraphIDs, subgraph.ID)
 			candidate.SourceArticleIDs = append(candidate.SourceArticleIDs, subgraph.ArticleID)
 			candidate.NodeIDs = append(candidate.NodeIDs, subgraph.ID+"::"+node.ID)
+			mergeEventCandidateTimeWindow(candidate, node)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -133,6 +136,41 @@ func (s *SQLiteStore) BuildEventInputCandidates(ctx context.Context, userID stri
 		return out[i].TimeBucket < out[j].TimeBucket
 	})
 	return out, nil
+}
+
+func mergeEventCandidateTimeWindow(candidate *EventInputCandidate, node graphmodel.GraphNode) {
+	start := firstEventNodeTime(node.TimeStart, node.TimeEnd, node.VerificationAsOf, node.LastVerifiedAt)
+	end := firstEventNodeTime(node.TimeEnd, node.TimeStart, node.VerificationAsOf, node.LastVerifiedAt)
+	if start != "" && (candidate.TimeStart == "" || eventTimeBefore(start, candidate.TimeStart)) {
+		candidate.TimeStart = start
+	}
+	if end != "" && (candidate.TimeEnd == "" || eventTimeBefore(candidate.TimeEnd, end)) {
+		candidate.TimeEnd = end
+	}
+}
+
+func firstEventNodeTime(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			continue
+		}
+		return parsed.UTC().Format(time.RFC3339)
+	}
+	return ""
+}
+
+func eventTimeBefore(left, right string) bool {
+	leftTime, leftErr := time.Parse(time.RFC3339, strings.TrimSpace(left))
+	rightTime, rightErr := time.Parse(time.RFC3339, strings.TrimSpace(right))
+	if leftErr == nil && rightErr == nil {
+		return leftTime.Before(rightTime)
+	}
+	return strings.TrimSpace(left) < strings.TrimSpace(right)
 }
 
 func (s *SQLiteStore) refreshProjectionLayersForUser(ctx context.Context, userID string, at time.Time) error {

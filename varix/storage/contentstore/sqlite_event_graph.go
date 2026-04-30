@@ -25,6 +25,8 @@ type EventGraphRecord struct {
 	Scope                 string                                `json:"scope"`
 	AnchorSubject         string                                `json:"anchor_subject"`
 	TimeBucket            string                                `json:"time_bucket"`
+	TimeStart             string                                `json:"time_start,omitempty"`
+	TimeEnd               string                                `json:"time_end,omitempty"`
 	SourceSubgraphIDs     []string                              `json:"source_subgraph_ids,omitempty"`
 	SourceArticleIDs      []string                              `json:"source_article_ids,omitempty"`
 	NodeIDs               []string                              `json:"node_ids,omitempty"`
@@ -71,6 +73,8 @@ func (s *SQLiteStore) RunEventGraphProjection(ctx context.Context, userID string
 			Scope:                 candidate.Scope,
 			AnchorSubject:         candidate.AnchorSubject,
 			TimeBucket:            candidate.TimeBucket,
+			TimeStart:             candidate.TimeStart,
+			TimeEnd:               candidate.TimeEnd,
 			SourceSubgraphIDs:     sourceSubgraphIDs,
 			SourceArticleIDs:      sourceArticleIDs,
 			NodeIDs:               nodeIDs,
