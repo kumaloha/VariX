@@ -23,8 +23,6 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 	fs.SetOutput(stderr)
 	sourceRunIDsRaw := fs.String("source-run-ids", "", "comma-separated compile preview run ids to validate")
 	workers := fs.Int("workers", 5, "parallel workers")
-	rounds := fs.Int("rounds", 1, "deprecated graph-audit rounds; ignored by author validation")
-	paragraphLimit := fs.Int("paragraph-limit", 0, "deprecated graph-audit paragraph limit; ignored by author validation")
 	itemTimeout := fs.Duration("item-timeout", 30*time.Minute, "per-sample validate timeout")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -40,9 +38,6 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 	}
 	if *workers <= 0 {
 		*workers = 5
-	}
-	if *rounds <= 0 {
-		*rounds = 1
 	}
 	if *itemTimeout <= 0 {
 		*itemTimeout = 30 * time.Minute
@@ -70,9 +65,6 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 		return 1
 	}
 
-	_ = rounds
-	_ = paragraphLimit
-
 	scope := "author-validate:" + joinInt64s(sourceRunIDs)
 	runID, err := store.CreateCompilePreviewRun(ctx, contentstore.CompilePreviewRun{
 		Pipeline:               "v2-author-validate",
@@ -80,7 +72,7 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 		SampleCount:            len(sourceItems),
 		WorkerCount:            *workers,
 		SkipValidate:           false,
-		ValidateParagraphLimit: *paragraphLimit,
+		ValidateParagraphLimit: 0,
 		Status:                 "running",
 		StartedAt:              currentUTC().Format(time.RFC3339),
 	})
