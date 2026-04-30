@@ -56,33 +56,18 @@ func (s *SQLiteStore) ListMemoryContentGraphsBySubject(ctx context.Context, user
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT payload_json FROM memory_content_graphs WHERE user_id = ? ORDER BY source_platform ASC, source_external_id ASC`, strings.TrimSpace(userID))
+	rows, err := s.db.QueryContext(ctx, `SELECT g.payload_json
+		FROM memory_content_graph_subjects s
+		JOIN memory_content_graphs g
+			ON g.user_id = s.user_id
+			AND g.source_platform = s.source_platform
+			AND g.source_external_id = s.source_external_id
+		WHERE s.user_id = ? AND s.subject = ?
+		ORDER BY g.source_platform ASC, g.source_external_id ASC`, strings.TrimSpace(userID), strings.TrimSpace(subject))
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]graphmodel.ContentSubgraph, 0)
-	for rows.Next() {
-		var payload string
-		if err := rows.Scan(&payload); err != nil {
-			return nil, err
-		}
-		var subgraph graphmodel.ContentSubgraph
-		if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
-			return nil, fmt.Errorf("decode memory content graph payload: %w", err)
-		}
-		matched := false
-		for _, node := range subgraph.Nodes {
-			if node.SubjectText == strings.TrimSpace(subject) || node.SubjectCanonical == strings.TrimSpace(subject) {
-				matched = true
-				break
-			}
-		}
-		if matched {
-			out = append(out, subgraph)
-		}
-	}
-	return out, rows.Err()
+	return decodePayloadRows[graphmodel.ContentSubgraph](rows, "memory content graph")
 }
 
 func (s *SQLiteStore) ListMemoryContentGraphsBySourceAndSubject(ctx context.Context, userID, sourcePlatform, sourceExternalID, subject string) ([]graphmodel.ContentSubgraph, error) {
@@ -90,22 +75,17 @@ func (s *SQLiteStore) ListMemoryContentGraphsBySourceAndSubject(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
-	items, err := s.ListMemoryContentGraphsBySource(ctx, userID, sourcePlatform, sourceExternalID)
+	rows, err := s.db.QueryContext(ctx, `SELECT g.payload_json
+		FROM memory_content_graph_subjects s
+		JOIN memory_content_graphs g
+			ON g.user_id = s.user_id
+			AND g.source_platform = s.source_platform
+			AND g.source_external_id = s.source_external_id
+		WHERE s.user_id = ? AND s.source_platform = ? AND s.source_external_id = ? AND s.subject = ?
+		ORDER BY g.source_platform ASC, g.source_external_id ASC`,
+		strings.TrimSpace(userID), strings.TrimSpace(sourcePlatform), strings.TrimSpace(sourceExternalID), strings.TrimSpace(subject))
 	if err != nil {
 		return nil, err
 	}
-	filtered := make([]graphmodel.ContentSubgraph, 0, len(items))
-	for _, item := range items {
-		matched := false
-		for _, node := range item.Nodes {
-			if node.SubjectText == strings.TrimSpace(subject) || node.SubjectCanonical == strings.TrimSpace(subject) {
-				matched = true
-				break
-			}
-		}
-		if matched {
-			filtered = append(filtered, item)
-		}
-	}
-	return filtered, nil
+	return decodePayloadRows[graphmodel.ContentSubgraph](rows, "memory content graph")
 }

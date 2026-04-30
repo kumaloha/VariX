@@ -553,6 +553,20 @@ func (s *SQLiteStore) init() error {
 			updated_at TEXT NOT NULL,
 			UNIQUE(user_id, source_platform, source_external_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS memory_content_graph_subjects (
+			user_id TEXT NOT NULL,
+			subject TEXT NOT NULL,
+			source_platform TEXT NOT NULL,
+			source_external_id TEXT NOT NULL,
+			node_count INTEGER NOT NULL DEFAULT 0,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(user_id, subject, source_platform, source_external_id),
+			FOREIGN KEY(user_id, source_platform, source_external_id)
+				REFERENCES memory_content_graphs(user_id, source_platform, source_external_id)
+				ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_memory_content_graph_subjects_lookup
+			ON memory_content_graph_subjects(user_id, subject, source_platform, source_external_id)`,
 		`CREATE TABLE IF NOT EXISTS projection_dirty_marks (
 			dirty_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id TEXT NOT NULL,
@@ -876,6 +890,9 @@ func (s *SQLiteStore) init() error {
 		if err := s.ensureColumn(m.table, m.column, m.definition); err != nil {
 			return err
 		}
+	}
+	if err := s.backfillMemoryContentGraphSubjects(); err != nil {
+		return err
 	}
 	return nil
 }

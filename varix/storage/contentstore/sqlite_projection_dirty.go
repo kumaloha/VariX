@@ -63,6 +63,7 @@ type projectionDirtyUserState struct {
 	subjectHorizons   map[string]memory.SubjectHorizonMemory
 	contentGraphs     map[string][]graphmodel.ContentSubgraph
 	contentGraphLoads map[string]*projectionDirtyContentGraphLoad
+	canonicalSubjects map[string]string
 }
 
 type projectionDirtyContentGraphLoad struct {
@@ -476,7 +477,13 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 			}
 			hasGraphInputs = true
 		}
-		item, err = s.getSubjectHorizonMemoryWithContentGraphs(ctx, userID, mark.Subject, mark.Horizon, now, true, graphs, hasGraphInputs)
+		var resolve projectionSubjectResolver
+		if state != nil {
+			resolve = func(ctx context.Context, node graphmodel.GraphNode) (string, error) {
+				return state.canonicalGraphNodeSubject(ctx, node, s.resolveCanonicalGraphNodeSubject)
+			}
+		}
+		item, err = s.getSubjectHorizonMemoryWithContentGraphsAndResolver(ctx, userID, mark.Subject, mark.Horizon, now, true, graphs, hasGraphInputs, resolve)
 		if err == nil && state != nil {
 			state.storeSubjectHorizon(item)
 		}
@@ -542,6 +549,38 @@ func (state *projectionDirtyUserState) memoryContentGraphs(ctx context.Context, 
 	close(inFlight.done)
 	state.mu.Unlock()
 	return graphs, err
+}
+
+func (state *projectionDirtyUserState) canonicalGraphNodeSubject(ctx context.Context, node graphmodel.GraphNode, resolve func(context.Context, graphmodel.GraphNode, map[string]string) (string, error)) (string, error) {
+	if state == nil {
+		return resolve(ctx, node, nil)
+	}
+	key := normalizeDirtyDimension(firstTrimmed(node.SubjectCanonical, node.SubjectText))
+	if key == "" {
+		return "", nil
+	}
+	state.mu.Lock()
+	if state.canonicalSubjects != nil {
+		if subject, ok := state.canonicalSubjects[key]; ok {
+			state.mu.Unlock()
+			return subject, nil
+		}
+	}
+	state.mu.Unlock()
+
+	subject, err := resolve(ctx, node, nil)
+	if err != nil {
+		return "", err
+	}
+	subject = strings.TrimSpace(subject)
+
+	state.mu.Lock()
+	if state.canonicalSubjects == nil {
+		state.canonicalSubjects = map[string]string{}
+	}
+	state.canonicalSubjects[key] = subject
+	state.mu.Unlock()
+	return subject, nil
 }
 
 func (state *projectionDirtyUserState) storeSubjectHorizon(item memory.SubjectHorizonMemory) {

@@ -407,6 +407,80 @@ func TestSQLiteStore_ListMemoryContentGraphsBySubjectSupportsAliasLookup(t *test
 	}
 }
 
+func TestSQLiteStore_MemoryContentGraphSubjectsIndexTracksPersistAndUpdate(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	first := graphmodel.ContentSubgraph{
+		ID:               "indexed-cg",
+		ArticleID:        "indexed-cg",
+		SourcePlatform:   "twitter",
+		SourceExternalID: "indexed-cg",
+		CompileVersion:   graphmodel.CompileBridgeVersion,
+		CompiledAt:       now.Format(time.RFC3339),
+		UpdatedAt:        now.Format(time.RFC3339),
+		Nodes: []graphmodel.GraphNode{{
+			ID:                 "n1",
+			SourceArticleID:    "indexed-cg",
+			SourcePlatform:     "twitter",
+			SourceExternalID:   "indexed-cg",
+			RawText:            "美联储加息",
+			SubjectText:        "美联储",
+			SubjectCanonical:   "美联储",
+			ChangeText:         "加息",
+			Kind:               graphmodel.NodeKindObservation,
+			IsPrimary:          true,
+			VerificationStatus: graphmodel.VerificationPending,
+		}},
+	}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-index-cg", first, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraph(first) error = %v", err)
+	}
+	var count int
+	if err := store.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM memory_content_graph_subjects WHERE user_id = ? AND subject = ?`, "u-index-cg", "美联储").Scan(&count); err != nil {
+		t.Fatalf("subject index query error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("美联储 subject index count = %d, want 1", count)
+	}
+
+	second := first
+	second.Nodes = []graphmodel.GraphNode{{
+		ID:                 "n2",
+		SourceArticleID:    "indexed-cg",
+		SourcePlatform:     "twitter",
+		SourceExternalID:   "indexed-cg",
+		RawText:            "欧洲央行放缓缩表",
+		SubjectText:        "欧洲央行",
+		SubjectCanonical:   "欧洲央行",
+		ChangeText:         "放缓缩表",
+		Kind:               graphmodel.NodeKindObservation,
+		IsPrimary:          true,
+		VerificationStatus: graphmodel.VerificationPending,
+	}}
+	if err := store.PersistMemoryContentGraph(context.Background(), "u-index-cg", second, now.Add(time.Hour)); err != nil {
+		t.Fatalf("PersistMemoryContentGraph(second) error = %v", err)
+	}
+	if err := store.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM memory_content_graph_subjects WHERE user_id = ? AND subject = ?`, "u-index-cg", "美联储").Scan(&count); err != nil {
+		t.Fatalf("old subject index query error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("old subject index count = %d, want removed on graph update", count)
+	}
+	items, err := store.ListMemoryContentGraphsBySubject(context.Background(), "u-index-cg", "欧洲央行")
+	if err != nil {
+		t.Fatalf("ListMemoryContentGraphsBySubject() error = %v", err)
+	}
+	if len(items) != 1 || items[0].SourceExternalID != "indexed-cg" {
+		t.Fatalf("indexed subject items = %#v, want updated graph", items)
+	}
+}
+
 func TestSQLiteStore_ListMemoryContentGraphsBySourceAndSubjectUsesIntersection(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))

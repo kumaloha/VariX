@@ -22,11 +22,17 @@ type subjectHorizonSpec struct {
 	NextRefresh   func(time.Time) time.Time
 }
 
+type projectionSubjectResolver func(context.Context, graphmodel.GraphNode) (string, error)
+
 func (s *SQLiteStore) GetSubjectHorizonMemory(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool) (memory.SubjectHorizonMemory, error) {
 	return s.getSubjectHorizonMemoryWithContentGraphs(ctx, userID, subject, horizon, now, refresh, nil, false)
 }
 
 func (s *SQLiteStore) getSubjectHorizonMemoryWithContentGraphs(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool, graphInputs []graphmodel.ContentSubgraph, hasGraphInputs bool) (memory.SubjectHorizonMemory, error) {
+	return s.getSubjectHorizonMemoryWithContentGraphsAndResolver(ctx, userID, subject, horizon, now, refresh, graphInputs, hasGraphInputs, nil)
+}
+
+func (s *SQLiteStore) getSubjectHorizonMemoryWithContentGraphsAndResolver(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool, graphInputs []graphmodel.ContentSubgraph, hasGraphInputs bool, resolveSubject projectionSubjectResolver) (memory.SubjectHorizonMemory, error) {
 	userID, err := normalizeRequiredUserID(userID)
 	if err != nil {
 		return memory.SubjectHorizonMemory{}, err
@@ -59,7 +65,7 @@ func (s *SQLiteStore) getSubjectHorizonMemoryWithContentGraphs(ctx context.Conte
 			return memory.SubjectHorizonMemory{}, err
 		}
 	}
-	out, err := s.buildSubjectHorizonMemoryFromGraphs(ctx, userID, subject, canonicalSubject, spec, now, graphInputs, map[string]string{})
+	out, err := s.buildSubjectHorizonMemoryFromGraphs(ctx, userID, subject, canonicalSubject, spec, now, graphInputs, map[string]string{}, resolveSubject)
 	if err != nil {
 		return memory.SubjectHorizonMemory{}, err
 	}
@@ -117,14 +123,19 @@ func (s *SQLiteStore) buildSubjectHorizonMemory(ctx context.Context, userID, sub
 	if err != nil {
 		return memory.SubjectHorizonMemory{}, err
 	}
-	return s.buildSubjectHorizonMemoryFromGraphs(ctx, userID, subject, canonicalSubject, spec, now, graphs, map[string]string{})
+	return s.buildSubjectHorizonMemoryFromGraphs(ctx, userID, subject, canonicalSubject, spec, now, graphs, map[string]string{}, nil)
 }
 
-func (s *SQLiteStore) buildSubjectHorizonMemoryFromGraphs(ctx context.Context, userID, subject, canonicalSubject string, spec subjectHorizonSpec, now time.Time, graphs []graphmodel.ContentSubgraph, cache map[string]string) (memory.SubjectHorizonMemory, error) {
+func (s *SQLiteStore) buildSubjectHorizonMemoryFromGraphs(ctx context.Context, userID, subject, canonicalSubject string, spec subjectHorizonSpec, now time.Time, graphs []graphmodel.ContentSubgraph, cache map[string]string, resolveSubject projectionSubjectResolver) (memory.SubjectHorizonMemory, error) {
 	windowStart := spec.WindowStart(now).UTC()
 	windowEnd := now.UTC()
 	if cache == nil {
 		cache = map[string]string{}
+	}
+	if resolveSubject == nil {
+		resolveSubject = func(ctx context.Context, node graphmodel.GraphNode) (string, error) {
+			return s.resolveCanonicalGraphNodeSubject(ctx, node, cache)
+		}
 	}
 	keyChanges := make([]memory.SubjectHorizonChange, 0)
 	driverClusters := map[string]*memory.SubjectHorizonDriver{}
@@ -137,7 +148,7 @@ func (s *SQLiteStore) buildSubjectHorizonMemoryFromGraphs(ctx context.Context, u
 			if !isSubjectTimelineNode(node) {
 				continue
 			}
-			nodeSubject, err := s.resolveCanonicalGraphNodeSubject(ctx, node, cache)
+			nodeSubject, err := resolveSubject(ctx, node)
 			if err != nil {
 				return memory.SubjectHorizonMemory{}, err
 			}

@@ -87,7 +87,7 @@ func persistMemoryContentGraphSubgraphTx(ctx context.Context, tx *sql.Tx, userID
 	if err != nil {
 		return fmt.Errorf("persist memory content graph: %w", err)
 	}
-	return nil
+	return replaceMemoryContentGraphSubjectsTx(ctx, tx, userID, subgraph, acceptedAt)
 }
 
 func (s *SQLiteStore) markContentGraphProjectionDirty(ctx context.Context, userID string, subgraph graphmodel.ContentSubgraph, at time.Time) error {
@@ -118,9 +118,6 @@ func markContentGraphProjectionDirty(ctx context.Context, execer projectionDirty
 		subjects[subject] = struct{}{}
 	}
 	for subject := range subjects {
-		if err := markProjectionDirty(ctx, execer, ProjectionDirtyMark{UserID: userID, Layer: "subject-timeline", Subject: subject, Reason: "content_graph_changed", SourceRef: sourceRef}, at); err != nil {
-			return err
-		}
 		for _, horizon := range []string{"1w", "1m", "1q", "1y", "2y", "5y"} {
 			if err := markProjectionDirty(ctx, execer, ProjectionDirtyMark{UserID: userID, Layer: "subject-horizon", Subject: subject, Horizon: horizon, Reason: "content_graph_changed", SourceRef: sourceRef}, at); err != nil {
 				return err

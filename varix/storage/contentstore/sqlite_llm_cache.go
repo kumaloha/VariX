@@ -75,10 +75,6 @@ func (s *SQLiteStore) GetLLMCacheEntry(ctx context.Context, cacheKey string, mod
 	if err != nil {
 		return LLMCacheEntry{}, false, err
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE llm_cache_entries SET hit_count = hit_count + 1, updated_at = ? WHERE cache_key = ?`, currentSQLiteTimestamp(), cacheKey); err != nil {
-		return LLMCacheEntry{}, false, err
-	}
-	out.HitCount++
 	return out, true, nil
 }
 

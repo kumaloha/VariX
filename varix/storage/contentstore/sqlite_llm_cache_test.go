@@ -31,8 +31,8 @@ func TestSQLiteStore_LLMCacheReadThroughHitMissAndRefresh(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("cached GetLLMCacheEntry() ok=%v err=%v, want hit", ok, err)
 	}
-	if got.ResponseJSON != `{"output":"first"}` || got.HitCount != 1 {
-		t.Fatalf("cache hit = %#v, want first response and hit_count increment", got)
+	if got.ResponseJSON != `{"output":"first"}` || got.HitCount != 0 {
+		t.Fatalf("cache hit = %#v, want first response without synchronous hit_count write", got)
 	}
 	if _, ok, err := store.GetLLMCacheEntry(ctx, key, LLMCacheRefresh); err != nil || ok {
 		t.Fatalf("refresh GetLLMCacheEntry() ok=%v err=%v, want forced miss", ok, err)

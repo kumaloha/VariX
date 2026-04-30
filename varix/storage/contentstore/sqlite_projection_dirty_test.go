@@ -121,6 +121,9 @@ func TestSQLiteStore_PersistMemoryContentGraphDeferredMarksDirtyWithoutProjectio
 	if !hasDirtyMark(marks, "event", "", "") || !hasDirtyMark(marks, "subject-horizon", "美股", "1w") || !hasDirtyMark(marks, "subject-experience", "美股", "") {
 		t.Fatalf("dirty marks = %#v, want event plus subject horizon/experience marks", marks)
 	}
+	if hasDirtyMark(marks, "subject-timeline", "美股", "") {
+		t.Fatalf("dirty marks = %#v, want no subject-timeline mark because timelines are computed on demand", marks)
+	}
 }
 
 func TestSQLiteStore_RunProjectionDirtySweepRefreshesDeferredMarks(t *testing.T) {
@@ -415,6 +418,31 @@ func TestProjectionDirtyUserStateMemoryContentGraphsCoalescesConcurrentLoads(t *
 	}
 	if len(graphs) != 1 || atomic.LoadInt32(&loadCalls) != 1 {
 		t.Fatalf("cached graphs/load calls = %#v/%d, want cached reuse", graphs, loadCalls)
+	}
+}
+
+func TestProjectionDirtyUserStateCanonicalSubjectsReuseLookup(t *testing.T) {
+	ctx := context.Background()
+	state := &projectionDirtyUserState{}
+	var calls int32
+	resolve := func(context.Context, graphmodel.GraphNode, map[string]string) (string, error) {
+		atomic.AddInt32(&calls, 1)
+		return "美联储", nil
+	}
+	node := graphmodel.GraphNode{SubjectText: "联储"}
+	first, err := state.canonicalGraphNodeSubject(ctx, node, resolve)
+	if err != nil {
+		t.Fatalf("canonicalGraphNodeSubject(first) error = %v", err)
+	}
+	second, err := state.canonicalGraphNodeSubject(ctx, node, resolve)
+	if err != nil {
+		t.Fatalf("canonicalGraphNodeSubject(second) error = %v", err)
+	}
+	if first != "美联储" || second != "美联储" {
+		t.Fatalf("canonical subjects = %q/%q, want 美联储", first, second)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("resolve calls = %d, want shared canonical cache hit", got)
 	}
 }
 
