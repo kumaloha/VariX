@@ -25,14 +25,10 @@ type subjectHorizonSpec struct {
 type projectionSubjectResolver func(context.Context, graphmodel.GraphNode) (string, error)
 
 func (s *SQLiteStore) GetSubjectHorizonMemory(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool) (memory.SubjectHorizonMemory, error) {
-	return s.getSubjectHorizonMemoryWithContentGraphs(ctx, userID, subject, horizon, now, refresh, nil, false)
+	return s.getSubjectHorizonMemory(ctx, userID, subject, horizon, now, refresh, nil, false, nil)
 }
 
-func (s *SQLiteStore) getSubjectHorizonMemoryWithContentGraphs(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool, graphInputs []graphmodel.ContentSubgraph, hasGraphInputs bool) (memory.SubjectHorizonMemory, error) {
-	return s.getSubjectHorizonMemoryWithContentGraphsAndResolver(ctx, userID, subject, horizon, now, refresh, graphInputs, hasGraphInputs, nil)
-}
-
-func (s *SQLiteStore) getSubjectHorizonMemoryWithContentGraphsAndResolver(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool, graphInputs []graphmodel.ContentSubgraph, hasGraphInputs bool, resolveSubject projectionSubjectResolver) (memory.SubjectHorizonMemory, error) {
+func (s *SQLiteStore) getSubjectHorizonMemory(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool, graphInputs []graphmodel.ContentSubgraph, hasGraphInputs bool, resolveSubject projectionSubjectResolver) (memory.SubjectHorizonMemory, error) {
 	userID, err := normalizeRequiredUserID(userID)
 	if err != nil {
 		return memory.SubjectHorizonMemory{}, err
@@ -116,14 +112,6 @@ func (s *SQLiteStore) getCachedSubjectHorizonMemory(ctx context.Context, userID,
 	}
 	out.CacheStatus = "fresh"
 	return out, true, nil
-}
-
-func (s *SQLiteStore) buildSubjectHorizonMemory(ctx context.Context, userID, subject, canonicalSubject string, spec subjectHorizonSpec, now time.Time) (memory.SubjectHorizonMemory, error) {
-	graphs, err := s.ListMemoryContentGraphsBySubject(ctx, userID, canonicalSubject)
-	if err != nil {
-		return memory.SubjectHorizonMemory{}, err
-	}
-	return s.buildSubjectHorizonMemoryFromGraphs(ctx, userID, subject, canonicalSubject, spec, now, graphs, map[string]string{}, nil)
 }
 
 func (s *SQLiteStore) buildSubjectHorizonMemoryFromGraphs(ctx context.Context, userID, subject, canonicalSubject string, spec subjectHorizonSpec, now time.Time, graphs []graphmodel.ContentSubgraph, cache map[string]string, resolveSubject projectionSubjectResolver) (memory.SubjectHorizonMemory, error) {

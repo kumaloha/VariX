@@ -247,8 +247,8 @@ func TestSQLiteStore_RunProjectionDirtyMarkStoresRefreshedSubjectHorizonForExper
 
 func TestRunProjectionDirtyMarkGroupsProcessesDifferentUsersConcurrently(t *testing.T) {
 	marks := []ProjectionDirtyMark{
-		{ID: 1, UserID: "u-concurrent-a", Layer: "subject-timeline", Subject: "美股"},
-		{ID: 2, UserID: "u-concurrent-b", Layer: "subject-timeline", Subject: "黄金"},
+		{ID: 1, UserID: "u-concurrent-a", Layer: "subject-experience", Subject: "美股"},
+		{ID: 2, UserID: "u-concurrent-b", Layer: "subject-experience", Subject: "黄金"},
 	}
 	started := make(chan struct{}, len(marks))
 	release := make(chan struct{})
@@ -373,14 +373,14 @@ func TestRunProjectionDirtyMarkGroupProcessesSubjectHorizonsConcurrentlyBeforeEx
 	}
 }
 
-func TestProjectionDirtyUserStateMemoryContentGraphsCoalescesConcurrentLoads(t *testing.T) {
+func TestProjectionDirtyUserStateSubjectGraphsCoalescesConcurrentLoads(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	state := &projectionDirtyUserState{}
 	loadStarted := make(chan struct{}, 2)
 	releaseLoad := make(chan struct{})
 	var loadCalls int32
-	load := func(ctx context.Context, userID string) ([]graphmodel.ContentSubgraph, error) {
+	load := func(ctx context.Context, userID, subject string) ([]graphmodel.ContentSubgraph, error) {
 		atomic.AddInt32(&loadCalls, 1)
 		loadStarted <- struct{}{}
 		select {
@@ -393,7 +393,7 @@ func TestProjectionDirtyUserStateMemoryContentGraphsCoalescesConcurrentLoads(t *
 	done := make(chan []graphmodel.ContentSubgraph, 2)
 	errs := make(chan error, 2)
 	go func() {
-		graphs, err := state.memoryContentGraphs(ctx, "u-graphs", load)
+		graphs, err := state.memoryContentGraphsBySubject(ctx, "u-graphs", "美股", load)
 		done <- graphs
 		errs <- err
 	}()
@@ -403,7 +403,7 @@ func TestProjectionDirtyUserStateMemoryContentGraphsCoalescesConcurrentLoads(t *
 		t.Fatal("first content graph load did not start")
 	}
 	go func() {
-		graphs, err := state.memoryContentGraphs(ctx, "u-graphs", load)
+		graphs, err := state.memoryContentGraphsBySubject(ctx, "u-graphs", "美股", load)
 		done <- graphs
 		errs <- err
 	}()
@@ -415,7 +415,7 @@ func TestProjectionDirtyUserStateMemoryContentGraphsCoalescesConcurrentLoads(t *
 	close(releaseLoad)
 	for i := 0; i < 2; i++ {
 		if err := <-errs; err != nil {
-			t.Fatalf("memoryContentGraphs() error = %v", err)
+			t.Fatalf("memoryContentGraphsBySubject() error = %v", err)
 		}
 		if got := <-done; len(got) != 1 || got[0].SourceExternalID != "source-1" {
 			t.Fatalf("graphs = %#v, want shared loaded graph", got)
@@ -424,9 +424,9 @@ func TestProjectionDirtyUserStateMemoryContentGraphsCoalescesConcurrentLoads(t *
 	if got := atomic.LoadInt32(&loadCalls); got != 1 {
 		t.Fatalf("load calls = %d, want one coalesced load", got)
 	}
-	graphs, err := state.memoryContentGraphs(ctx, "u-graphs", load)
+	graphs, err := state.memoryContentGraphsBySubject(ctx, "u-graphs", "美股", load)
 	if err != nil {
-		t.Fatalf("memoryContentGraphs(cached) error = %v", err)
+		t.Fatalf("memoryContentGraphsBySubject(cached) error = %v", err)
 	}
 	if len(graphs) != 1 || atomic.LoadInt32(&loadCalls) != 1 {
 		t.Fatalf("cached graphs/load calls = %#v/%d, want cached reuse", graphs, loadCalls)
@@ -460,7 +460,7 @@ func TestProjectionDirtyUserStateCanonicalSubjectsReuseLookup(t *testing.T) {
 
 func TestRunProjectionDirtyMarkGroupsClearsSuccessfulMarksInOneBatch(t *testing.T) {
 	marks := []ProjectionDirtyMark{
-		{ID: 1, UserID: "u-batch-clear", Layer: "subject-timeline", Subject: "美股"},
+		{ID: 1, UserID: "u-batch-clear", Layer: "subject-experience", Subject: "美股"},
 		{ID: 2, UserID: "u-batch-clear", Layer: "subject-horizon", Subject: "美股", Horizon: "1w"},
 	}
 	clearCalls := 0

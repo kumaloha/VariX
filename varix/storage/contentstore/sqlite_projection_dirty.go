@@ -61,8 +61,8 @@ type projectionDirtyUserState struct {
 	eventRefreshed    bool
 	paradigmRefreshed bool
 	subjectHorizons   map[string]memory.SubjectHorizonMemory
-	contentGraphs     map[string][]graphmodel.ContentSubgraph
-	contentGraphLoads map[string]*projectionDirtyContentGraphLoad
+	subjectGraphs     map[string][]graphmodel.ContentSubgraph
+	subjectGraphLoads map[string]*projectionDirtyContentGraphLoad
 	canonicalSubjects map[string]string
 }
 
@@ -313,7 +313,6 @@ type projectionDirtyRunOutcome struct {
 func projectionDirtyMarkGroupPhases(marks []ProjectionDirtyMark) []projectionDirtyMarkPhase {
 	var base []ProjectionDirtyMark
 	var global []ProjectionDirtyMark
-	var timeline []ProjectionDirtyMark
 	var horizons []ProjectionDirtyMark
 	var experience []ProjectionDirtyMark
 	var other []ProjectionDirtyMark
@@ -323,8 +322,6 @@ func projectionDirtyMarkGroupPhases(marks []ProjectionDirtyMark) []projectionDir
 			base = append(base, mark)
 		case "global-v2":
 			global = append(global, mark)
-		case "subject-timeline":
-			timeline = append(timeline, mark)
 		case "subject-horizon":
 			horizons = append(horizons, mark)
 		case "subject-experience":
@@ -341,7 +338,6 @@ func projectionDirtyMarkGroupPhases(marks []ProjectionDirtyMark) []projectionDir
 	}
 	appendPhase(base, false)
 	appendPhase(global, false)
-	appendPhase(timeline, false)
 	appendPhase(horizons, true)
 	appendPhase(experience, false)
 	appendPhase(other, false)
@@ -462,7 +458,7 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 		if strings.TrimSpace(mark.Subject) == "" {
 			return fmt.Errorf("subject-timeline mark requires subject")
 		}
-		_, err = s.BuildSubjectTimeline(ctx, userID, mark.Subject, now)
+		return nil
 	case "subject-horizon":
 		if strings.TrimSpace(mark.Subject) == "" || strings.TrimSpace(mark.Horizon) == "" {
 			return fmt.Errorf("subject-horizon mark requires subject and horizon")
@@ -483,7 +479,7 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 				return state.canonicalGraphNodeSubject(ctx, node, s.resolveCanonicalGraphNodeSubject)
 			}
 		}
-		item, err = s.getSubjectHorizonMemoryWithContentGraphsAndResolver(ctx, userID, mark.Subject, mark.Horizon, now, true, graphs, hasGraphInputs, resolve)
+		item, err = s.getSubjectHorizonMemory(ctx, userID, mark.Subject, mark.Horizon, now, true, graphs, hasGraphInputs, resolve)
 		if err == nil && state != nil {
 			state.storeSubjectHorizon(item)
 		}
@@ -502,12 +498,6 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 	return err
 }
 
-func (state *projectionDirtyUserState) memoryContentGraphs(ctx context.Context, userID string, load func(context.Context, string) ([]graphmodel.ContentSubgraph, error)) ([]graphmodel.ContentSubgraph, error) {
-	return state.memoryContentGraphsForKey(ctx, strings.TrimSpace(userID), func(ctx context.Context) ([]graphmodel.ContentSubgraph, error) {
-		return load(ctx, userID)
-	})
-}
-
 func (state *projectionDirtyUserState) memoryContentGraphsBySubject(ctx context.Context, userID, subject string, load func(context.Context, string, string) ([]graphmodel.ContentSubgraph, error)) ([]graphmodel.ContentSubgraph, error) {
 	key := strings.TrimSpace(userID) + "\x00" + normalizeDirtyDimension(subject)
 	return state.memoryContentGraphsForKey(ctx, key, func(ctx context.Context) ([]graphmodel.ContentSubgraph, error) {
@@ -520,16 +510,16 @@ func (state *projectionDirtyUserState) memoryContentGraphsForKey(ctx context.Con
 		return load(ctx)
 	}
 	state.mu.Lock()
-	if state.contentGraphs != nil {
-		if graphs, ok := state.contentGraphs[key]; ok {
+	if state.subjectGraphs != nil {
+		if graphs, ok := state.subjectGraphs[key]; ok {
 			state.mu.Unlock()
 			return graphs, nil
 		}
 	}
-	if state.contentGraphLoads == nil {
-		state.contentGraphLoads = map[string]*projectionDirtyContentGraphLoad{}
+	if state.subjectGraphLoads == nil {
+		state.subjectGraphLoads = map[string]*projectionDirtyContentGraphLoad{}
 	}
-	if inFlight := state.contentGraphLoads[key]; inFlight != nil {
+	if inFlight := state.subjectGraphLoads[key]; inFlight != nil {
 		done := inFlight.done
 		state.mu.Unlock()
 		select {
@@ -543,7 +533,7 @@ func (state *projectionDirtyUserState) memoryContentGraphsForKey(ctx context.Con
 		return graphs, err
 	}
 	inFlight := &projectionDirtyContentGraphLoad{done: make(chan struct{})}
-	state.contentGraphLoads[key] = inFlight
+	state.subjectGraphLoads[key] = inFlight
 	state.mu.Unlock()
 
 	graphs, err := load(ctx)
@@ -552,12 +542,12 @@ func (state *projectionDirtyUserState) memoryContentGraphsForKey(ctx context.Con
 	inFlight.graphs = graphs
 	inFlight.err = err
 	if err == nil {
-		if state.contentGraphs == nil {
-			state.contentGraphs = map[string][]graphmodel.ContentSubgraph{}
+		if state.subjectGraphs == nil {
+			state.subjectGraphs = map[string][]graphmodel.ContentSubgraph{}
 		}
-		state.contentGraphs[key] = graphs
+		state.subjectGraphs[key] = graphs
 	}
-	delete(state.contentGraphLoads, key)
+	delete(state.subjectGraphLoads, key)
 	close(inFlight.done)
 	state.mu.Unlock()
 	return graphs, err
