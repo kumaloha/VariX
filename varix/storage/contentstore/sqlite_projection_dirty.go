@@ -120,6 +120,34 @@ func (s *SQLiteStore) ListProjectionDirtyMarks(ctx context.Context, userID strin
 	return out, rows.Err()
 }
 
+func (s *SQLiteStore) HasProjectionDirtyMark(ctx context.Context, userID, layer, subject, horizon string) (bool, error) {
+	userID = strings.TrimSpace(userID)
+	layer = strings.TrimSpace(layer)
+	if userID == "" || layer == "" {
+		return false, nil
+	}
+	query := `SELECT 1 FROM projection_dirty_marks WHERE status = ? AND user_id = ? AND layer = ?`
+	args := []any{ProjectionDirtyPending, userID, layer}
+	if strings.TrimSpace(subject) != "" {
+		query += ` AND subject = ?`
+		args = append(args, normalizeDirtyDimension(subject))
+	}
+	if strings.TrimSpace(horizon) != "" {
+		query += ` AND horizon = ?`
+		args = append(args, normalizeDirtyDimension(horizon))
+	}
+	query += ` LIMIT 1`
+	var one int
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *SQLiteStore) RunProjectionDirtySweep(ctx context.Context, userID string, limit int, now time.Time) (ProjectionDirtySweepResult, error) {
 	userID = strings.TrimSpace(userID)
 	if limit <= 0 {

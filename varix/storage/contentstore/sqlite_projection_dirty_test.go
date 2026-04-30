@@ -53,6 +53,37 @@ func TestSQLiteStore_ProjectionDirtyMarksCoalesceAndClear(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_HasProjectionDirtyMarkUsesExactOptionalDimensions(t *testing.T) {
+	store := newSubjectTimelineTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 30, 1, 0, 0, 0, time.UTC)
+	if err := store.MarkProjectionDirty(ctx, ProjectionDirtyMark{UserID: "u-dirty-exists", Layer: "subject-horizon", Subject: "美股", Horizon: "1w"}, now); err != nil {
+		t.Fatalf("MarkProjectionDirty() error = %v", err)
+	}
+
+	got, err := store.HasProjectionDirtyMark(ctx, "u-dirty-exists", "subject-horizon", "美股", "1w")
+	if err != nil {
+		t.Fatalf("HasProjectionDirtyMark(exact) error = %v", err)
+	}
+	if !got {
+		t.Fatal("HasProjectionDirtyMark(exact) = false, want true")
+	}
+	got, err = store.HasProjectionDirtyMark(ctx, "u-dirty-exists", "subject-horizon", "美股", "")
+	if err != nil {
+		t.Fatalf("HasProjectionDirtyMark(any horizon) error = %v", err)
+	}
+	if !got {
+		t.Fatal("HasProjectionDirtyMark(any horizon) = false, want true")
+	}
+	got, err = store.HasProjectionDirtyMark(ctx, "u-dirty-exists", "subject-horizon", "美股", "1m")
+	if err != nil {
+		t.Fatalf("HasProjectionDirtyMark(other horizon) error = %v", err)
+	}
+	if got {
+		t.Fatal("HasProjectionDirtyMark(other horizon) = true, want false")
+	}
+}
+
 func TestSQLiteStore_PersistMemoryContentGraphDeferredMarksDirtyWithoutProjectionRefresh(t *testing.T) {
 	store := newSubjectTimelineTestStore(t)
 	ctx := context.Background()

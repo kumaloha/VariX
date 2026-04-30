@@ -10,14 +10,13 @@ import (
 	"time"
 
 	"github.com/kumaloha/VariX/varix/memory"
-	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
 type Store interface {
 	BuildSubjectTimeline(ctx context.Context, userID, subject string, now time.Time) (memory.SubjectTimeline, error)
 	GetSubjectHorizonMemory(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool) (memory.SubjectHorizonMemory, error)
 	GetSubjectExperienceMemory(ctx context.Context, userID, subject string, horizons []string, now time.Time, refresh bool) (memory.SubjectExperienceMemory, error)
-	ListProjectionDirtyMarks(ctx context.Context, userID string, limit int) ([]contentstore.ProjectionDirtyMark, error)
+	HasProjectionDirtyMark(ctx context.Context, userID, layer, subject, horizon string) (bool, error)
 }
 
 type Server struct {
@@ -128,23 +127,13 @@ func (s *Server) handleSubjectExperience(w http.ResponseWriter, r *http.Request,
 
 func (s *Server) freshness(ctx context.Context, userID, layer, subject, horizon, generatedAt, nextRefreshAt string) Freshness {
 	fresh := Freshness{GeneratedAt: generatedAt, NextRefreshAt: nextRefreshAt}
-	marks, err := s.store.ListProjectionDirtyMarks(ctx, userID, 500)
+	pending, err := s.store.HasProjectionDirtyMark(ctx, userID, layer, subject, horizon)
 	if err != nil {
 		return fresh
 	}
-	for _, mark := range marks {
-		if mark.Layer != layer {
-			continue
-		}
-		if strings.TrimSpace(subject) != "" && mark.Subject != strings.TrimSpace(subject) {
-			continue
-		}
-		if strings.TrimSpace(horizon) != "" && mark.Horizon != strings.TrimSpace(horizon) {
-			continue
-		}
+	if pending {
 		fresh.Stale = true
 		fresh.Pending = true
-		return fresh
 	}
 	return fresh
 }

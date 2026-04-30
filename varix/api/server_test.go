@@ -48,6 +48,42 @@ func TestServerSubjectExperienceReturnsFreshnessPending(t *testing.T) {
 	}
 }
 
+func TestServerSubjectExperienceFreshnessDoesNotMissDirtyMarkPastListLimit(t *testing.T) {
+	marks := make([]contentstore.ProjectionDirtyMark, 0, 501)
+	for i := 0; i < 500; i++ {
+		marks = append(marks, contentstore.ProjectionDirtyMark{UserID: "u1", Layer: "subject-experience", Subject: "无关主体", Status: contentstore.ProjectionDirtyPending})
+	}
+	marks = append(marks, contentstore.ProjectionDirtyMark{UserID: "u1", Layer: "subject-experience", Subject: "美股", Status: contentstore.ProjectionDirtyPending})
+	store := &fakeStore{
+		experience: memory.SubjectExperienceMemory{
+			UserID:           "u1",
+			Subject:          "美股",
+			CanonicalSubject: "美股",
+			Horizons:         []string{"1w"},
+			GeneratedAt:      "2026-04-30T00:00:00Z",
+		},
+		marks: marks,
+	}
+	srv := NewServer(store)
+	req := httptest.NewRequest(http.MethodGet, "/memory/subjects/%E7%BE%8E%E8%82%A1/experience?user=u1&horizons=1w", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Freshness Freshness `json:"freshness"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if !payload.Freshness.Stale || !payload.Freshness.Pending {
+		t.Fatalf("freshness = %#v, want stale pending despite relevant mark after list limit", payload.Freshness)
+	}
+}
+
 func TestServerSubjectHorizonsRequiresUser(t *testing.T) {
 	srv := NewServer(&fakeStore{})
 	req := httptest.NewRequest(http.MethodGet, "/memory/subjects/%E7%BE%8E%E8%82%A1/horizons", nil)
@@ -91,11 +127,33 @@ func (f *fakeStore) GetSubjectExperienceMemory(_ context.Context, userID, subjec
 	return memory.SubjectExperienceMemory{UserID: userID, Subject: subject, CanonicalSubject: subject, Horizons: horizons, GeneratedAt: now.Format(time.RFC3339), InputHash: "hash-experience"}, nil
 }
 
-func (f *fakeStore) ListProjectionDirtyMarks(_ context.Context, userID string, _ int) ([]contentstore.ProjectionDirtyMark, error) {
+func (f *fakeStore) HasProjectionDirtyMark(_ context.Context, userID, layer, subject, horizon string) (bool, error) {
+	for _, mark := range f.marks {
+		if userID != "" && mark.UserID != userID {
+			continue
+		}
+		if layer != "" && mark.Layer != layer {
+			continue
+		}
+		if subject != "" && mark.Subject != subject {
+			continue
+		}
+		if horizon != "" && mark.Horizon != horizon {
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (f *fakeStore) ListProjectionDirtyMarks(_ context.Context, userID string, limit int) ([]contentstore.ProjectionDirtyMark, error) {
 	out := make([]contentstore.ProjectionDirtyMark, 0)
 	for _, mark := range f.marks {
 		if userID == "" || mark.UserID == userID {
 			out = append(out, mark)
+			if limit > 0 && len(out) >= limit {
+				return out, nil
+			}
 		}
 	}
 	return out, nil
