@@ -25,7 +25,7 @@ func (s *SQLiteStore) BuildSubjectTimeline(ctx context.Context, userID, subject 
 	if err != nil {
 		return memory.SubjectTimeline{}, err
 	}
-	graphs, err := s.ListMemoryContentGraphs(ctx, userID)
+	graphs, err := s.ListMemoryContentGraphsBySubject(ctx, userID, canonicalSubject)
 	if err != nil {
 		return memory.SubjectTimeline{}, err
 	}

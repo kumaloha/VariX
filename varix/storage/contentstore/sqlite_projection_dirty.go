@@ -471,7 +471,7 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 		var graphs []graphmodel.ContentSubgraph
 		hasGraphInputs := false
 		if state != nil {
-			graphs, err = state.memoryContentGraphs(ctx, userID, s.ListMemoryContentGraphs)
+			graphs, err = state.memoryContentGraphsBySubject(ctx, userID, mark.Subject, s.ListMemoryContentGraphsBySubject)
 			if err != nil {
 				return err
 			}
@@ -503,13 +503,25 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 }
 
 func (state *projectionDirtyUserState) memoryContentGraphs(ctx context.Context, userID string, load func(context.Context, string) ([]graphmodel.ContentSubgraph, error)) ([]graphmodel.ContentSubgraph, error) {
-	if state == nil {
+	return state.memoryContentGraphsForKey(ctx, strings.TrimSpace(userID), func(ctx context.Context) ([]graphmodel.ContentSubgraph, error) {
 		return load(ctx, userID)
+	})
+}
+
+func (state *projectionDirtyUserState) memoryContentGraphsBySubject(ctx context.Context, userID, subject string, load func(context.Context, string, string) ([]graphmodel.ContentSubgraph, error)) ([]graphmodel.ContentSubgraph, error) {
+	key := strings.TrimSpace(userID) + "\x00" + normalizeDirtyDimension(subject)
+	return state.memoryContentGraphsForKey(ctx, key, func(ctx context.Context) ([]graphmodel.ContentSubgraph, error) {
+		return load(ctx, userID, subject)
+	})
+}
+
+func (state *projectionDirtyUserState) memoryContentGraphsForKey(ctx context.Context, key string, load func(context.Context) ([]graphmodel.ContentSubgraph, error)) ([]graphmodel.ContentSubgraph, error) {
+	if state == nil {
+		return load(ctx)
 	}
-	userID = strings.TrimSpace(userID)
 	state.mu.Lock()
 	if state.contentGraphs != nil {
-		if graphs, ok := state.contentGraphs[userID]; ok {
+		if graphs, ok := state.contentGraphs[key]; ok {
 			state.mu.Unlock()
 			return graphs, nil
 		}
@@ -517,7 +529,7 @@ func (state *projectionDirtyUserState) memoryContentGraphs(ctx context.Context, 
 	if state.contentGraphLoads == nil {
 		state.contentGraphLoads = map[string]*projectionDirtyContentGraphLoad{}
 	}
-	if inFlight := state.contentGraphLoads[userID]; inFlight != nil {
+	if inFlight := state.contentGraphLoads[key]; inFlight != nil {
 		done := inFlight.done
 		state.mu.Unlock()
 		select {
@@ -531,10 +543,10 @@ func (state *projectionDirtyUserState) memoryContentGraphs(ctx context.Context, 
 		return graphs, err
 	}
 	inFlight := &projectionDirtyContentGraphLoad{done: make(chan struct{})}
-	state.contentGraphLoads[userID] = inFlight
+	state.contentGraphLoads[key] = inFlight
 	state.mu.Unlock()
 
-	graphs, err := load(ctx, userID)
+	graphs, err := load(ctx)
 
 	state.mu.Lock()
 	inFlight.graphs = graphs
@@ -543,9 +555,9 @@ func (state *projectionDirtyUserState) memoryContentGraphs(ctx context.Context, 
 		if state.contentGraphs == nil {
 			state.contentGraphs = map[string][]graphmodel.ContentSubgraph{}
 		}
-		state.contentGraphs[userID] = graphs
+		state.contentGraphs[key] = graphs
 	}
-	delete(state.contentGraphLoads, userID)
+	delete(state.contentGraphLoads, key)
 	close(inFlight.done)
 	state.mu.Unlock()
 	return graphs, err

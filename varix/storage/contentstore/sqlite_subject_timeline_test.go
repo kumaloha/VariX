@@ -2,6 +2,7 @@ package contentstore
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -221,6 +222,32 @@ func TestSQLiteStore_BuildSubjectTimelineExcludesNonPrimaryAndContextNodes(t *te
 	}
 	if len(timeline.Entries) != 1 || timeline.Entries[0].NodeID != "primary" {
 		t.Fatalf("timeline entries = %#v, want only primary driver/target node", timeline.Entries)
+	}
+}
+
+func TestSQLiteStore_BuildSubjectTimelineUsesSubjectIndex(t *testing.T) {
+	store := newSubjectTimelineTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	graph := subjectTimelineSubgraph("timeline-no-index", now, []graphmodel.GraphNode{
+		subjectHorizonNode("target", "timeline-no-index", "美股", "继续上涨", now, graphmodel.GraphRoleTarget),
+	})
+	payload, err := json.Marshal(graph)
+	if err != nil {
+		t.Fatalf("json.Marshal(graph) error = %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO memory_content_graphs(user_id, source_platform, source_external_id, root_external_id, subgraph_id, payload_json, accepted_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"u-timeline-index", graph.SourcePlatform, graph.SourceExternalID, graph.RootExternalID, graph.ID, string(payload), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatalf("insert unindexed memory_content_graph error = %v", err)
+	}
+
+	timeline, err := store.BuildSubjectTimeline(ctx, "u-timeline-index", "美股", now)
+	if err != nil {
+		t.Fatalf("BuildSubjectTimeline() error = %v", err)
+	}
+	if len(timeline.Entries) != 0 {
+		t.Fatalf("timeline entries = %#v, want indexed subject lookup to ignore unindexed graph", timeline.Entries)
 	}
 }
 

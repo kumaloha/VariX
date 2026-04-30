@@ -60,7 +60,7 @@ func (s *SQLiteStore) getSubjectHorizonMemoryWithContentGraphsAndResolver(ctx co
 		}
 	}
 	if !hasGraphInputs {
-		graphInputs, err = s.ListMemoryContentGraphs(ctx, userID)
+		graphInputs, err = s.ListMemoryContentGraphsBySubject(ctx, userID, canonicalSubject)
 		if err != nil {
 			return memory.SubjectHorizonMemory{}, err
 		}
@@ -119,7 +119,7 @@ func (s *SQLiteStore) getCachedSubjectHorizonMemory(ctx context.Context, userID,
 }
 
 func (s *SQLiteStore) buildSubjectHorizonMemory(ctx context.Context, userID, subject, canonicalSubject string, spec subjectHorizonSpec, now time.Time) (memory.SubjectHorizonMemory, error) {
-	graphs, err := s.ListMemoryContentGraphs(ctx, userID)
+	graphs, err := s.ListMemoryContentGraphsBySubject(ctx, userID, canonicalSubject)
 	if err != nil {
 		return memory.SubjectHorizonMemory{}, err
 	}

@@ -2,6 +2,7 @@ package contentstore
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -141,6 +142,32 @@ func TestSQLiteStore_GetSubjectHorizonMemorySupportsDefaultRefreshCadence(t *tes
 		if out.RefreshPolicy != tt.policy || out.NextRefreshAt != tt.next.Format(time.RFC3339) {
 			t.Fatalf("%s policy/next = %s/%s, want %s/%s", tt.horizon, out.RefreshPolicy, out.NextRefreshAt, tt.policy, tt.next.Format(time.RFC3339))
 		}
+	}
+}
+
+func TestSQLiteStore_GetSubjectHorizonMemoryRefreshUsesSubjectIndex(t *testing.T) {
+	store := newSubjectTimelineTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	graph := subjectTimelineSubgraph("horizon-no-index", now, []graphmodel.GraphNode{
+		subjectHorizonNode("target", "horizon-no-index", "美股", "继续上涨", now, graphmodel.GraphRoleTarget),
+	})
+	payload, err := json.Marshal(graph)
+	if err != nil {
+		t.Fatalf("json.Marshal(graph) error = %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO memory_content_graphs(user_id, source_platform, source_external_id, root_external_id, subgraph_id, payload_json, accepted_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"u-horizon-index", graph.SourcePlatform, graph.SourceExternalID, graph.RootExternalID, graph.ID, string(payload), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatalf("insert unindexed memory_content_graph error = %v", err)
+	}
+
+	out, err := store.GetSubjectHorizonMemory(ctx, "u-horizon-index", "美股", "1w", now, true)
+	if err != nil {
+		t.Fatalf("GetSubjectHorizonMemory() error = %v", err)
+	}
+	if out.SampleCount != 0 {
+		t.Fatalf("SampleCount = %d, want indexed subject lookup to ignore unindexed graph", out.SampleCount)
 	}
 }
 

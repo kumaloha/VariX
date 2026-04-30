@@ -85,6 +85,18 @@ func TestSQLiteStore_HasProjectionDirtyMarkUsesExactOptionalDimensions(t *testin
 	}
 }
 
+func TestSQLiteStore_ProjectionDirtyMarksHasUserSweepIndex(t *testing.T) {
+	store := newSubjectTimelineTestStore(t)
+	var name string
+	err := store.db.QueryRowContext(context.Background(), `SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`, "idx_projection_dirty_marks_user_pending").Scan(&name)
+	if err != nil {
+		t.Fatalf("user pending dirty mark index lookup error = %v", err)
+	}
+	if name != "idx_projection_dirty_marks_user_pending" {
+		t.Fatalf("index name = %q, want idx_projection_dirty_marks_user_pending", name)
+	}
+}
+
 func TestSQLiteStore_PersistMemoryContentGraphDeferredMarksDirtyWithoutProjectionRefresh(t *testing.T) {
 	store := newSubjectTimelineTestStore(t)
 	ctx := context.Background()

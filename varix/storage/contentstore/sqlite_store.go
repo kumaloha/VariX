@@ -583,6 +583,8 @@ func (s *SQLiteStore) init() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_projection_dirty_marks_pending
 			ON projection_dirty_marks(status, dirty_at, user_id, layer)`,
+		`CREATE INDEX IF NOT EXISTS idx_projection_dirty_marks_user_pending
+			ON projection_dirty_marks(status, user_id, dirty_at, layer)`,
 		`CREATE TABLE IF NOT EXISTS event_graphs (
 			event_graph_id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
