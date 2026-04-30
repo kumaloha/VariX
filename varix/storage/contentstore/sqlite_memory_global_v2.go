@@ -13,18 +13,24 @@ import (
 )
 
 func (s *SQLiteStore) RunGlobalMemoryOrganizationV2(ctx context.Context, userID string, now time.Time) (memory.GlobalMemoryV2Output, error) {
+	return s.runGlobalMemoryOrganizationV2(ctx, userID, now, true)
+}
+
+func (s *SQLiteStore) runGlobalMemoryOrganizationV2(ctx context.Context, userID string, now time.Time, refreshProjections bool) (memory.GlobalMemoryV2Output, error) {
 	var err error
 	userID, err = normalizeRequiredUserID(userID)
 	if err != nil {
 		return memory.GlobalMemoryV2Output{}, err
 	}
 	now = normalizeNow(now)
-	// refresh graph-first persisted projections first so global-v2 sees the freshest event/paradigm layers
-	if _, err := s.RunEventGraphProjection(ctx, userID, now); err != nil {
-		return memory.GlobalMemoryV2Output{}, err
-	}
-	if _, err := s.RunParadigmProjection(ctx, userID, now); err != nil {
-		return memory.GlobalMemoryV2Output{}, err
+	if refreshProjections {
+		// Refresh graph-first persisted projections first so global-v2 sees fresh event/paradigm layers.
+		if _, err := s.RunEventGraphProjection(ctx, userID, now); err != nil {
+			return memory.GlobalMemoryV2Output{}, err
+		}
+		if _, err := s.RunParadigmProjection(ctx, userID, now); err != nil {
+			return memory.GlobalMemoryV2Output{}, err
+		}
 	}
 
 	nodes, err := s.ListUserMemory(ctx, userID)

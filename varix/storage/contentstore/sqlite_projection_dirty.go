@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -45,6 +46,11 @@ type ProjectionDirtySweepError struct {
 
 type projectionDirtyExecer interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+type projectionDirtyUserState struct {
+	eventRefreshed    bool
+	paradigmRefreshed bool
 }
 
 func (s *SQLiteStore) MarkProjectionDirty(ctx context.Context, mark ProjectionDirtyMark, at time.Time) error {
@@ -130,8 +136,10 @@ func (s *SQLiteStore) RunProjectionDirtySweep(ctx context.Context, userID string
 		return result, err
 	}
 	result.Scanned = len(marks)
-	for _, mark := range marks {
-		if err := s.runProjectionDirtyMark(ctx, mark, now); err != nil {
+	states := map[string]*projectionDirtyUserState{}
+	for _, mark := range orderProjectionDirtyMarksForSweep(marks) {
+		state := projectionDirtyStateForMark(states, mark)
+		if err := s.runProjectionDirtyMark(ctx, mark, now, state); err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
 			continue
@@ -158,7 +166,36 @@ func (s *SQLiteStore) RunProjectionDirtySweep(ctx context.Context, userID string
 	return result, nil
 }
 
-func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark ProjectionDirtyMark, now time.Time) error {
+func projectionDirtyStateForMark(states map[string]*projectionDirtyUserState, mark ProjectionDirtyMark) *projectionDirtyUserState {
+	userID := strings.TrimSpace(mark.UserID)
+	state := states[userID]
+	if state == nil {
+		state = &projectionDirtyUserState{}
+		states[userID] = state
+	}
+	return state
+}
+
+func orderProjectionDirtyMarksForSweep(marks []ProjectionDirtyMark) []ProjectionDirtyMark {
+	out := append([]ProjectionDirtyMark(nil), marks...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return projectionDirtyLayerPriority(out[i].Layer) < projectionDirtyLayerPriority(out[j].Layer)
+	})
+	return out
+}
+
+func projectionDirtyLayerPriority(layer string) int {
+	switch strings.TrimSpace(layer) {
+	case "event", "paradigm":
+		return 0
+	case "global-v2":
+		return 1
+	default:
+		return 2
+	}
+}
+
+func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark ProjectionDirtyMark, now time.Time, state *projectionDirtyUserState) error {
 	userID, err := normalizeRequiredUserID(mark.UserID)
 	if err != nil {
 		return err
@@ -166,10 +203,21 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 	switch strings.TrimSpace(mark.Layer) {
 	case "event":
 		_, err = s.RunEventGraphProjection(ctx, userID, now)
+		if err == nil && state != nil {
+			state.eventRefreshed = true
+		}
 	case "paradigm":
 		_, err = s.RunParadigmProjection(ctx, userID, now)
+		if err == nil && state != nil {
+			state.paradigmRefreshed = true
+		}
 	case "global-v2":
-		_, err = s.RunGlobalMemoryOrganizationV2(ctx, userID, now)
+		refreshProjections := state == nil || !state.eventRefreshed || !state.paradigmRefreshed
+		_, err = s.runGlobalMemoryOrganizationV2(ctx, userID, now, refreshProjections)
+		if err == nil && refreshProjections && state != nil {
+			state.eventRefreshed = true
+			state.paradigmRefreshed = true
+		}
 	case "subject-timeline":
 		if strings.TrimSpace(mark.Subject) == "" {
 			return fmt.Errorf("subject-timeline mark requires subject")

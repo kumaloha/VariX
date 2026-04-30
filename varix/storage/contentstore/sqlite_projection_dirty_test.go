@@ -129,6 +129,54 @@ func TestSQLiteStore_RunProjectionDirtySweepRefreshesDeferredMarks(t *testing.T)
 	}
 }
 
+func TestSQLiteStore_RunProjectionDirtySweepAvoidsDuplicateBaseProjectionRefresh(t *testing.T) {
+	store := newSubjectTimelineTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	graph := subjectTimelineSubgraph("dedupe", now, []graphmodel.GraphNode{
+		subjectHorizonNode("driver", "dedupe", "油价", "继续上涨", now, graphmodel.GraphRoleDriver),
+		subjectHorizonNode("target", "dedupe", "美股", "从纪录高位回落", now, graphmodel.GraphRoleTarget),
+	})
+
+	if err := store.PersistMemoryContentGraphDeferred(ctx, "u-sweep-dedupe", graph, now); err != nil {
+		t.Fatalf("PersistMemoryContentGraphDeferred() error = %v", err)
+	}
+	marks, err := store.ListProjectionDirtyMarks(ctx, "u-sweep-dedupe", 100)
+	if err != nil {
+		t.Fatalf("ListProjectionDirtyMarks() error = %v", err)
+	}
+	for _, mark := range marks {
+		switch mark.Layer {
+		case "event", "paradigm", "global-v2":
+		default:
+			if err := store.ClearProjectionDirtyMark(ctx, mark); err != nil {
+				t.Fatalf("ClearProjectionDirtyMark(%s) error = %v", mark.Layer, err)
+			}
+		}
+	}
+	if _, err := store.db.ExecContext(ctx, `CREATE TEMP TABLE projection_refresh_counts(kind TEXT NOT NULL)`); err != nil {
+		t.Fatalf("create temp count table error = %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `CREATE TEMP TRIGGER count_event_graph_updates AFTER UPDATE ON event_graphs BEGIN INSERT INTO projection_refresh_counts(kind) VALUES ('event_update'); END`); err != nil {
+		t.Fatalf("create event update trigger error = %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `CREATE TEMP TRIGGER count_paradigm_updates AFTER UPDATE ON paradigms BEGIN INSERT INTO projection_refresh_counts(kind) VALUES ('paradigm_update'); END`); err != nil {
+		t.Fatalf("create paradigm update trigger error = %v", err)
+	}
+
+	result, err := store.RunProjectionDirtySweep(ctx, "u-sweep-dedupe", 100, now)
+	if err != nil {
+		t.Fatalf("RunProjectionDirtySweep() error = %v; result = %#v", err, result)
+	}
+	var duplicateRefreshes int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projection_refresh_counts WHERE kind IN ('event_update', 'paradigm_update')`).Scan(&duplicateRefreshes); err != nil {
+		t.Fatalf("duplicate refresh count query error = %v", err)
+	}
+	if duplicateRefreshes != 0 {
+		t.Fatalf("duplicate base projection refresh updates = %d, want 0", duplicateRefreshes)
+	}
+}
+
 func hasDirtyMark(marks []ProjectionDirtyMark, layer, subject, horizon string) bool {
 	for _, mark := range marks {
 		if mark.Layer == layer && mark.Subject == subject && mark.Horizon == horizon {
