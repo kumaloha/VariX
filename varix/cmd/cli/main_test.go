@@ -6198,7 +6198,7 @@ func TestRunMemoryProjectionSweepProcessesPendingMarks(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"memory", "projection-sweep", "--user", "u-projection-sweep", "--limit", "100"}, "/tmp/project", &stdout, &stderr)
+	code := run([]string{"memory", "projection-sweep", "--user", "u-projection-sweep", "--limit", "100", "--workers", "2"}, "/tmp/project", &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("memory projection-sweep code = %d, stderr = %s", code, stderr.String())
 	}
@@ -6214,6 +6214,9 @@ func TestRunMemoryProjectionSweepProcessesPendingMarks(t *testing.T) {
 	}
 	if remaining, _ := out["remaining"].(float64); remaining != 0 {
 		t.Fatalf("projection-sweep output = %#v, want remaining=0", out)
+	}
+	if workers, _ := out["workers"].(float64); workers != 2 {
+		t.Fatalf("projection-sweep output = %#v, want workers=2", out)
 	}
 }
 

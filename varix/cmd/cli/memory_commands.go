@@ -1712,11 +1712,12 @@ func runMemoryProjectionSweep(args []string, projectRoot string, stdout, stderr 
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "optional user id; empty sweeps all pending users")
 	limit := fs.Int("limit", 100, "max dirty projection marks to process")
+	workers := fs.Int("workers", 1, "max users to sweep concurrently")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if *limit <= 0 {
-		fmt.Fprintln(stderr, "usage: varix memory projection-sweep [--user <user_id>] [--limit <n>]")
+	if *limit <= 0 || *workers <= 0 {
+		fmt.Fprintln(stderr, "usage: varix memory projection-sweep [--user <user_id>] [--limit <n>] [--workers <n>]")
 		return 2
 	}
 	store, err := openStore(projectRoot)
@@ -1725,7 +1726,7 @@ func runMemoryProjectionSweep(args []string, projectRoot string, stdout, stderr 
 		return 1
 	}
 	defer store.Close()
-	result, err := store.RunProjectionDirtySweep(context.Background(), strings.TrimSpace(*userID), *limit, currentUTC())
+	result, err := store.RunProjectionDirtySweepWithWorkers(context.Background(), strings.TrimSpace(*userID), *limit, *workers, currentUTC())
 	if err != nil {
 		payload, marshalErr := json.MarshalIndent(result, "", "  ")
 		if marshalErr == nil {

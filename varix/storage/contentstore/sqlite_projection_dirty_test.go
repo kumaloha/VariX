@@ -3,6 +3,7 @@ package contentstore
 import (
 	"context"
 	"database/sql"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -205,6 +206,50 @@ func TestSQLiteStore_RunProjectionDirtySweepAvoidsDuplicateBaseProjectionRefresh
 	}
 	if duplicateRefreshes != 0 {
 		t.Fatalf("duplicate base projection refresh updates = %d, want 0", duplicateRefreshes)
+	}
+}
+
+func TestRunProjectionDirtyMarkGroupsProcessesDifferentUsersConcurrently(t *testing.T) {
+	marks := []ProjectionDirtyMark{
+		{ID: 1, UserID: "u-concurrent-a", Layer: "subject-timeline", Subject: "美股"},
+		{ID: 2, UserID: "u-concurrent-b", Layer: "subject-timeline", Subject: "黄金"},
+	}
+	started := make(chan struct{}, len(marks))
+	release := make(chan struct{})
+	var active int32
+	var maxActive int32
+	runner := func(ctx context.Context, mark ProjectionDirtyMark, state *projectionDirtyUserState) error {
+		nowActive := atomic.AddInt32(&active, 1)
+		for {
+			previous := atomic.LoadInt32(&maxActive)
+			if nowActive <= previous || atomic.CompareAndSwapInt32(&maxActive, previous, nowActive) {
+				break
+			}
+		}
+		started <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		atomic.AddInt32(&active, -1)
+		return nil
+	}
+	clearer := func(context.Context, ProjectionDirtyMark) error { return nil }
+	done := make(chan ProjectionDirtySweepResult, 1)
+
+	go func() {
+		done <- runProjectionDirtyMarkGroups(context.Background(), marks, 2, runner, clearer)
+	}()
+	<-started
+	<-started
+	if got := atomic.LoadInt32(&maxActive); got < 2 {
+		t.Fatalf("max active runners = %d, want different users processed concurrently", got)
+	}
+	close(release)
+	result := <-done
+	if result.Completed != 2 || result.Failed != 0 {
+		t.Fatalf("result = %#v, want both marks completed", result)
 	}
 }
 

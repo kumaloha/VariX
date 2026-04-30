@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,6 +29,7 @@ type ProjectionDirtyMark struct {
 type ProjectionDirtySweepResult struct {
 	UserID    string                      `json:"user_id,omitempty"`
 	Limit     int                         `json:"limit"`
+	Workers   int                         `json:"workers"`
 	Scanned   int                         `json:"scanned"`
 	Completed int                         `json:"completed"`
 	Failed    int                         `json:"failed"`
@@ -52,6 +54,10 @@ type projectionDirtyUserState struct {
 	eventRefreshed    bool
 	paradigmRefreshed bool
 }
+
+type projectionDirtyMarkRunner func(context.Context, ProjectionDirtyMark, *projectionDirtyUserState) error
+
+type projectionDirtyMarkClearer func(context.Context, ProjectionDirtyMark) error
 
 func (s *SQLiteStore) MarkProjectionDirty(ctx context.Context, mark ProjectionDirtyMark, at time.Time) error {
 	return markProjectionDirty(ctx, s.db, mark, at)
@@ -149,37 +155,30 @@ func (s *SQLiteStore) HasProjectionDirtyMark(ctx context.Context, userID, layer,
 }
 
 func (s *SQLiteStore) RunProjectionDirtySweep(ctx context.Context, userID string, limit int, now time.Time) (ProjectionDirtySweepResult, error) {
+	return s.RunProjectionDirtySweepWithWorkers(ctx, userID, limit, 1, now)
+}
+
+func (s *SQLiteStore) RunProjectionDirtySweepWithWorkers(ctx context.Context, userID string, limit int, workers int, now time.Time) (ProjectionDirtySweepResult, error) {
 	userID = strings.TrimSpace(userID)
 	if limit <= 0 {
 		limit = 100
 	}
+	if workers <= 0 {
+		workers = 1
+	}
 	now = normalizeRecordedTime(now)
 	result := ProjectionDirtySweepResult{
-		UserID: userID,
-		Limit:  limit,
-		Layers: map[string]int{},
+		UserID:  userID,
+		Limit:   limit,
+		Workers: workers,
 	}
 	marks, err := s.ListProjectionDirtyMarks(ctx, userID, limit)
 	if err != nil {
 		return result, err
 	}
-	result.Scanned = len(marks)
-	states := map[string]*projectionDirtyUserState{}
-	for _, mark := range orderProjectionDirtyMarksForSweep(marks) {
-		state := projectionDirtyStateForMark(states, mark)
-		if err := s.runProjectionDirtyMark(ctx, mark, now, state); err != nil {
-			result.Failed++
-			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
-			continue
-		}
-		if err := s.ClearProjectionDirtyMark(ctx, mark); err != nil {
-			result.Failed++
-			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
-			continue
-		}
-		result.Completed++
-		result.Layers[strings.TrimSpace(mark.Layer)]++
-	}
+	result = mergeProjectionDirtySweepResult(result, runProjectionDirtyMarkGroups(ctx, marks, workers, func(ctx context.Context, mark ProjectionDirtyMark, state *projectionDirtyUserState) error {
+		return s.runProjectionDirtyMark(ctx, mark, now, state)
+	}, s.ClearProjectionDirtyMark))
 	remaining, err := s.countProjectionDirtyMarks(ctx, userID)
 	if err != nil {
 		return result, err
@@ -194,14 +193,107 @@ func (s *SQLiteStore) RunProjectionDirtySweep(ctx context.Context, userID string
 	return result, nil
 }
 
-func projectionDirtyStateForMark(states map[string]*projectionDirtyUserState, mark ProjectionDirtyMark) *projectionDirtyUserState {
-	userID := strings.TrimSpace(mark.UserID)
-	state := states[userID]
-	if state == nil {
-		state = &projectionDirtyUserState{}
-		states[userID] = state
+func runProjectionDirtyMarkGroups(ctx context.Context, marks []ProjectionDirtyMark, workers int, runner projectionDirtyMarkRunner, clearer projectionDirtyMarkClearer) ProjectionDirtySweepResult {
+	if workers <= 0 {
+		workers = 1
 	}
-	return state
+	result := ProjectionDirtySweepResult{Workers: workers, Scanned: len(marks), Layers: map[string]int{}}
+	groups := groupProjectionDirtyMarksByUser(marks)
+	if len(groups) == 0 {
+		result.Layers = nil
+		return result
+	}
+	if workers > len(groups) {
+		workers = len(groups)
+	}
+	jobs := make(chan []ProjectionDirtyMark)
+	results := make(chan ProjectionDirtySweepResult, len(groups))
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for group := range jobs {
+				results <- runProjectionDirtyMarkGroup(ctx, group, runner, clearer)
+			}
+		}()
+	}
+	for _, group := range groups {
+		jobs <- group
+	}
+	close(jobs)
+	wg.Wait()
+	close(results)
+	for item := range results {
+		result = mergeProjectionDirtySweepResult(result, item)
+	}
+	if result.Completed == 0 {
+		result.Layers = nil
+	}
+	return result
+}
+
+func groupProjectionDirtyMarksByUser(marks []ProjectionDirtyMark) [][]ProjectionDirtyMark {
+	order := make([]string, 0)
+	byUser := map[string][]ProjectionDirtyMark{}
+	for _, mark := range marks {
+		userID := strings.TrimSpace(mark.UserID)
+		if _, ok := byUser[userID]; !ok {
+			order = append(order, userID)
+		}
+		byUser[userID] = append(byUser[userID], mark)
+	}
+	out := make([][]ProjectionDirtyMark, 0, len(order))
+	for _, userID := range order {
+		out = append(out, byUser[userID])
+	}
+	return out
+}
+
+func runProjectionDirtyMarkGroup(ctx context.Context, marks []ProjectionDirtyMark, runner projectionDirtyMarkRunner, clearer projectionDirtyMarkClearer) ProjectionDirtySweepResult {
+	result := ProjectionDirtySweepResult{Layers: map[string]int{}}
+	state := &projectionDirtyUserState{}
+	for _, mark := range orderProjectionDirtyMarksForSweep(marks) {
+		if err := ctx.Err(); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
+			continue
+		}
+		if err := runner(ctx, mark, state); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
+			continue
+		}
+		if err := clearer(ctx, mark); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, projectionDirtySweepError(mark, err))
+			continue
+		}
+		result.Completed++
+		result.Layers[strings.TrimSpace(mark.Layer)]++
+	}
+	if result.Completed == 0 {
+		result.Layers = nil
+	}
+	return result
+}
+
+func mergeProjectionDirtySweepResult(base ProjectionDirtySweepResult, add ProjectionDirtySweepResult) ProjectionDirtySweepResult {
+	base.Scanned += add.Scanned
+	base.Completed += add.Completed
+	base.Failed += add.Failed
+	if len(add.Errors) > 0 {
+		base.Errors = append(base.Errors, add.Errors...)
+	}
+	if len(add.Layers) > 0 {
+		if base.Layers == nil {
+			base.Layers = map[string]int{}
+		}
+		for layer, count := range add.Layers {
+			base.Layers[layer] += count
+		}
+	}
+	return base
 }
 
 func orderProjectionDirtyMarksForSweep(marks []ProjectionDirtyMark) []ProjectionDirtyMark {
