@@ -84,6 +84,39 @@ func TestServerSubjectExperienceFreshnessDoesNotMissDirtyMarkPastListLimit(t *te
 	}
 }
 
+func TestServerSubjectTimelineFreshnessIgnoresDirtyMarks(t *testing.T) {
+	store := &fakeStore{
+		timeline: memory.SubjectTimeline{
+			UserID:           "u1",
+			Subject:          "美股",
+			CanonicalSubject: "美股",
+			GeneratedAt:      time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC),
+		},
+		marks: []contentstore.ProjectionDirtyMark{{UserID: "u1", Layer: "subject-timeline", Subject: "美股", Status: contentstore.ProjectionDirtyPending}},
+	}
+	srv := NewServer(store)
+	req := httptest.NewRequest(http.MethodGet, "/memory/subjects/%E7%BE%8E%E8%82%A1/timeline?user=u1", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Freshness Freshness `json:"freshness"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if payload.Freshness.Stale || payload.Freshness.Pending {
+		t.Fatalf("freshness = %#v, want computed timeline without pending projection state", payload.Freshness)
+	}
+	if payload.Freshness.GeneratedAt != "2026-04-30T12:00:00Z" {
+		t.Fatalf("generated_at = %q, want timeline generation time", payload.Freshness.GeneratedAt)
+	}
+}
+
 func TestServerSubjectHorizonsRequiresUser(t *testing.T) {
 	srv := NewServer(&fakeStore{})
 	req := httptest.NewRequest(http.MethodGet, "/memory/subjects/%E7%BE%8E%E8%82%A1/horizons", nil)

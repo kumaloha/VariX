@@ -86,7 +86,7 @@ func (s *Server) handleSubjectTimeline(w http.ResponseWriter, r *http.Request, u
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"timeline":  timeline,
-		"freshness": s.freshness(r.Context(), userID, "subject-timeline", timeline.CanonicalSubject, "", timeline.GeneratedAt.Format(time.RFC3339), ""),
+		"freshness": Freshness{GeneratedAt: timeline.GeneratedAt.Format(time.RFC3339)},
 	})
 }
 
