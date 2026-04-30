@@ -211,6 +211,17 @@ func TestRunMemoryAcceptRequiresFields(t *testing.T) {
 	}
 }
 
+func TestRunServeRequiresAddr(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"serve", "--addr", ""}, "/tmp/project", &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run() code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "usage: varix serve") {
+		t.Fatalf("stderr = %q, want usage", stderr.String())
+	}
+}
+
 func TestRunMemoryPosteriorRunRequiresUser(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"memory", "posterior-run"}, "/tmp/project", &stdout, &stderr)

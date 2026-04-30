@@ -68,11 +68,12 @@ func isIngestCommand(name string) bool {
 
 func usageText() string {
 	return strings.Join([]string{
-		"usage: varix <ingest|compile|verify|memory>",
+		"usage: varix <ingest|compile|verify|memory|serve>",
 		"",
 		"ingest: " + strings.Join(ingestCommands, "|"),
 		"compile: " + strings.Join(compileCommands, "|"),
 		"verify: " + strings.Join(verifyCommands, "|"),
 		"memory: " + strings.Join(memoryCommands, "|"),
+		"serve: --addr <host:port>",
 	}, "\n")
 }

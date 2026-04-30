@@ -29,6 +29,10 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 		db.Close()
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set busy timeout: %w", err)
+	}
 	store := &SQLiteStore{db: db}
 	if err := store.init(); err != nil {
 		db.Close()
@@ -397,6 +401,24 @@ func (s *SQLiteStore) init() error {
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY(platform, external_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS llm_cache_entries (
+			cache_key TEXT PRIMARY KEY,
+			stage_name TEXT NOT NULL,
+			prompt_hash TEXT NOT NULL,
+			model TEXT NOT NULL,
+			input_hash TEXT NOT NULL,
+			schema_version TEXT NOT NULL DEFAULT '',
+			request_json TEXT NOT NULL DEFAULT '',
+			response_json TEXT NOT NULL,
+			token_count INTEGER NOT NULL DEFAULT 0,
+			cost_micros INTEGER NOT NULL DEFAULT 0,
+			latency_ms INTEGER NOT NULL DEFAULT 0,
+			hit_count INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_llm_cache_entries_stage_input
+			ON llm_cache_entries(stage_name, model, input_hash)`,
 		`CREATE TABLE IF NOT EXISTS content_subgraphs (
 			subgraph_id TEXT NOT NULL,
 			platform TEXT NOT NULL,
@@ -523,6 +545,22 @@ func (s *SQLiteStore) init() error {
 			updated_at TEXT NOT NULL,
 			UNIQUE(user_id, source_platform, source_external_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS projection_dirty_marks (
+			dirty_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL,
+			layer TEXT NOT NULL,
+			subject TEXT NOT NULL DEFAULT '',
+			ticker TEXT NOT NULL DEFAULT '',
+			horizon TEXT NOT NULL DEFAULT '',
+			reason TEXT NOT NULL DEFAULT '',
+			source_ref TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL,
+			dirty_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			UNIQUE(user_id, layer, subject, ticker, horizon)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_projection_dirty_marks_pending
+			ON projection_dirty_marks(status, dirty_at, user_id, layer)`,
 		`CREATE TABLE IF NOT EXISTS event_graphs (
 			event_graph_id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,

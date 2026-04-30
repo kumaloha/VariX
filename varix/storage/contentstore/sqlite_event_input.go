@@ -39,6 +39,25 @@ func (s *SQLiteStore) PersistMemoryContentGraph(ctx context.Context, userID stri
 	return s.refreshProjectionLayersForUser(ctx, userID, acceptedAt)
 }
 
+func (s *SQLiteStore) PersistMemoryContentGraphDeferred(ctx context.Context, userID string, subgraph graphmodel.ContentSubgraph, acceptedAt time.Time) error {
+	userID, err := normalizeRequiredUserID(userID)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := persistMemoryContentGraphSubgraphTx(ctx, tx, userID, subgraph, acceptedAt); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.markContentGraphProjectionDirty(ctx, userID, subgraph, acceptedAt)
+}
+
 func persistMemoryContentGraphSubgraphTx(ctx context.Context, tx *sql.Tx, userID string, subgraph graphmodel.ContentSubgraph, acceptedAt time.Time) error {
 	if err := subgraph.Validate(); err != nil {
 		return err
@@ -67,6 +86,45 @@ func persistMemoryContentGraphSubgraphTx(ctx context.Context, tx *sql.Tx, userID
 	)
 	if err != nil {
 		return fmt.Errorf("persist memory content graph: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) markContentGraphProjectionDirty(ctx context.Context, userID string, subgraph graphmodel.ContentSubgraph, at time.Time) error {
+	sourceRef := strings.TrimSpace(subgraph.SourcePlatform + ":" + subgraph.SourceExternalID)
+	baseMarks := []ProjectionDirtyMark{
+		{UserID: userID, Layer: "event", Reason: "content_graph_changed", SourceRef: sourceRef},
+		{UserID: userID, Layer: "paradigm", Reason: "content_graph_changed", SourceRef: sourceRef},
+		{UserID: userID, Layer: "global-v2", Reason: "content_graph_changed", SourceRef: sourceRef},
+	}
+	for _, mark := range baseMarks {
+		if err := s.MarkProjectionDirty(ctx, mark, at); err != nil {
+			return err
+		}
+	}
+	subjects := map[string]struct{}{}
+	for _, node := range subgraph.Nodes {
+		subject := strings.TrimSpace(node.SubjectCanonical)
+		if subject == "" {
+			subject = strings.TrimSpace(node.SubjectText)
+		}
+		if subject == "" {
+			continue
+		}
+		subjects[subject] = struct{}{}
+	}
+	for subject := range subjects {
+		if err := s.MarkProjectionDirty(ctx, ProjectionDirtyMark{UserID: userID, Layer: "subject-timeline", Subject: subject, Reason: "content_graph_changed", SourceRef: sourceRef}, at); err != nil {
+			return err
+		}
+		for _, horizon := range []string{"1w", "1m", "1q", "1y", "2y", "5y"} {
+			if err := s.MarkProjectionDirty(ctx, ProjectionDirtyMark{UserID: userID, Layer: "subject-horizon", Subject: subject, Horizon: horizon, Reason: "content_graph_changed", SourceRef: sourceRef}, at); err != nil {
+				return err
+			}
+		}
+		if err := s.MarkProjectionDirty(ctx, ProjectionDirtyMark{UserID: userID, Layer: "subject-experience", Subject: subject, Reason: "content_graph_changed", SourceRef: sourceRef}, at); err != nil {
+			return err
+		}
 	}
 	return nil
 }
