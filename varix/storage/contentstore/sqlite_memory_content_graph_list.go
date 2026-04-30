@@ -2,8 +2,6 @@ package contentstore
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/kumaloha/VariX/varix/graphmodel"
@@ -14,20 +12,7 @@ func (s *SQLiteStore) ListMemoryContentGraphs(ctx context.Context, userID string
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]graphmodel.ContentSubgraph, 0)
-	for rows.Next() {
-		var payload string
-		if err := rows.Scan(&payload); err != nil {
-			return nil, err
-		}
-		var subgraph graphmodel.ContentSubgraph
-		if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
-			return nil, fmt.Errorf("decode memory content graph payload: %w", err)
-		}
-		out = append(out, subgraph)
-	}
-	return out, rows.Err()
+	return decodePayloadRows[graphmodel.ContentSubgraph](rows, "memory content graph")
 }
 
 func (s *SQLiteStore) ListMemoryContentGraphsBySource(ctx context.Context, userID, sourcePlatform, sourceExternalID string) ([]graphmodel.ContentSubgraph, error) {
@@ -35,20 +20,7 @@ func (s *SQLiteStore) ListMemoryContentGraphsBySource(ctx context.Context, userI
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]graphmodel.ContentSubgraph, 0)
-	for rows.Next() {
-		var payload string
-		if err := rows.Scan(&payload); err != nil {
-			return nil, err
-		}
-		var subgraph graphmodel.ContentSubgraph
-		if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
-			return nil, fmt.Errorf("decode memory content graph payload: %w", err)
-		}
-		out = append(out, subgraph)
-	}
-	return out, rows.Err()
+	return decodePayloadRows[graphmodel.ContentSubgraph](rows, "memory content graph")
 }
 
 func (s *SQLiteStore) ListMemoryContentGraphsBySubject(ctx context.Context, userID, subject string) ([]graphmodel.ContentSubgraph, error) {
