@@ -335,6 +335,40 @@ func TestGraphNodeMarshalJSONPrefersPredictionWindowFields(t *testing.T) {
 	}
 }
 
+func TestOutputMarshalJSONOmitsZeroValidationSections(t *testing.T) {
+	raw, err := json.Marshal(Output{Summary: "一句话总结"})
+	if err != nil {
+		t.Fatalf("json.Marshal(Output) error = %v", err)
+	}
+	got := string(raw)
+	for _, unwanted := range []string{`"verification"`, `"author_validation"`} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("marshal output should omit zero %s section: %s", unwanted, got)
+		}
+	}
+
+	raw, err = json.Marshal(Output{
+		Summary: "一句话总结",
+		Verification: Verification{
+			VerifiedAt: mustTime(t, "2026-04-15T00:00:00Z"),
+			Model:      "verifier-model",
+		},
+		AuthorValidation: AuthorValidation{
+			ValidatedAt: mustTime(t, "2026-04-15T00:00:00Z"),
+			Model:       "author-model",
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(Output with validation) error = %v", err)
+	}
+	got = string(raw)
+	for _, want := range []string{`"verification"`, `"author_validation"`, `"verifier-model"`, `"author-model"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("marshal output missing %s: %s", want, got)
+		}
+	}
+}
+
 func TestParseOutputNormalizesExplicitConditionText(t *testing.T) {
 	raw := `{
 	  "summary":"一句话",
