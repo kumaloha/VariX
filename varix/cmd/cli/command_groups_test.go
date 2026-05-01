@@ -15,7 +15,7 @@ func TestUsageTextShowsDistinctCommandGroups(t *testing.T) {
 	got := usageText()
 	for _, want := range []string{
 		"usage: varix <ingest|compile|verify|memory|serve>",
-		"ingest: fetch|follow|list-follows|poll|provenance-run",
+		"ingest: fetch|follow|list-authors|list-follows|poll|provenance-run",
 		"compile: run|batch-run|show|summary|compare|card",
 		"verify: run|show|queue",
 		"memory: accept|accept-batch|list|show-source|content-graphs|subject-timeline|subject-horizon|subject-experience|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert",
@@ -31,7 +31,7 @@ func TestUsageTextShowsDistinctCommandGroups(t *testing.T) {
 }
 
 func TestIsIngestCommandOnlyMatchesLegacyIngestAliases(t *testing.T) {
-	for _, name := range []string{"fetch", "follow", "list-follows", "poll", "provenance-run"} {
+	for _, name := range []string{"fetch", "follow", "list-authors", "list-follows", "poll", "provenance-run"} {
 		if !isIngestCommand(name) {
 			t.Fatalf("isIngestCommand(%q) = false, want true", name)
 		}

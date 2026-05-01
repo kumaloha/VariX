@@ -19,6 +19,8 @@ type Store interface {
 	RemoveFollow(ctx context.Context, kind types.Kind, platform string, locator string) error
 	UpdateFollowPolled(ctx context.Context, kind types.Kind, platform string, locator string, at time.Time) error
 	RecordPollReport(ctx context.Context, report types.PollReport) error
+	RegisterAuthorSubscription(ctx context.Context, sub types.AuthorSubscription, queries []types.SubscriptionQuery) (types.AuthorSubscription, error)
+	ListAuthorSubscriptions(ctx context.Context) ([]types.AuthorSubscription, []contentstore.ScanWarning, error)
 }
 
 type Dispatcher interface {

@@ -20,6 +20,8 @@ type fakeStore struct {
 	markedKeys  []string
 	reports     []types.PollReport
 	raws        []types.RawContent
+	authors     []types.AuthorSubscription
+	queries     []types.SubscriptionQuery
 	ops         []string
 }
 
@@ -100,6 +102,19 @@ func (s *fakeStore) UpdateFollowPolled(_ context.Context, kind types.Kind, platf
 func (s *fakeStore) RecordPollReport(_ context.Context, report types.PollReport) error {
 	s.reports = append(s.reports, report)
 	return nil
+}
+
+func (s *fakeStore) RegisterAuthorSubscription(_ context.Context, sub types.AuthorSubscription, queries []types.SubscriptionQuery) (types.AuthorSubscription, error) {
+	if sub.ID == 0 {
+		sub.ID = int64(len(s.authors) + 1)
+	}
+	s.authors = append(s.authors, sub)
+	s.queries = append(s.queries, queries...)
+	return sub, nil
+}
+
+func (s *fakeStore) ListAuthorSubscriptions(_ context.Context) ([]types.AuthorSubscription, []contentstore.ScanWarning, error) {
+	return s.authors, nil, nil
 }
 
 type replaceStore struct {
@@ -199,6 +214,15 @@ func (fakeDispatcher) ParseURL(_ context.Context, rawURL string) (types.ParsedUR
 			Platform:     types.PlatformTwitter,
 			ContentType:  types.ContentTypePost,
 			PlatformID:   "123",
+			AuthorID:     "a",
+			CanonicalURL: rawURL,
+		}, nil
+	case "https://x.com/robin_j_brooks/status/2049570595277300120?s=20":
+		return types.ParsedURL{
+			Platform:     types.PlatformTwitter,
+			ContentType:  types.ContentTypePost,
+			PlatformID:   "2049570595277300120",
+			AuthorID:     "robin_j_brooks",
 			CanonicalURL: rawURL,
 		}, nil
 	default:
@@ -436,6 +460,97 @@ func TestService_FollowSearchRegistersSearchTarget(t *testing.T) {
 	}
 }
 
+func TestService_FollowAuthorUsesYouTubeRSSWhenChannelIDKnown(t *testing.T) {
+	store := &fakeStore{processed: map[string]bool{}}
+	svc := New(store, fakeDispatcher{}, candidateEnricher{})
+
+	result, err := svc.FollowAuthor(context.Background(), types.AuthorFollowRequest{
+		Platform:   types.PlatformYouTube,
+		AuthorName: "Acme Channel",
+		PlatformID: "UCabc123",
+	})
+	if err != nil {
+		t.Fatalf("FollowAuthor() error = %v", err)
+	}
+	if result.Subscription.Strategy != types.SubscriptionStrategyRSS {
+		t.Fatalf("strategy = %q, want rss", result.Subscription.Strategy)
+	}
+	if len(result.Follows) != 1 {
+		t.Fatalf("len(follows) = %d, want 1", len(result.Follows))
+	}
+	if result.Follows[0].Kind != types.KindRSS {
+		t.Fatalf("follow kind = %q, want rss", result.Follows[0].Kind)
+	}
+	if !strings.Contains(result.Follows[0].URL, "youtube.com/feeds/videos.xml?channel_id=UCabc123") {
+		t.Fatalf("rss url = %q", result.Follows[0].URL)
+	}
+}
+
+func TestService_FollowAuthorGeneratesSearchFollowsForTwitterProfile(t *testing.T) {
+	store := &fakeStore{processed: map[string]bool{}}
+	svc := New(store, fakeDispatcher{}, candidateEnricher{})
+
+	result, err := svc.FollowAuthor(context.Background(), types.AuthorFollowRequest{
+		ProfileURL: "https://twitter.com/elonmusk",
+		AuthorName: "Elon Musk",
+	})
+	if err != nil {
+		t.Fatalf("FollowAuthor() error = %v", err)
+	}
+	if result.Subscription.Strategy != types.SubscriptionStrategySearch {
+		t.Fatalf("strategy = %q, want search", result.Subscription.Strategy)
+	}
+	if result.Subscription.PlatformID != "elonmusk" {
+		t.Fatalf("platform_id = %q", result.Subscription.PlatformID)
+	}
+	if len(result.Follows) != 2 {
+		t.Fatalf("len(follows) = %d, want 2", len(result.Follows))
+	}
+	if result.Follows[0].Query != "site:x.com/elonmusk/status" {
+		t.Fatalf("first query = %q", result.Follows[0].Query)
+	}
+	if len(store.queries) != 2 {
+		t.Fatalf("len(queries) = %d, want 2", len(store.queries))
+	}
+}
+
+func TestService_FollowAuthorDerivesTwitterAuthorFromPostURL(t *testing.T) {
+	store := &fakeStore{processed: map[string]bool{}}
+	svc := New(store, fakeDispatcher{}, candidateEnricher{})
+
+	result, err := svc.FollowAuthor(context.Background(), types.AuthorFollowRequest{
+		ProfileURL: "https://x.com/robin_j_brooks/status/2049570595277300120?s=20",
+	})
+	if err != nil {
+		t.Fatalf("FollowAuthor() error = %v", err)
+	}
+	if result.Subscription.PlatformID != "robin_j_brooks" {
+		t.Fatalf("platform_id = %q, want robin_j_brooks", result.Subscription.PlatformID)
+	}
+	if result.Subscription.ProfileURL != "https://twitter.com/robin_j_brooks" {
+		t.Fatalf("profile_url = %q, want twitter profile", result.Subscription.ProfileURL)
+	}
+	if len(result.Follows) != 2 {
+		t.Fatalf("len(follows) = %d, want 2", len(result.Follows))
+	}
+	if result.Follows[0].Query != "site:x.com/robin_j_brooks/status" {
+		t.Fatalf("first query = %q", result.Follows[0].Query)
+	}
+}
+
+func TestAuthorSearchQueriesUsePlatformIDWhenNameMissing(t *testing.T) {
+	got := AuthorSearchQueries(types.AuthorFollowRequest{
+		Platform:   types.PlatformYouTube,
+		PlatformID: "AcmeChannel",
+	})
+	if len(got) != 2 {
+		t.Fatalf("len(queries) = %d, want 2", len(got))
+	}
+	if got[0].Query != `site:youtube.com/watch "AcmeChannel"` {
+		t.Fatalf("first query = %q", got[0].Query)
+	}
+}
+
 func TestService_RemoveFollowURLCanonicalizesRSS(t *testing.T) {
 	store := &fakeStore{processed: map[string]bool{}}
 	svc := New(store, fakeDispatcher{}, fakeEnricher{})
@@ -545,6 +660,174 @@ func TestService_PollSkipsProcessedMarksNewAndUpdatesFollowState(t *testing.T) {
 	}
 }
 
+func TestService_PollSkipsSearchTargetsUntilAssignedTimeSlot(t *testing.T) {
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	target := types.FollowTarget{
+		Kind:         types.KindSearch,
+		Platform:     "twitter",
+		Locator:      "site:x.com/robin_j_brooks/status",
+		Query:        "site:x.com/robin_j_brooks/status",
+		FollowedAt:   base.Add(-24 * time.Hour),
+		LastPolledAt: base.Add(-4 * time.Hour),
+	}
+	slotCount := int(searchFollowCadence / pollSchedulerSlot)
+	now := base.Add(time.Duration((assignedPollSlot(target, slotCount)+1)%slotCount) * pollSchedulerSlot)
+	target.LastPolledAt = now.Add(-4 * time.Hour)
+
+	store := &fakeStore{
+		processed: map[string]bool{},
+		follows:   []types.FollowTarget{target},
+	}
+	svc := New(store, fakeDispatcher{}, fakeEnricher{})
+	svc.now = func() time.Time { return now }
+
+	report, items, _, warnings, err := svc.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("len(warnings) = %d, want 0", len(warnings))
+	}
+	if len(items) != 0 {
+		t.Fatalf("len(items) = %d, want 0", len(items))
+	}
+	if len(store.polledKeys) != 0 {
+		t.Fatalf("polledKeys = %#v, want no poll", store.polledKeys)
+	}
+	if report.TargetCount != 1 || report.DiscoveredCount != 0 {
+		t.Fatalf("report = %#v, want configured target but no discovery", report)
+	}
+}
+
+func TestService_PollChecksSearchTargetInAssignedTimeSlot(t *testing.T) {
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	target := types.FollowTarget{
+		Kind:         types.KindSearch,
+		Platform:     "twitter",
+		Locator:      "site:x.com/robin_j_brooks/status",
+		Query:        "site:x.com/robin_j_brooks/status",
+		FollowedAt:   base.Add(-24 * time.Hour),
+		LastPolledAt: base.Add(-4 * time.Hour),
+	}
+	slotCount := int(searchFollowCadence / pollSchedulerSlot)
+	now := base.Add(time.Duration(assignedPollSlot(target, slotCount)) * pollSchedulerSlot)
+	target.LastPolledAt = now.Add(-4 * time.Hour)
+
+	store := &fakeStore{
+		processed: map[string]bool{},
+		follows:   []types.FollowTarget{target},
+	}
+	svc := New(store, fakeDispatcher{
+		discovered: []types.DiscoveryItem{{
+			Platform:   types.PlatformTwitter,
+			ExternalID: "new-slot",
+			URL:        "https://x.com/a/status/new-slot",
+		}},
+	}, fakeEnricher{})
+	svc.now = func() time.Time { return now }
+
+	report, items, _, warnings, err := svc.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("len(warnings) = %d, want 0", len(warnings))
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if len(store.polledKeys) != 1 {
+		t.Fatalf("polledKeys = %#v, want one poll", store.polledKeys)
+	}
+	if report.DiscoveredCount != 1 || report.FetchedCount != 1 {
+		t.Fatalf("report = %#v, want discovered and fetched", report)
+	}
+}
+
+func TestService_PollDoesNotMissNextSearchSlotWhenPreviousPollWasInsideSlot(t *testing.T) {
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	target := types.FollowTarget{
+		Kind:       types.KindSearch,
+		Platform:   "twitter",
+		Locator:    "site:x.com/robin_j_brooks/status",
+		Query:      "site:x.com/robin_j_brooks/status",
+		FollowedAt: base.Add(-24 * time.Hour),
+	}
+	slotCount := int(searchFollowCadence / pollSchedulerSlot)
+	firstSlotStart := base.Add(time.Duration(assignedPollSlot(target, slotCount)) * pollSchedulerSlot)
+	nextSlotStart := firstSlotStart.Add(searchFollowCadence)
+	target.LastPolledAt = firstSlotStart.Add(7 * time.Minute)
+
+	if !isFollowDue(target, nextSlotStart) {
+		t.Fatal("target should be due at the next assigned slot even if the prior poll finished inside its slot")
+	}
+}
+
+func TestScheduleForFollowReportsSearchCadenceAndNextPoll(t *testing.T) {
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	target := types.FollowTarget{
+		Kind:         types.KindSearch,
+		Platform:     "twitter",
+		Locator:      "site:x.com/robin_j_brooks/status",
+		Query:        "site:x.com/robin_j_brooks/status",
+		FollowedAt:   base.Add(-24 * time.Hour),
+		LastPolledAt: base.Add(-4 * time.Hour),
+	}
+	slotCount := int(searchFollowCadence / pollSchedulerSlot)
+	assigned := assignedPollSlot(target, slotCount)
+	now := base.Add(time.Duration((assigned+1)%slotCount) * pollSchedulerSlot)
+	target.LastPolledAt = now.Add(-4 * time.Hour)
+
+	got := ScheduleForFollow(target, now)
+	if got.Cadence != searchFollowCadence {
+		t.Fatalf("Cadence = %v, want %v", got.Cadence, searchFollowCadence)
+	}
+	if got.Due {
+		t.Fatal("Due = true, want false outside assigned slot")
+	}
+	if got.SlotIndex != assigned || got.SlotCount != slotCount {
+		t.Fatalf("slot = %d/%d, want %d/%d", got.SlotIndex, got.SlotCount, assigned, slotCount)
+	}
+	if got.NextPollAt.IsZero() || currentPollSlot(got.NextPollAt, slotCount) != assigned {
+		t.Fatalf("NextPollAt = %v, want assigned slot", got.NextPollAt)
+	}
+}
+
+func TestService_PollChecksNewSearchTargetImmediately(t *testing.T) {
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	target := types.FollowTarget{
+		Kind:       types.KindSearch,
+		Platform:   "twitter",
+		Locator:    "site:x.com/new_author/status",
+		Query:      "site:x.com/new_author/status",
+		FollowedAt: now,
+	}
+
+	store := &fakeStore{
+		processed: map[string]bool{},
+		follows:   []types.FollowTarget{target},
+	}
+	svc := New(store, fakeDispatcher{
+		discovered: []types.DiscoveryItem{{
+			Platform:   types.PlatformTwitter,
+			ExternalID: "new-author",
+			URL:        "https://x.com/a/status/new-author",
+		}},
+	}, fakeEnricher{})
+	svc.now = func() time.Time { return now }
+
+	_, items, _, warnings, err := svc.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("len(warnings) = %d, want 0", len(warnings))
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want immediate fetch", len(items))
+	}
+}
+
 func TestService_PollContinuesAfterTargetDiscoverError(t *testing.T) {
 	store := &fakeStore{
 		processed: map[string]bool{},
@@ -593,8 +876,8 @@ func TestService_PollContinuesAfterTargetDiscoverError(t *testing.T) {
 	if !store.processed["twitter:new"] {
 		t.Fatal("good target item was not marked processed")
 	}
-	if len(store.polledKeys) != 1 || store.polledKeys[0] != "search:twitter:good" {
-		t.Fatalf("polledKeys = %#v, want only successful target update", store.polledKeys)
+	if len(store.polledKeys) != 2 || store.polledKeys[0] != "search:twitter:bad" || store.polledKeys[1] != "search:twitter:good" {
+		t.Fatalf("polledKeys = %#v, want failed and successful target updates", store.polledKeys)
 	}
 	if report.TargetCount != 2 || report.DiscoveredCount != 1 || report.FetchedCount != 1 {
 		t.Fatalf("report = %#v", report)
@@ -629,6 +912,37 @@ func TestService_PollTurnsSearchNoResultIntoWarning(t *testing.T) {
 	}
 }
 
+func TestService_PollUpdatesLastPolledAfterDiscoverErrorForBackoff(t *testing.T) {
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	store := &fakeStore{
+		processed: map[string]bool{},
+		follows: []types.FollowTarget{{
+			Kind:       types.KindSearch,
+			Platform:   "twitter",
+			Locator:    "site:x.com/rate_limited/status",
+			Query:      "site:x.com/rate_limited/status",
+			FollowedAt: now.Add(-24 * time.Hour),
+		}},
+	}
+	svc := New(store, fakeDispatcher{
+		discoverErrFor: map[string]error{
+			"search:twitter:site:x.com/rate_limited/status": errors.New("rate limited"),
+		},
+	}, fakeEnricher{})
+	svc.now = func() time.Time { return now }
+
+	_, _, _, warnings, err := svc.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("len(warnings) = %d, want 1", len(warnings))
+	}
+	if len(store.polledKeys) != 1 {
+		t.Fatalf("polledKeys = %#v, want failed target marked polled for backoff", store.polledKeys)
+	}
+}
+
 func TestService_FetchURLMarksProcessed(t *testing.T) {
 	store := &fakeStore{processed: map[string]bool{}}
 	svc := New(store, fakeDispatcher{}, candidateEnricher{})
@@ -642,6 +956,40 @@ func TestService_FetchURLMarksProcessed(t *testing.T) {
 	}
 	if !store.processed["twitter:123"] {
 		t.Fatal("processed state was not updated by FetchURL")
+	}
+}
+
+func TestService_FetchURLAndFollowAuthorSubscribesTwitterPostAuthor(t *testing.T) {
+	store := &fakeStore{processed: map[string]bool{}}
+	svc := New(store, fakeDispatcher{}, candidateEnricher{})
+
+	got, err := svc.FetchURLAndFollowAuthor(context.Background(), "https://x.com/robin_j_brooks/status/2049570595277300120?s=20")
+	if err != nil {
+		t.Fatalf("FetchURLAndFollowAuthor() error = %v", err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(got.Items))
+	}
+	if !store.processed["twitter:2049570595277300120"] {
+		t.Fatal("tweet was not marked processed")
+	}
+	if got.Author == nil {
+		t.Fatal("Author = nil, want subscription result")
+	}
+	if got.Author.Subscription.Platform != types.PlatformTwitter {
+		t.Fatalf("subscription platform = %q, want twitter", got.Author.Subscription.Platform)
+	}
+	if got.Author.Subscription.PlatformID != "robin_j_brooks" {
+		t.Fatalf("subscription platform_id = %q, want robin_j_brooks", got.Author.Subscription.PlatformID)
+	}
+	if len(got.Author.Follows) != 2 {
+		t.Fatalf("len(author follows) = %d, want 2", len(got.Author.Follows))
+	}
+	if got.Author.Follows[0].Query != "site:x.com/robin_j_brooks/status" {
+		t.Fatalf("first author query = %q", got.Author.Follows[0].Query)
+	}
+	if len(store.authors) != 1 {
+		t.Fatalf("len(authors) = %d, want 1", len(store.authors))
 	}
 }
 

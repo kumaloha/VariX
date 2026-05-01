@@ -162,6 +162,74 @@ func TestSQLiteStore_RegisterFollowRejectsInvalidRecord(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_RegisterAuthorSubscriptionWithQueries(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	sub, err := store.RegisterAuthorSubscription(context.Background(), types.AuthorSubscription{
+		Platform:   types.PlatformTwitter,
+		AuthorName: "Alice",
+		PlatformID: "alice",
+		ProfileURL: "https://twitter.com/alice",
+		Strategy:   types.SubscriptionStrategySearch,
+		Status:     "active",
+		UpdatedAt:  time.Now().UTC(),
+	}, []types.SubscriptionQuery{{
+		Provider: "google",
+		Query:    "site:x.com/alice/status",
+		Priority: 1,
+	}})
+	if err != nil {
+		t.Fatalf("RegisterAuthorSubscription() error = %v", err)
+	}
+	if sub.ID == 0 {
+		t.Fatal("subscription ID was not assigned")
+	}
+
+	items, warnings, err := store.ListAuthorSubscriptions(context.Background())
+	if err != nil {
+		t.Fatalf("ListAuthorSubscriptions() error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("len(warnings) = %d, want 0", len(warnings))
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if items[0].Strategy != types.SubscriptionStrategySearch || items[0].PlatformID != "alice" {
+		t.Fatalf("subscription = %#v", items[0])
+	}
+
+	var queryCount int
+	if err := store.db.QueryRowContext(context.Background(), `SELECT count(*) FROM subscription_queries WHERE subscription_id = ?`, sub.ID).Scan(&queryCount); err != nil {
+		t.Fatalf("count subscription_queries error = %v", err)
+	}
+	if queryCount != 1 {
+		t.Fatalf("queryCount = %d, want 1", queryCount)
+	}
+}
+
+func TestSQLiteStore_RegisterAuthorSubscriptionRejectsInvalidRecord(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	_, err = store.RegisterAuthorSubscription(context.Background(), types.AuthorSubscription{
+		Platform: types.PlatformTwitter,
+		Strategy: types.SubscriptionStrategySearch,
+	}, nil)
+	if err == nil {
+		t.Fatal("expected invalid author subscription to fail")
+	}
+}
+
 func TestSQLiteStore_RecordPollReportPersistsRunAndTargets(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))

@@ -5,6 +5,7 @@ import "strings"
 var ingestCommands = []string{
 	"fetch",
 	"follow",
+	"list-authors",
 	"list-follows",
 	"poll",
 	"provenance-run",

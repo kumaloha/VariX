@@ -22,6 +22,22 @@ func TestParse_TwitterPost(t *testing.T) {
 	}
 }
 
+func TestParse_TwitterPostCapturesAuthorHandle(t *testing.T) {
+	got, err := Parse("https://x.com/robin_j_brooks/status/2049570595277300120?s=20")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if got.Platform != types.PlatformTwitter || got.ContentType != types.ContentTypePost {
+		t.Fatalf("Parse() = %#v, want twitter post", got)
+	}
+	if got.PlatformID != "2049570595277300120" {
+		t.Fatalf("PlatformID = %q, want status id", got.PlatformID)
+	}
+	if got.AuthorID != "robin_j_brooks" {
+		t.Fatalf("AuthorID = %q, want robin_j_brooks", got.AuthorID)
+	}
+}
+
 func TestParse_TwitterProfile(t *testing.T) {
 	got, err := Parse("twitter.com/elonmusk")
 	if err != nil {
@@ -64,6 +80,28 @@ func TestParse_YoutubeVideo(t *testing.T) {
 	}
 }
 
+func TestParse_YoutubeProfiles(t *testing.T) {
+	tests := []struct {
+		raw string
+		id  string
+	}{
+		{raw: "https://www.youtube.com/channel/UCabc123_XYZ", id: "UCabc123_XYZ"},
+		{raw: "https://www.youtube.com/@Acme.Channel", id: "Acme.Channel"},
+	}
+	for _, tt := range tests {
+		got, err := Parse(tt.raw)
+		if err != nil {
+			t.Fatalf("Parse(%q) error = %v", tt.raw, err)
+		}
+		if got.Platform != types.PlatformYouTube || got.ContentType != types.ContentTypeProfile {
+			t.Fatalf("Parse(%q) = %#v, want youtube profile", tt.raw, got)
+		}
+		if got.PlatformID != tt.id {
+			t.Fatalf("PlatformID = %q, want %q", got.PlatformID, tt.id)
+		}
+	}
+}
+
 func TestParse_BilibiliVideo(t *testing.T) {
 	got, err := Parse("https://www.bilibili.com/video/BV1234567890")
 	if err != nil {
@@ -74,6 +112,19 @@ func TestParse_BilibiliVideo(t *testing.T) {
 	}
 	if got.PlatformID != "BV1234567890" {
 		t.Fatalf("PlatformID = %q, want %q", got.PlatformID, "BV1234567890")
+	}
+}
+
+func TestParse_BilibiliProfile(t *testing.T) {
+	got, err := Parse("https://space.bilibili.com/123456")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if got.Platform != types.PlatformBilibili || got.ContentType != types.ContentTypeProfile {
+		t.Fatalf("Parse() = %#v, want bilibili profile", got)
+	}
+	if got.PlatformID != "123456" {
+		t.Fatalf("PlatformID = %q, want 123456", got.PlatformID)
 	}
 }
 

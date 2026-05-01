@@ -22,6 +22,32 @@ var sqliteInitStatements = []string{
 			last_polled_at TEXT,
 			PRIMARY KEY(kind, platform, locator)
 		)`,
+	`CREATE TABLE IF NOT EXISTS author_subscriptions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			platform TEXT NOT NULL,
+			author_name TEXT NOT NULL DEFAULT '',
+			platform_id TEXT NOT NULL DEFAULT '',
+			profile_url TEXT NOT NULL DEFAULT '',
+			strategy TEXT NOT NULL,
+			rss_url TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			last_checked_at TEXT,
+			UNIQUE(platform, platform_id, profile_url, author_name)
+		)`,
+	`CREATE TABLE IF NOT EXISTS subscription_queries (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			subscription_id INTEGER NOT NULL,
+			provider TEXT NOT NULL,
+			query TEXT NOT NULL,
+			site_filter TEXT NOT NULL DEFAULT '',
+			recency_window TEXT NOT NULL DEFAULT '',
+			priority INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL,
+			UNIQUE(subscription_id, provider, query),
+			FOREIGN KEY(subscription_id) REFERENCES author_subscriptions(id) ON DELETE CASCADE
+		)`,
 	`CREATE TABLE IF NOT EXISTS poll_runs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			started_at TEXT NOT NULL,
