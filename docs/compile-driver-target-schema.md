@@ -1,8 +1,8 @@
-# Compile Driver-Target Schema v1
+# Compile Driver-Target Schema baseline
 
 ## Purpose
 
-This document defines the v1 contract for adding a normalized driver-target
+This document defines the baseline contract for adding a normalized driver-target
 layer to VariX compile outputs.
 
 The driver-target layer is **additive**. It does not replace the existing
@@ -69,9 +69,9 @@ The driver-target layer fixes that gap without redesigning node taxonomy.
    - target entries should not be background context, pure interpretation, or a
      mid-chain bridge
 
-5. **Free-text v1**
-   - v1 uses free-text `drivers[]` and `targets[]`
-   - v1 does **not** require explicit pair objects or node-id references
+5. **Free-text baseline**
+   - baseline uses free-text `drivers[]` and `targets[]`
+   - baseline does **not** require explicit pair objects or node-id references
 
 ---
 
@@ -97,7 +97,7 @@ Compile outputs should support this additive shape:
 - missing `drivers` / `targets` remains parse-compatible for older payloads
 - when present, each entry must be non-empty after trimming whitespace
 - the graph validation contract remains unchanged
-- no new node kinds are introduced for v1
+- no new node kinds are introduced for baseline
 
 ---
 
@@ -196,7 +196,7 @@ This separation matters because:
 
 Current benchmark:
 
-- `data/gold/compile-gold-batch1-v1.json`
+- `eval/gold/compile-gold-batch1-baseline.json`
 
 Current expected shape:
 
@@ -241,7 +241,7 @@ cd varix && go test ./cmd/cli/...
 python3 - <<'PY'
 import json
 from pathlib import Path
-path = Path('../data/gold/compile-gold-batch1-v1.json')
+path = Path('../eval/gold/compile-gold-batch1-baseline.json')
 data = json.loads(path.read_text())
 assert len(data['samples']) == 9
 assert all(item.get('summary', '').strip() for item in data['samples'])
@@ -255,7 +255,7 @@ PY
 
 ## Explicit non-goals
 
-Not included in v1:
+Not included in baseline:
 
 - explicit many-to-many driver-target pair objects
 - node-id-linked driver-target relations
@@ -263,5 +263,5 @@ Not included in v1:
 - semantic scoring policy beyond a separate report section for drivers and
   targets
 
-v1 should stay small: preserve the graph, add the overlay, and make review
+baseline should stay small: preserve the graph, add the overlay, and make review
 output more faithful to the article's true market logic.

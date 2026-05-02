@@ -54,11 +54,11 @@ type weiboMediaInfo struct {
 }
 
 type weiboPageInfo struct {
-	Type       int            `json:"type"`
-	ObjectType string         `json:"object_type"`
-	PagePic    string         `json:"page_pic"`
-	PageTitle  string         `json:"page_title"`
-	MediaInfo  weiboMediaInfo `json:"media_info"`
+	Type       httputil.FlexString `json:"type"`
+	ObjectType string              `json:"object_type"`
+	PagePic    string              `json:"page_pic"`
+	PageTitle  string              `json:"page_title"`
+	MediaInfo  weiboMediaInfo      `json:"media_info"`
 }
 
 type weiboStatus struct {
@@ -179,6 +179,12 @@ func (c *Collector) Fetch(ctx context.Context, parsed types.ParsedURL) ([]types.
 	c.transcribeVideoAttachments(ctx, attachments)
 	references := extractWeiboReferences(text, quotes)
 	finalContent := assemble.AssembleStructuredContent(text, quotes, references, attachments)
+	if strings.TrimSpace(finalContent) == "" &&
+		httputil.FirstString(status.User.ScreenName, status.User.Name) == "" &&
+		len(attachments) == 0 &&
+		len(quotes) == 0 {
+		return nil, fmt.Errorf("empty weibo status payload: %s", parsed.PlatformID)
+	}
 
 	return []types.RawContent{{
 		Source:      "weibo",

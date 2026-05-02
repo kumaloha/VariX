@@ -1,6 +1,6 @@
 # Compile Node Splitting Rules
 
-This document defines a practical v1 rule set for splitting large mixed
+This document defines a practical baseline rule set for splitting large mixed
 sentences into smaller reasoning-graph nodes before downstream verification
 and memory organization.
 

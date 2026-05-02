@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 type ParadigmEvidenceLink struct {
@@ -66,20 +66,20 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 		if err := rows.Scan(&payload); err != nil {
 			return nil, err
 		}
-		var subgraph graphmodel.ContentSubgraph
+		var subgraph model.ContentSubgraph
 		if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
 			return nil, fmt.Errorf("decode memory_content_graph payload: %w", err)
 		}
-		drivers := make([]graphmodel.GraphNode, 0)
-		targets := make([]graphmodel.GraphNode, 0)
+		drivers := make([]model.ContentNode, 0)
+		targets := make([]model.ContentNode, 0)
 		for _, node := range subgraph.Nodes {
 			if !node.IsPrimary {
 				continue
 			}
 			switch node.GraphRole {
-			case graphmodel.GraphRoleDriver:
+			case model.GraphRoleDriver:
 				drivers = append(drivers, node)
-			case graphmodel.GraphRoleTarget:
+			case model.GraphRoleTarget:
 				targets = append(targets, node)
 			}
 		}
@@ -110,9 +110,9 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 				st.changes = append(st.changes, strings.TrimSpace(driver.ChangeText), strings.TrimSpace(target.ChangeText))
 				st.traceability[subgraph.ID] = uniqueStrings(append(st.traceability[subgraph.ID], driver.ID, target.ID))
 				switch target.VerificationStatus {
-				case graphmodel.VerificationProved:
+				case model.VerificationProved:
 					st.success++
-				case graphmodel.VerificationDisproved:
+				case model.VerificationDisproved:
 					st.failure++
 				}
 			}
@@ -122,6 +122,7 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 		return nil, err
 	}
 	out := make([]ParadigmRecord, 0, len(byKey))
+	keepParadigmIDs := make([]string, 0, len(byKey))
 	for _, st := range byKey {
 		subgraphs := uniqueStrings(st.subgraphs)
 		eventGraphs := uniqueStrings(st.eventGraphs)
@@ -152,6 +153,10 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 			return nil, err
 		}
 		out = append(out, record)
+		keepParadigmIDs = append(keepParadigmIDs, record.ParadigmID)
+	}
+	if err := s.deleteStaleParadigms(ctx, userID, keepParadigmIDs); err != nil {
+		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].DriverSubject != out[j].DriverSubject {
@@ -163,6 +168,52 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 		return out[i].TimeBucket < out[j].TimeBucket
 	})
 	return out, nil
+}
+
+func (s *SQLiteStore) deleteStaleParadigms(ctx context.Context, userID string, keepParadigmIDs []string) error {
+	userID = strings.TrimSpace(userID)
+	keep := uniqueStrings(filterNonBlank(keepParadigmIDs))
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	args := []any{userID}
+	query := `SELECT paradigm_id FROM paradigms WHERE user_id = ?`
+	if len(keep) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(keep)), ",")
+		query += ` AND paradigm_id NOT IN (` + placeholders + `)`
+		for _, id := range keep {
+			args = append(args, id)
+		}
+	}
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	staleIDs := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		staleIDs = append(staleIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, id := range staleIDs {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM paradigm_evidence_links WHERE paradigm_id = ?`, id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM paradigms WHERE paradigm_id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) ListParadigmsBySubject(ctx context.Context, userID, subject string) ([]ParadigmRecord, error) {

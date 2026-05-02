@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/bootstrap"
+	"github.com/kumaloha/VariX/varix/ingest"
 	"github.com/kumaloha/VariX/varix/ingest/polling"
 	"github.com/kumaloha/VariX/varix/ingest/provenance"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
-var buildApp = bootstrap.BuildApp
+var newIngestRuntime = ingest.NewRuntime
 
 func runIngestCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -24,17 +24,11 @@ func runIngestCommand(args []string, projectRoot string, stdout, stderr io.Write
 		return 2
 	}
 
-	app, err := buildApp(projectRoot)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-
-	switch args[0] {
-	case "fetch":
+	if args[0] == "fetch" {
 		fs := flag.NewFlagSet("fetch", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		rawURL := fs.String("url", "", "content url")
+		followAuthor := fs.Bool("follow-author", false, "subscribe the parsed author when the url contains author identity")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -43,24 +37,48 @@ func runIngestCommand(args []string, projectRoot string, stdout, stderr io.Write
 			fmt.Fprintln(stderr, "usage: varix ingest fetch <url>")
 			return 2
 		}
-		items, err := fetchURLItems(context.Background(), app, *rawURL)
+		app, err := newIngestRuntime(projectRoot)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		payload, err := json.MarshalIndent(items, "", "  ")
+		payloadValue, err := fetchURLPayload(context.Background(), app, *rawURL, *followAuthor)
+		if err != nil {
+			if payloadValue != nil {
+				payload, marshalErr := json.MarshalIndent(fetchPayloadWithWarning(payloadValue, err), "", "  ")
+				if marshalErr != nil {
+					fmt.Fprintln(stderr, marshalErr)
+					return 1
+				}
+				fmt.Fprintln(stdout, string(payload))
+			}
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		payload, err := json.MarshalIndent(payloadValue, "", "  ")
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		fmt.Fprintln(stdout, string(payload))
 		return 0
+	}
 
+	app, err := newIngestRuntime(projectRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	switch args[0] {
 	case "follow":
 		return runFollow(app, args[1:], stdout, stderr)
 
 	case "list-follows":
 		return runFollowList(app, stdout, stderr)
+
+	case "list-authors":
+		return runAuthorList(app, stdout, stderr)
 
 	case "poll":
 		fs := flag.NewFlagSet("poll", flag.ContinueOnError)
@@ -131,7 +149,43 @@ func runIngestCommand(args []string, projectRoot string, stdout, stderr io.Write
 	}
 }
 
-func fetchURLItems(ctx context.Context, app *bootstrap.App, rawURL string) ([]types.RawContent, error) {
+func fetchURLPayload(ctx context.Context, app *ingest.Runtime, rawURL string, followAuthor bool) (any, error) {
+	if followAuthor {
+		if app == nil || app.Polling == nil {
+			return nil, fmt.Errorf("polling service is nil")
+		}
+		result, err := app.Polling.FetchURLAndFollowAuthor(ctx, rawURL)
+		if err != nil && len(result.Items) == 0 && result.Author == nil {
+			return nil, err
+		}
+		return result, err
+	}
+	return fetchURLItems(ctx, app, rawURL)
+}
+
+func fetchPayloadWithWarning(value any, err error) any {
+	warning := ""
+	if err != nil {
+		warning = err.Error()
+	}
+	if result, ok := value.(polling.FetchURLAndFollowAuthorResult); ok {
+		return struct {
+			Items   []types.RawContent        `json:"items"`
+			Author  *types.AuthorFollowResult `json:"author,omitempty"`
+			Warning string                    `json:"warning"`
+		}{
+			Items:   result.Items,
+			Author:  result.Author,
+			Warning: warning,
+		}
+	}
+	return map[string]any{
+		"result":  value,
+		"warning": warning,
+	}
+}
+
+func fetchURLItems(ctx context.Context, app *ingest.Runtime, rawURL string) ([]types.RawContent, error) {
 	if app == nil {
 		return nil, fmt.Errorf("app is nil")
 	}
@@ -148,9 +202,9 @@ func fetchURLItems(ctx context.Context, app *bootstrap.App, rawURL string) ([]ty
 	return app.Dispatcher.FetchByParsedURL(ctx, parsed)
 }
 
-func runFollow(app *bootstrap.App, args []string, stdout, stderr io.Writer) int {
+func runFollow(app *ingest.Runtime, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: cli follow <add|list|remove> [flags]")
+		fmt.Fprintln(stderr, "usage: cli follow <add|author|list|authors|remove> [flags]")
 		return 2
 	}
 	if strings.HasPrefix(args[0], "-") {
@@ -160,8 +214,12 @@ func runFollow(app *bootstrap.App, args []string, stdout, stderr io.Writer) int 
 	switch args[0] {
 	case "add":
 		return runFollowAdd(app, args[1:], stdout, stderr)
+	case "author":
+		return runFollowAuthor(app, args[1:], stdout, stderr)
 	case "list":
 		return runFollowList(app, stdout, stderr)
+	case "authors":
+		return runAuthorList(app, stdout, stderr)
 	case "remove":
 		return runFollowRemove(app, args[1:], stderr)
 	default:
@@ -170,13 +228,15 @@ func runFollow(app *bootstrap.App, args []string, stdout, stderr io.Writer) int 
 	}
 }
 
-func runFollowAdd(app *bootstrap.App, args []string, stdout, stderr io.Writer) int {
+func runFollowAdd(app *ingest.Runtime, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("follow add", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	kind := fs.String("kind", "", "follow kind (search)")
+	kind := fs.String("kind", "", "follow kind (search|author)")
 	rawURL := fs.String("url", "", "profile/feed url")
 	platform := fs.String("platform", "", "search platform")
 	query := fs.String("query", "", "search query")
+	authorName := fs.String("name", "", "author display name")
+	platformID := fs.String("id", "", "platform author id/handle")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -186,12 +246,19 @@ func runFollowAdd(app *bootstrap.App, args []string, stdout, stderr io.Writer) i
 		err    error
 	)
 	switch {
+	case strings.EqualFold(strings.TrimSpace(*kind), "author"):
+		return runFollowAuthor(app, args, stdout, stderr)
 	case strings.TrimSpace(*rawURL) != "" && strings.TrimSpace(*kind) == "":
+		if shouldFollowURLAsAuthor(context.Background(), app, *rawURL) {
+			return runFollowAuthor(app, args, stdout, stderr)
+		}
 		target, err = app.Polling.FollowURL(context.Background(), *rawURL)
 	case strings.EqualFold(strings.TrimSpace(*kind), "search"):
 		target, err = app.Polling.FollowSearch(context.Background(), types.Platform(strings.TrimSpace(*platform)), *query)
+	case strings.TrimSpace(*platform) != "" && (strings.TrimSpace(*authorName) != "" || strings.TrimSpace(*platformID) != ""):
+		return runFollowAuthor(app, args, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "follow add requires either -url or -kind search -platform <platform> -query <query>")
+		fmt.Fprintln(stderr, "follow add requires -url, -kind search -platform <platform> -query <query>, or -kind author")
 		return 2
 	}
 	if err != nil {
@@ -202,7 +269,52 @@ func runFollowAdd(app *bootstrap.App, args []string, stdout, stderr io.Writer) i
 	return 0
 }
 
-func runFollowList(app *bootstrap.App, stdout, stderr io.Writer) int {
+func shouldFollowURLAsAuthor(ctx context.Context, app *ingest.Runtime, rawURL string) bool {
+	if app == nil || app.Dispatcher == nil {
+		return false
+	}
+	parsed, err := app.Dispatcher.ParseURL(ctx, rawURL)
+	if err != nil || parsed.ContentType != types.ContentTypeProfile {
+		return false
+	}
+	switch parsed.Platform {
+	case types.PlatformTwitter, types.PlatformWeibo, types.PlatformYouTube, types.PlatformBilibili:
+		return true
+	default:
+		return false
+	}
+}
+
+func runFollowAuthor(app *ingest.Runtime, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("follow author", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	_ = fs.String("kind", "", "follow kind")
+	rawURL := fs.String("url", "", "author profile or rss url")
+	platform := fs.String("platform", "", "author platform")
+	authorName := fs.String("name", "", "author display name")
+	platformID := fs.String("id", "", "platform author id/handle")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	setRawURLFromArg(fs, rawURL)
+	result, err := app.Polling.FollowAuthor(context.Background(), types.AuthorFollowRequest{
+		Platform:   types.Platform(strings.TrimSpace(*platform)),
+		AuthorName: *authorName,
+		PlatformID: *platformID,
+		ProfileURL: *rawURL,
+	})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	printAuthorSubscription(stdout, result.Subscription)
+	for _, target := range result.Follows {
+		printFollowTarget(stdout, target)
+	}
+	return 0
+}
+
+func runFollowList(app *ingest.Runtime, stdout, stderr io.Writer) int {
 	items, warnings, err := app.Polling.ListFollows(context.Background())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -215,7 +327,20 @@ func runFollowList(app *bootstrap.App, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runFollowRemove(app *bootstrap.App, args []string, stderr io.Writer) int {
+func runAuthorList(app *ingest.Runtime, stdout, stderr io.Writer) int {
+	items, warnings, err := app.Polling.ListAuthorSubscriptions(context.Background())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	printWarnings(stderr, warnings)
+	for _, item := range items {
+		printAuthorSubscription(stdout, item)
+	}
+	return 0
+}
+
+func runFollowRemove(app *ingest.Runtime, args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("follow remove", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	kind := fs.String("kind", "", "follow kind (search)")
@@ -243,7 +368,7 @@ func runFollowRemove(app *bootstrap.App, args []string, stderr io.Writer) int {
 	return 0
 }
 
-func printFollowOperatorError(ctx context.Context, app *bootstrap.App, rawURL string, err error, stderr io.Writer) {
+func printFollowOperatorError(ctx context.Context, app *ingest.Runtime, rawURL string, err error, stderr io.Writer) {
 	if strings.TrimSpace(rawURL) != "" && strings.Contains(err.Error(), "follow strategy not supported: native/twitter") {
 		parsed, parseErr := app.Dispatcher.ParseURL(ctx, rawURL)
 		if parseErr == nil && parsed.ContentType == types.ContentTypeProfile && parsed.Platform == types.PlatformTwitter {
@@ -255,14 +380,45 @@ func printFollowOperatorError(ctx context.Context, app *bootstrap.App, rawURL st
 }
 
 func printFollowTarget(w io.Writer, target types.FollowTarget) {
+	schedule := polling.ScheduleForFollow(target, time.Now().UTC())
+	slot := "-"
+	if schedule.SlotCount > 0 {
+		slot = fmt.Sprintf("%d/%d", schedule.SlotIndex, schedule.SlotCount)
+	}
 	fmt.Fprintf(
 		w,
-		"kind=%s platform=%s locator=%s url=%s query=%s\n",
+		"kind=%s platform=%s locator=%s url=%s query=%s cadence=%s due=%t next_poll_at=%s slot=%s\n",
 		target.Kind,
 		target.Platform,
 		target.Locator,
 		target.URL,
 		target.Query,
+		schedule.Cadence,
+		schedule.Due,
+		formatOptionalTime(schedule.NextPollAt),
+		slot,
+	)
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
+func printAuthorSubscription(w io.Writer, sub types.AuthorSubscription) {
+	fmt.Fprintf(
+		w,
+		"author_subscription id=%d platform=%s strategy=%s author=%s platform_id=%s profile_url=%s rss_url=%s status=%s\n",
+		sub.ID,
+		sub.Platform,
+		sub.Strategy,
+		sub.AuthorName,
+		sub.PlatformID,
+		sub.ProfileURL,
+		sub.RSSURL,
+		sub.Status,
 	)
 }
 

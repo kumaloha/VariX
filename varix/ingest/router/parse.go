@@ -15,12 +15,15 @@ import (
 )
 
 var (
-	twitterPost             = regexp.MustCompile(`(?:twitter\.com|x\.com)/[\w]+/status/(\d+)`)
+	twitterPost             = regexp.MustCompile(`(?:twitter\.com|x\.com)/(@?[\w]+)/status/(\d+)`)
 	twitterProfile          = regexp.MustCompile(`(?:twitter\.com|x\.com)/(@?[\w]+)/?$`)
 	weiboPost               = regexp.MustCompile(`weibo\.com/\d+/(\w+)|m\.weibo\.cn/(?:status|detail)/(\w+)`)
 	weiboProfile            = regexp.MustCompile(`weibo\.com/(?:u/)?(\d+)/?$`)
 	youtubeVideo            = regexp.MustCompile(`(?:youtube\.com/watch\?(?:.*&)?v=|youtu\.be/|youtube\.com/shorts/)([A-Za-z0-9_-]{11})`)
+	youtubeChannelProfile   = regexp.MustCompile(`youtube\.com/channel/(UC[A-Za-z0-9_-]+)`)
+	youtubeHandleProfile    = regexp.MustCompile(`youtube\.com/@([A-Za-z0-9_.-]+)`)
 	bilibiliVideo           = regexp.MustCompile(`bilibili\.com/video/(BV[\w]+)`)
+	bilibiliProfile         = regexp.MustCompile(`space\.bilibili\.com/(\d+)`)
 	twitterReservedProfiles = map[string]struct{}{
 		"about":         {},
 		"compose":       {},
@@ -57,8 +60,14 @@ func Parse(raw string) (types.ParsedURL, error) {
 	normalizedURL := normalizeURLHost(raw, host)
 
 	if hostMatches(host, "twitter.com", "x.com") {
-		if m := twitterPost.FindStringSubmatch(normalizedURL); len(m) > 1 {
-			return types.ParsedURL{Platform: types.PlatformTwitter, ContentType: types.ContentTypePost, PlatformID: m[1], CanonicalURL: raw}, nil
+		if m := twitterPost.FindStringSubmatch(normalizedURL); len(m) > 2 {
+			return types.ParsedURL{
+				Platform:     types.PlatformTwitter,
+				ContentType:  types.ContentTypePost,
+				PlatformID:   m[2],
+				AuthorID:     strings.ToLower(strings.TrimPrefix(m[1], "@")),
+				CanonicalURL: raw,
+			}, nil
 		}
 		if m := twitterProfile.FindStringSubmatch(lowerHostPath); len(m) > 1 {
 			username := strings.TrimPrefix(m[1], "@")
@@ -89,11 +98,22 @@ func Parse(raw string) (types.ParsedURL, error) {
 		if m := youtubeVideo.FindStringSubmatch(normalizedURL); len(m) > 1 {
 			return types.ParsedURL{Platform: types.PlatformYouTube, ContentType: types.ContentTypePost, PlatformID: m[1], CanonicalURL: "https://www.youtube.com/watch?v=" + m[1]}, nil
 		}
+		if m := youtubeChannelProfile.FindStringSubmatch(normalizedURL); len(m) > 1 {
+			return types.ParsedURL{Platform: types.PlatformYouTube, ContentType: types.ContentTypeProfile, PlatformID: m[1], CanonicalURL: "https://www.youtube.com/channel/" + m[1]}, nil
+		}
+		if m := youtubeHandleProfile.FindStringSubmatch(normalizedURL); len(m) > 1 {
+			return types.ParsedURL{Platform: types.PlatformYouTube, ContentType: types.ContentTypeProfile, PlatformID: m[1], CanonicalURL: "https://www.youtube.com/@" + m[1]}, nil
+		}
 	}
 
 	if hostMatches(host, "bilibili.com") {
 		if m := bilibiliVideo.FindStringSubmatch(normalizedURL); len(m) > 1 {
 			return types.ParsedURL{Platform: types.PlatformBilibili, ContentType: types.ContentTypePost, PlatformID: m[1], CanonicalURL: "https://www.bilibili.com/video/" + m[1]}, nil
+		}
+	}
+	if hostMatches(host, "space.bilibili.com") {
+		if m := bilibiliProfile.FindStringSubmatch(normalizedURL); len(m) > 1 {
+			return types.ParsedURL{Platform: types.PlatformBilibili, ContentType: types.ContentTypeProfile, PlatformID: m[1], CanonicalURL: "https://space.bilibili.com/" + m[1]}, nil
 		}
 	}
 

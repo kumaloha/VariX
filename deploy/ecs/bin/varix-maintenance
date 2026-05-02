@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+USER_ID="${VARIX_API_USER:-}"
+if [[ -z "${USER_ID}" ]]; then
+  echo "VARIX_API_USER is required for maintenance sweeps" >&2
+  exit 2
+fi
+
+VARIX_BIN="${VARIX_BIN:-/opt/varix/bin/varix}"
+
+"${VARIX_BIN}" ingest provenance-run --limit 100
+"${VARIX_BIN}" verify sweep --limit 20
+"${VARIX_BIN}" memory projection-sweep --user "${USER_ID}" --limit 100 --workers 1

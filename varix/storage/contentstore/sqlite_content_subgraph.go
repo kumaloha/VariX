@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
-func (s *SQLiteStore) UpsertContentSubgraph(ctx context.Context, subgraph graphmodel.ContentSubgraph) error {
+func (s *SQLiteStore) UpsertContentSubgraph(ctx context.Context, subgraph model.ContentSubgraph) error {
 	if err := subgraph.Validate(); err != nil {
 		return err
 	}
@@ -53,59 +53,59 @@ func (s *SQLiteStore) UpsertContentSubgraph(ctx context.Context, subgraph graphm
 	return s.enqueuePendingVerifyItemsFromSubgraph(ctx, subgraph)
 }
 
-func (s *SQLiteStore) GetContentSubgraph(ctx context.Context, platform, externalID string) (graphmodel.ContentSubgraph, error) {
+func (s *SQLiteStore) GetContentSubgraph(ctx context.Context, platform, externalID string) (model.ContentSubgraph, error) {
 	return getContentSubgraph(ctx, s.db, platform, externalID)
 }
 
 func getContentSubgraph(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, platform, externalID string) (graphmodel.ContentSubgraph, error) {
+}, platform, externalID string) (model.ContentSubgraph, error) {
 	var payload string
 	if err := q.QueryRowContext(ctx, `SELECT payload_json FROM content_subgraphs WHERE platform = ? AND external_id = ?`, platform, externalID).Scan(&payload); err != nil {
-		return graphmodel.ContentSubgraph{}, err
+		return model.ContentSubgraph{}, err
 	}
-	var subgraph graphmodel.ContentSubgraph
+	var subgraph model.ContentSubgraph
 	if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
-		return graphmodel.ContentSubgraph{}, fmt.Errorf("decode content subgraph: %w", err)
+		return model.ContentSubgraph{}, fmt.Errorf("decode content subgraph: %w", err)
 	}
 	return subgraph, nil
 }
 
-func (s *SQLiteStore) enqueuePendingVerifyItemsFromSubgraph(ctx context.Context, subgraph graphmodel.ContentSubgraph) error {
+func (s *SQLiteStore) enqueuePendingVerifyItemsFromSubgraph(ctx context.Context, subgraph model.ContentSubgraph) error {
 	baseSchedule := strings.TrimSpace(subgraph.CompiledAt)
 	if baseSchedule == "" {
 		baseSchedule = normalizeNow(time.Time{}).Format(time.RFC3339)
 	}
 	for _, node := range subgraph.Nodes {
-		if node.VerificationStatus != graphmodel.VerificationPending {
+		if node.VerificationStatus != model.VerificationPending {
 			continue
 		}
 		scheduledAt := firstTrimmed(node.NextVerifyAt, baseSchedule)
-		if err := s.EnqueueVerifyQueueItem(ctx, graphmodel.VerifyQueueItem{
+		if err := s.EnqueueVerifyQueueItem(ctx, model.VerifyQueueItem{
 			ID:              verifyQueueID(subgraph.ID, "node", node.ID),
-			ObjectType:      graphmodel.VerifyQueueObjectNode,
+			ObjectType:      model.VerifyQueueObjectNode,
 			ObjectID:        node.ID,
 			SourceArticleID: subgraph.ArticleID,
 			Priority:        verifyPriorityForNode(node),
 			ScheduledAt:     scheduledAt,
-			Status:          graphmodel.VerifyQueueStatusQueued,
+			Status:          model.VerifyQueueStatusQueued,
 		}); err != nil {
 			return err
 		}
 	}
 	for _, edge := range subgraph.Edges {
-		if edge.VerificationStatus != graphmodel.VerificationPending {
+		if edge.VerificationStatus != model.VerificationPending {
 			continue
 		}
 		scheduledAt := firstTrimmed(edge.NextVerifyAt, baseSchedule)
-		if err := s.EnqueueVerifyQueueItem(ctx, graphmodel.VerifyQueueItem{
+		if err := s.EnqueueVerifyQueueItem(ctx, model.VerifyQueueItem{
 			ID:              verifyQueueID(subgraph.ID, "edge", edge.ID),
-			ObjectType:      graphmodel.VerifyQueueObjectEdge,
+			ObjectType:      model.VerifyQueueObjectEdge,
 			ObjectID:        edge.ID,
 			SourceArticleID: subgraph.ArticleID,
 			Priority:        verifyPriorityForEdge(edge),
 			ScheduledAt:     scheduledAt,
-			Status:          graphmodel.VerifyQueueStatusQueued,
+			Status:          model.VerifyQueueStatusQueued,
 		}); err != nil {
 			return err
 		}
@@ -117,27 +117,27 @@ func verifyQueueID(subgraphID, objectType, objectID string) string {
 	return strings.TrimSpace(subgraphID) + ":" + strings.TrimSpace(objectType) + ":" + strings.TrimSpace(objectID)
 }
 
-func verifyPriorityForNode(node graphmodel.GraphNode) int {
-	if node.Kind == graphmodel.NodeKindPrediction {
+func verifyPriorityForNode(node model.ContentNode) int {
+	if node.Kind == model.NodeKindPrediction {
 		return 20
 	}
 	return 10
 }
 
-func verifyPriorityForEdge(edge graphmodel.GraphEdge) int {
-	if edge.Type == graphmodel.EdgeTypeDrives {
+func verifyPriorityForEdge(edge model.ContentEdge) int {
+	if edge.Type == model.EdgeTypeDrives {
 		return 15
 	}
 	return 5
 }
 
-func (s *SQLiteStore) ApplyVerifyVerdictToContentSubgraph(ctx context.Context, platform, externalID string, verdict graphmodel.VerifyVerdict) error {
+func (s *SQLiteStore) ApplyVerifyVerdictToContentSubgraph(ctx context.Context, platform, externalID string, verdict model.VerifyVerdict) error {
 	subgraph, err := s.GetContentSubgraph(ctx, platform, externalID)
 	if err != nil {
 		return err
 	}
 	switch verdict.ObjectType {
-	case graphmodel.VerifyQueueObjectNode:
+	case model.VerifyQueueObjectNode:
 		updated := false
 		for i := range subgraph.Nodes {
 			if subgraph.Nodes[i].ID != verdict.ObjectID {
@@ -157,7 +157,7 @@ func (s *SQLiteStore) ApplyVerifyVerdictToContentSubgraph(ctx context.Context, p
 		if !updated {
 			return fmt.Errorf("verify verdict node %q not found in content subgraph", verdict.ObjectID)
 		}
-	case graphmodel.VerifyQueueObjectEdge:
+	case model.VerifyQueueObjectEdge:
 		updated := false
 		for i := range subgraph.Edges {
 			if subgraph.Edges[i].ID != verdict.ObjectID {
@@ -194,7 +194,7 @@ func (s *SQLiteStore) ApplyVerifyVerdictToContentSubgraph(ctx context.Context, p
 	return s.refreshParadigmsForSubgraph(ctx, subgraph)
 }
 
-func (s *SQLiteStore) refreshMemoryContentGraphsFromSubgraph(ctx context.Context, subgraph graphmodel.ContentSubgraph) error {
+func (s *SQLiteStore) refreshMemoryContentGraphsFromSubgraph(ctx context.Context, subgraph model.ContentSubgraph) error {
 	payload, err := json.Marshal(subgraph)
 	if err != nil {
 		return err
@@ -215,21 +215,21 @@ func (s *SQLiteStore) refreshMemoryContentGraphsFromSubgraph(ctx context.Context
 	return err
 }
 
-func (s *SQLiteStore) refreshEventGraphsForSubgraph(ctx context.Context, subgraph graphmodel.ContentSubgraph) error {
+func (s *SQLiteStore) refreshEventGraphsForSubgraph(ctx context.Context, subgraph model.ContentSubgraph) error {
 	return s.refreshProjectionForSubgraphUsers(ctx, subgraph, func(userID string, now time.Time) error {
 		_, err := s.RunEventGraphProjection(ctx, userID, now)
 		return err
 	})
 }
 
-func (s *SQLiteStore) refreshParadigmsForSubgraph(ctx context.Context, subgraph graphmodel.ContentSubgraph) error {
+func (s *SQLiteStore) refreshParadigmsForSubgraph(ctx context.Context, subgraph model.ContentSubgraph) error {
 	return s.refreshProjectionForSubgraphUsers(ctx, subgraph, func(userID string, now time.Time) error {
 		_, err := s.RunParadigmProjection(ctx, userID, now)
 		return err
 	})
 }
 
-func (s *SQLiteStore) refreshProjectionForSubgraphUsers(ctx context.Context, subgraph graphmodel.ContentSubgraph, run func(string, time.Time) error) error {
+func (s *SQLiteStore) refreshProjectionForSubgraphUsers(ctx context.Context, subgraph model.ContentSubgraph, run func(string, time.Time) error) error {
 	userIDs, err := s.userIDsForMemoryContentGraphSource(ctx, subgraph.SourcePlatform, subgraph.SourceExternalID)
 	if err != nil {
 		return err
@@ -266,25 +266,25 @@ func (s *SQLiteStore) userIDsForMemoryContentGraphSource(ctx context.Context, so
 	return userIDs, nil
 }
 
-func (s *SQLiteStore) GetContentSubgraphByArticleID(ctx context.Context, articleID string) (graphmodel.ContentSubgraph, error) {
+func (s *SQLiteStore) GetContentSubgraphByArticleID(ctx context.Context, articleID string) (model.ContentSubgraph, error) {
 	return getContentSubgraphByArticleID(ctx, s.db, articleID)
 }
 
 func getContentSubgraphByArticleID(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, articleID string) (graphmodel.ContentSubgraph, error) {
+}, articleID string) (model.ContentSubgraph, error) {
 	var payload string
 	if err := q.QueryRowContext(ctx, `SELECT payload_json FROM content_subgraphs WHERE subgraph_id = ?`, strings.TrimSpace(articleID)).Scan(&payload); err != nil {
-		return graphmodel.ContentSubgraph{}, err
+		return model.ContentSubgraph{}, err
 	}
-	var subgraph graphmodel.ContentSubgraph
+	var subgraph model.ContentSubgraph
 	if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
-		return graphmodel.ContentSubgraph{}, fmt.Errorf("decode content subgraph by article id: %w", err)
+		return model.ContentSubgraph{}, fmt.Errorf("decode content subgraph by article id: %w", err)
 	}
 	return subgraph, nil
 }
 
-func (s *SQLiteStore) ApplyVerifyVerdictToContentSubgraphByArticleID(ctx context.Context, articleID string, verdict graphmodel.VerifyVerdict) error {
+func (s *SQLiteStore) ApplyVerifyVerdictToContentSubgraphByArticleID(ctx context.Context, articleID string, verdict model.VerifyVerdict) error {
 	subgraph, err := s.GetContentSubgraphByArticleID(ctx, articleID)
 	if err != nil {
 		return err

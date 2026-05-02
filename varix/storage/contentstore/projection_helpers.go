@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
-func (s *SQLiteStore) resolveCanonicalGraphNodeSubject(ctx context.Context, node graphmodel.GraphNode, cache map[string]string) (string, error) {
+func (s *SQLiteStore) resolveCanonicalGraphNodeSubject(ctx context.Context, node model.ContentNode, cache map[string]string) (string, error) {
 	subject, err := s.resolveCanonicalSubject(ctx, firstTrimmed(node.SubjectCanonical, node.SubjectText), cache)
 	if err != nil {
 		return "", err

@@ -92,13 +92,13 @@
 
 ## 5.2 主要工作
 
-### 5.2.1 新建 graphmodel 包
+### 5.2.1 新建 model 包
 建议新增：
-- `varix/graphmodel/node.go`
-- `varix/graphmodel/edge.go`
-- `varix/graphmodel/subgraph.go`
-- `varix/graphmodel/card.go`
-- `varix/graphmodel/verify.go`
+- `varix/model/node.go`
+- `varix/model/edge.go`
+- `varix/model/subgraph.go`
+- `varix/model/card.go`
+- `varix/model/verify.go`
 
 ### 5.2.2 建立兼容 adapter
 - 旧 `compile.Output` -> 新 `ContentSubgraph`
@@ -114,7 +114,7 @@
 不先统一领域模型，后面 compile / verify / memory 只能继续各说各话。
 
 ## 5.4 验收
-- 新 graphmodel 包可独立表达完整子图
+- 新 model 包可独立表达完整子图
 - 旧 compile 结果能转换到新子图
 - 子图 validation 测试通过
 
@@ -135,7 +135,7 @@
 ## 6.2 主要工作
 
 ### 6.2.1 compile pipeline 改为先产 subgraph
-- 不论 legacy / v2，最终都产 `ContentSubgraph`
+- 记忆综合流程最终都产 `ContentSubgraph`
 - card 只是 subgraph 的投影
 
 ### 6.2.2 主图与辅助图分离
@@ -156,7 +156,7 @@
 
 ### 可保留
 - `varix/compile/client.go` 外壳
-- `varix/compilev2/` 分阶段结构
+- `varix/compile/` 分阶段结构
 - `compile run/show/card` CLI
 
 ### 需重做/增强
@@ -426,14 +426,14 @@
 继续保留：
 - `varix/cmd/cli`
 - `varix/compile`
-- `varix/compilev2`
+- `varix/compile`
 - `varix/storage/contentstore`
 - `varix/memory`
 
 ## 12.2 建议新增目录
 
 ### 新增领域模型层
-- `varix/graphmodel/`
+- `varix/model/`
 
 ### 新增验证调度层
 - `varix/verifyqueue/`
@@ -459,7 +459,7 @@
 
 最推荐的真实施工顺序是：
 
-1. **graphmodel**
+1. **model**
 2. **compile graph-first persistence**
 3. **verify queue**
 4. **content memory graph-first**
@@ -551,4 +551,3 @@
 - 接口设计
 
 其余工程判断我会直接负责推进。
-

@@ -2,16 +2,16 @@
 
 VariX currently has **two global memory organization surfaces**:
 
-1. **v1 cluster-first**
-2. **v2 relation-first**
+1. **cluster-first**
+2. **relation-first synthesis**
 
 They coexist during rollout. Accepted memory truth (`user_memory_nodes`,
-acceptance events, and jobs) remains unchanged. v2 re-expresses that truth as
+acceptance events, and jobs) remains unchanged. Synthesis re-expresses that truth as
 canonical-entity-anchored relation output.
 
 ---
 
-## v1: cluster-first global memory
+## Cluster-First Global Memory
 
 Primary output object:
 - `GlobalOrganizationOutput`
@@ -29,10 +29,10 @@ CLI:
 
 ---
 
-## v2: relation-first global memory
+## Synthesis Global Memory
 
 Primary output object:
-- `GlobalMemoryV2Output`
+- `GlobalMemorySynthesisOutput`
 
 Pipeline:
 
@@ -176,7 +176,7 @@ Item types:
 
 ---
 
-## Current v2 quality rules
+## Current synthesis quality rules
 
 - canonical entities are the only stable browse anchors
 - relations are atomic single-driver/single-target boundaries
@@ -184,7 +184,7 @@ Item types:
 - aggregates are derived indexes over relations/mechanisms, not free-form truth
 - conclusions require hard-gate success plus reproducible soft-judge approval
 - conflicts are derived from contradictory path outcomes and block abstraction
-- top items preserve coexistence with v1 and stay useful for debugging/regression comparison
+- top items preserve coexistence with the cluster-first organizer and stay useful for debugging/regression comparison
 - deletion or retraction is handled via tombstone + reevaluation, not silent partial mutation
 
 ---
@@ -192,9 +192,9 @@ Item types:
 ## CLI
 
 Raw JSON:
-- `varix memory global-v2-organize-run --user <user_id>`
-- `varix memory global-v2-organized --user <user_id>`
-- `global-v2-organize-run` now refreshes persisted event/paradigm projections first, then rebuilds the global view
+- `varix memory global-synthesis-run --user <user_id>`
+- `varix memory global-synthesis --user <user_id>`
+- `global-synthesis-run` now refreshes persisted event/paradigm projections first, then rebuilds the global view
 
 Graph-first inspection commands:
 - `varix memory event-evidence --user <user_id>`
@@ -203,7 +203,7 @@ Graph-first inspection commands:
 - `varix memory paradigm-evidence --paradigm-id <id> --user <user_id>`
 - `varix memory project-all --user <user_id>`
 - `varix memory backfill --layer content --user <user_id> --platform <platform> --id <external_id>`
-- `varix memory backfill --layer event|paradigm|global-v2|all --user <user_id>`
+- `varix memory backfill --layer event|paradigm|global-synthesis|all --user <user_id>`
 - `varix memory cleanup-stale --user <user_id> --older-than 24h`
 - `varix memory cleanup-stale --user <user_id> --older-than 24h --platform <platform> [--id <external_id>]`
 - `varix memory cleanup-stale --user <user_id> --older-than 24h --dry-run`
@@ -243,19 +243,19 @@ Verify execution commands:
 - `verify queue --summary` now includes queue status counts, object types, `total_count`, due count, oldest scheduled item, and `pending_age_buckets`
 
 Project-wide refresh / metrics:
-- `memory project-all --user <user_id>` now reports `event_graph_rebuild_ms`, `paradigm_recompute_ms`, and `global_v2_rebuild_ms`
+- `memory project-all --user <user_id>` now reports `event_graph_rebuild_ms`, `paradigm_recompute_ms`, and `global_synthesis_rebuild_ms`
 - `memory jobs --summary` now reports status counts, `stale_candidates`, `stale_queued`, `stale_running`, `oldest_queued_at`, and `oldest_running_at`
 - `memory canonical-entity-upsert` is the operator surface for human-reviewed canonical alias overrides
 - `memory canonical-entity-upsert --status <active|merged|split|retired>` controls canonical entity lifecycle state explicitly
 - `memory canonical-entities --summary` reports canonical entity counts by type/status and total alias volume
 
 Human-readable cards:
-- `varix memory global-v2-card --user <user_id>`
-- `varix memory global-v2-card --user <user_id> --run`
-- `varix memory global-v2-card --user <user_id> --item-type conclusion`
-- `varix memory global-v2-card --user <user_id> --item-type conflict`
-- `varix memory global-v2-card --user <user_id> --limit 5`
-- v2 card output includes an `Items` header for the currently rendered slice
+- `varix memory global-synthesis-card --user <user_id>`
+- `varix memory global-synthesis-card --user <user_id> --run`
+- `varix memory global-synthesis-card --user <user_id> --item-type conclusion`
+- `varix memory global-synthesis-card --user <user_id> --item-type conflict`
+- `varix memory global-synthesis-card --user <user_id> --limit 5`
+- synthesis card output includes an `Items` header for the currently rendered slice
 
 Compare surfaces:
 - `varix memory global-compare --user <user_id>`
@@ -263,12 +263,12 @@ Compare surfaces:
 - `varix memory global-compare --user <user_id> --item-type conclusion`
 - `varix memory global-compare --user <user_id> --item-type conflict`
 - `varix memory global-compare --user <user_id> --limit 5`
-- compare output includes section counts for both v1 and v2
+- compare output includes section counts for both cluster and synthesis
 
 Review-friendly behaviors:
 - invalid filter values fail fast with explicit guidance
 - empty filtered views render a no-match message instead of blank output
-- compare headers include item counts and current v2 filter context
+- compare headers include item counts and current synthesis filter context
 
 ---
 
@@ -321,7 +321,7 @@ Key design rules:
 - posterior state is stored as mutable sidecar data
 - source-scoped `organized` reads must treat post-posterior stale output as an
   explicit error, not silently current data
-- global v1/v2 organization surfaces stay out of scope for the first pass
+- global cluster/synthesis organization surfaces stay out of scope for the first pass
 
 See `docs/memory-posterior-phase1.md` for the detailed phase-1 contract and
 review checklist.
@@ -330,7 +330,7 @@ review checklist.
 
 ## Rollout intent
 
-v2 is intended to become the product-facing memory layer because it better
+synthesis is intended to become the product-facing memory layer because it better
 supports:
 - canonical entity anchoring
 - atomic relation truth boundaries
@@ -339,7 +339,7 @@ supports:
 - contradiction-aware derived views
 - multi-source cognitive synthesis
 
-v1 remains available until relation-first output quality is consistently stronger
+cluster-first remains available until relation-first output quality is consistently stronger
 than cluster-first output on real memory sets.
 
 

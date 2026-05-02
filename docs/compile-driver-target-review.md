@@ -1,4 +1,4 @@
-# Compile Driver-Target Schema v1 — Review Findings
+# Compile Driver-Target Schema baseline — Review Findings
 
 ## Scope reviewed
 
@@ -42,7 +42,7 @@ The delivered work matches the PRD intent in the areas covered by task 3:
 
 next to the existing output fields instead of changing graph node/edge schema.
 
-**Assessment:** aligns with the v1 decision to keep the reasoning graph intact and
+**Assessment:** aligns with the baseline decision to keep the reasoning graph intact and
 layer the driver-target contract on top.
 
 ### 2. Validation behavior is appropriately narrow
@@ -80,7 +80,7 @@ layer the driver-target contract on top.
 
 ### 5. Evaluation tests are runtime-layout tolerant
 
-`varix/compile/gold_eval_test.go` now walks upward from the package working
+`tests/eval/gold_eval_test.go` now walks upward from the package working
 folder until the repo-level gold dataset is found.
 
 **Assessment:** good operational hardening.
@@ -118,7 +118,7 @@ schema change.
 ## Non-blocking observations
 
 1. `normalizeStringList()` trims entries but preserves order and duplicates.
-   - This is acceptable for v1.
+   - This is acceptable for baseline.
    - No dedupe requirement exists in the PRD.
 
 2. The prompt requires `drivers` / `targets`, while validation keeps them
@@ -127,7 +127,7 @@ schema change.
 
 3. The current implementation uses free-text arrays rather than pairwise
    relations.
-   - This is consistent with the v1 decision.
+   - This is consistent with the baseline decision.
    - Do not upgrade to pair objects without evaluation evidence first.
 
 ---
@@ -148,15 +148,15 @@ From task-1 result:
 - PASS `go test ./compile/...`
 - PASS `go test ./cmd/cli/...`
 - PASS `go test ./...`
-- PASS gold dataset shape validation on `data/gold/compile-gold-batch1-v1.json`
+- PASS gold dataset shape validation on `eval/gold/compile-gold-batch1-baseline.json`
   with 9 samples and non-empty drivers / targets
 
 From task-2 result:
 
 - PASS `go test ./compile/...`
-- PASS `go test ./compile/... -run TestLoadGoldDatasetBatch1|TestBuildGoldEvaluationReportBatch1|TestGoldDatasetValidateRejectsBlankDriverOrTarget -v`
+- PASS `./tests/go-test.sh ./eval -run 'TestLoadGoldDatasetBatch1|TestBuildGoldEvaluationReportBatch1|TestGoldDatasetValidateRejectsBlankDriverOrTarget' -v`
 - PASS `go test ./cmd/cli/...`
-- PASS Python JSON load of `data/gold/compile-gold-batch1-v1.json`
+- PASS Python JSON load of `eval/gold/compile-gold-batch1-baseline.json`
 - PASS evaluation report structure with distinct sections for:
   - `summary`
   - `node_recall_type`
@@ -174,7 +174,7 @@ From task-3 lane:
 
 ## Reviewer conclusion
 
-The compile driver-target v1 work is review-complete.
+The compile driver-target baseline work is review-complete.
 
 The schema remains additive to the existing reasoning graph, prompt and parser
 behavior align with the PRD, blank-entry validation is enforced, and the gold

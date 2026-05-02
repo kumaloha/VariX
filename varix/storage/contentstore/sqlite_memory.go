@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRequest) (memory.AcceptResult, error) {
@@ -42,7 +42,7 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 		return memory.AcceptResult{}, fmt.Errorf("no node ids provided")
 	}
 
-	graphNodes := map[string]compile.GraphNode{}
+	graphNodes := map[string]model.GraphNode{}
 	for _, node := range record.Output.Graph.Nodes {
 		graphNodes[node.ID] = node
 	}
@@ -147,7 +147,11 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 	if err != nil {
 		return memory.AcceptResult{}, err
 	}
-	if err := persistMemoryContentGraphTx(ctx, tx, req.UserID, record, now); err != nil {
+	subgraph, err := persistMemoryContentGraphTx(ctx, tx, req.UserID, record, now)
+	if err != nil {
+		return memory.AcceptResult{}, err
+	}
+	if err := markContentGraphProjectionDirty(ctx, tx, req.UserID, subgraph, now); err != nil {
 		return memory.AcceptResult{}, err
 	}
 
@@ -194,9 +198,6 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 	}
 
 	if err := tx.Commit(); err != nil {
-		return memory.AcceptResult{}, err
-	}
-	if err := s.refreshProjectionLayersForUser(ctx, req.UserID, now); err != nil {
 		return memory.AcceptResult{}, err
 	}
 

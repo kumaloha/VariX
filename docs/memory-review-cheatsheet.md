@@ -4,41 +4,41 @@ A short operator-oriented guide for reviewing VariX memory outputs.
 
 ---
 
-## 1. Recompute and inspect thesis-first cards
+## 1. Recompute and inspect synthesis cards
 
 ### Full card view
 ```bash
-varix memory global-v2-card --run --user <user_id>
+varix memory global-synthesis-card --run --user <user_id>
 ```
-Use when you want the latest thesis-first memory cards in a human-readable form. The output now starts with an `Items` count for the current slice.
+Use when you want the latest synthesis memory cards in a human-readable form. The output now starts with an `Items` count for the current slice.
 
 ### Only conclusions
 ```bash
-varix memory global-v2-card --run --user <user_id> --item-type conclusion
+varix memory global-synthesis-card --run --user <user_id> --item-type conclusion
 ```
 Use when you only want first-layer synthesized judgments.
 
 ### Only conflicts
 ```bash
-varix memory global-v2-card --run --user <user_id> --item-type conflict
+varix memory global-synthesis-card --run --user <user_id> --item-type conflict
 ```
 Use when you only want contradiction review.
 
 ### Limit long outputs
 ```bash
-varix memory global-v2-card --run --user <user_id> --item-type conclusion --limit 5
+varix memory global-synthesis-card --run --user <user_id> --item-type conclusion --limit 5
 ```
 Use when a user has many items and you only want the first few.
 
 ---
 
-## 2. Compare v1 vs v2 quickly
+## 2. Compare cluster vs synthesis quickly
 
 ### Persisted compare
 ```bash
 varix memory global-compare --user <user_id>
 ```
-Use when you want to compare the last stored cluster-first and thesis-first views.
+Use when you want to compare the last stored cluster-first and synthesis views.
 
 ### Fresh compare
 ```bash
@@ -46,40 +46,40 @@ varix memory global-compare --run --user <user_id>
 ```
 Use when you want both sides recomputed before comparison.
 
-### Compare only one v2 item class
+### Compare only one synthesis item class
 ```bash
 varix memory global-compare --run --user <user_id> --item-type conflict
 varix memory global-compare --run --user <user_id> --item-type conclusion
 ```
-Use when the v2 side is too busy and you only want one class of first-layer items.
+Use when the synthesis side is too busy and you only want one class of first-layer items.
 
 ### Limit compare output
 ```bash
 varix memory global-compare --run --user <user_id> --limit 3
 ```
-Use when you want a smaller sample from both v1 and v2.
+Use when you want a smaller sample from both cluster and synthesis.
 
 ### What the compare output now includes
-- section counts for v1 and v2
-- optional v2-side filtering (`--item-type`)
+- section counts for cluster and synthesis
+- optional synthesis-side filtering (`--item-type`)
 - optional output shortening (`--limit`)
-- explicit no-match guidance when the filtered v2 side is empty
+- explicit no-match guidance when the filtered synthesis side is empty
 
 ---
 
-## 3. Read raw v2 JSON
+## 3. Read raw synthesis JSON
 
 ### Fresh JSON
 ```bash
-varix memory global-v2-organize-run --user <user_id>
+varix memory global-synthesis-run --user <user_id>
 ```
-Use when you need the full machine-readable v2 payload.
+Use when you need the full machine-readable synthesis payload.
 
 ### Stored JSON
 ```bash
-varix memory global-v2-organized --user <user_id>
+varix memory global-synthesis --user <user_id>
 ```
-Use when you want the last persisted v2 output without recomputing.
+Use when you want the last persisted synthesis output without recomputing.
 
 ---
 
@@ -103,7 +103,7 @@ Use when you want the last persisted v2 output without recomputing.
 
 ## 5. Recommended review order
 
-1. `global-v2-card --run --item-type conflict`
-2. `global-v2-card --run --item-type conclusion --limit 5`
+1. `global-synthesis-card --run --item-type conflict`
+2. `global-synthesis-card --run --item-type conclusion --limit 5`
 3. `global-compare --run --limit 5`
-4. If needed: `global-v2-organize-run` for raw JSON inspection
+4. If needed: `global-synthesis-run` for raw JSON inspection

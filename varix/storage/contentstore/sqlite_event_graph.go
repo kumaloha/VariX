@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 type EventGraphEvidenceLink struct {
@@ -20,21 +20,23 @@ type EventGraphEvidenceLink struct {
 }
 
 type EventGraphRecord struct {
-	EventGraphID          string                                `json:"event_graph_id"`
-	UserID                string                                `json:"user_id"`
-	Scope                 string                                `json:"scope"`
-	AnchorSubject         string                                `json:"anchor_subject"`
-	TimeBucket            string                                `json:"time_bucket"`
-	SourceSubgraphIDs     []string                              `json:"source_subgraph_ids,omitempty"`
-	SourceArticleIDs      []string                              `json:"source_article_ids,omitempty"`
-	NodeIDs               []string                              `json:"node_ids,omitempty"`
-	RepresentativeChanges []string                              `json:"representative_changes,omitempty"`
-	TraceabilityMap       map[string][]string                   `json:"traceability_map,omitempty"`
-	SourceSubgraphCount   int                                   `json:"source_subgraph_count"`
-	PrimaryNodeCount      int                                   `json:"primary_node_count"`
-	VerificationSummary   map[graphmodel.VerificationStatus]int `json:"verification_summary,omitempty"`
-	GeneratedAt           string                                `json:"generated_at"`
-	UpdatedAt             string                                `json:"updated_at"`
+	EventGraphID          string                           `json:"event_graph_id"`
+	UserID                string                           `json:"user_id"`
+	Scope                 string                           `json:"scope"`
+	AnchorSubject         string                           `json:"anchor_subject"`
+	TimeBucket            string                           `json:"time_bucket"`
+	TimeStart             string                           `json:"time_start,omitempty"`
+	TimeEnd               string                           `json:"time_end,omitempty"`
+	SourceSubgraphIDs     []string                         `json:"source_subgraph_ids,omitempty"`
+	SourceArticleIDs      []string                         `json:"source_article_ids,omitempty"`
+	NodeIDs               []string                         `json:"node_ids,omitempty"`
+	RepresentativeChanges []string                         `json:"representative_changes,omitempty"`
+	TraceabilityMap       map[string][]string              `json:"traceability_map,omitempty"`
+	SourceSubgraphCount   int                              `json:"source_subgraph_count"`
+	PrimaryNodeCount      int                              `json:"primary_node_count"`
+	VerificationSummary   map[model.VerificationStatus]int `json:"verification_summary,omitempty"`
+	GeneratedAt           string                           `json:"generated_at"`
+	UpdatedAt             string                           `json:"updated_at"`
 }
 
 func (s *SQLiteStore) RunEventGraphProjection(ctx context.Context, userID string, now time.Time) ([]EventGraphRecord, error) {
@@ -71,6 +73,8 @@ func (s *SQLiteStore) RunEventGraphProjection(ctx context.Context, userID string
 			Scope:                 candidate.Scope,
 			AnchorSubject:         candidate.AnchorSubject,
 			TimeBucket:            candidate.TimeBucket,
+			TimeStart:             candidate.TimeStart,
+			TimeEnd:               candidate.TimeEnd,
 			SourceSubgraphIDs:     sourceSubgraphIDs,
 			SourceArticleIDs:      sourceArticleIDs,
 			NodeIDs:               nodeIDs,
@@ -199,19 +203,19 @@ func getEventGraph(ctx context.Context, q interface {
 	return graph, nil
 }
 
-func (s *SQLiteStore) eventVerificationStatusIndex(ctx context.Context, userID string) (map[string]graphmodel.VerificationStatus, error) {
+func (s *SQLiteStore) eventVerificationStatusIndex(ctx context.Context, userID string) (map[string]model.VerificationStatus, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT payload_json FROM memory_content_graphs WHERE user_id = ?`, strings.TrimSpace(userID))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]graphmodel.VerificationStatus{}
+	out := map[string]model.VerificationStatus{}
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
 			return nil, err
 		}
-		var subgraph graphmodel.ContentSubgraph
+		var subgraph model.ContentSubgraph
 		if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
 			return nil, fmt.Errorf("decode memory_content_graph payload: %w", err)
 		}
@@ -222,12 +226,12 @@ func (s *SQLiteStore) eventVerificationStatusIndex(ctx context.Context, userID s
 	return out, rows.Err()
 }
 
-func summarizeVerificationStatuses(nodeIDs []string, byNodeID map[string]graphmodel.VerificationStatus) map[graphmodel.VerificationStatus]int {
-	out := map[graphmodel.VerificationStatus]int{}
+func summarizeVerificationStatuses(nodeIDs []string, byNodeID map[string]model.VerificationStatus) map[model.VerificationStatus]int {
+	out := map[model.VerificationStatus]int{}
 	for _, nodeID := range nodeIDs {
 		status := byNodeID[nodeID]
 		if status == "" {
-			status = graphmodel.VerificationPending
+			status = model.VerificationPending
 		}
 		out[status]++
 	}
@@ -246,7 +250,7 @@ func (s *SQLiteStore) eventNodeChangeIndex(ctx context.Context, userID string) (
 		if err := rows.Scan(&payload); err != nil {
 			return nil, err
 		}
-		var subgraph graphmodel.ContentSubgraph
+		var subgraph model.ContentSubgraph
 		if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
 			return nil, fmt.Errorf("decode memory_content_graph payload: %w", err)
 		}
@@ -281,7 +285,7 @@ func (s *SQLiteStore) eventNodeTraceabilityIndex(ctx context.Context, userID str
 		if err := rows.Scan(&payload); err != nil {
 			return nil, err
 		}
-		var subgraph graphmodel.ContentSubgraph
+		var subgraph model.ContentSubgraph
 		if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
 			return nil, fmt.Errorf("decode memory_content_graph payload: %w", err)
 		}
