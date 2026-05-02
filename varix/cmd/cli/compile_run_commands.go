@@ -10,7 +10,6 @@ import (
 
 	"github.com/kumaloha/VariX/varix/ingest/types"
 	varixllm "github.com/kumaloha/VariX/varix/llm"
-	"github.com/kumaloha/VariX/varix/model"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
@@ -104,18 +103,10 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 		}
 	}
 
-	bundle := model.BuildBundle(raw)
-	compileStart := time.Now()
-	record, err := client.Compile(ctx, bundle)
+	record, err := compileRawCapture(ctx, client, raw)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
-	}
-	if record.Metrics.CompileElapsedMS <= 0 {
-		record.Metrics.CompileElapsedMS = time.Since(compileStart).Milliseconds()
-		if record.Metrics.CompileElapsedMS <= 0 {
-			record.Metrics.CompileElapsedMS = 1
-		}
 	}
 	if err := store.UpsertCompiledOutput(ctx, record); err != nil {
 		writeErr(stderr, err)

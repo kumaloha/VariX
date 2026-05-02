@@ -225,6 +225,39 @@ func (s *SQLiteStore) ListRawCaptureRefs(ctx context.Context, limit int, platfor
 	return out, rows.Err()
 }
 
+func (s *SQLiteStore) ListUncompiledRawCaptureRefs(ctx context.Context, limit int, platform string) ([]RawCaptureRef, error) {
+	platform = strings.TrimSpace(platform)
+	query := `SELECT r.platform, r.external_id, r.url, r.updated_at
+		FROM raw_captures r
+		LEFT JOIN compiled_outputs c
+		  ON c.platform = r.platform AND c.external_id = r.external_id
+		WHERE c.external_id IS NULL`
+	args := make([]any, 0, 2)
+	if platform != "" {
+		query += ` AND r.platform = ?`
+		args = append(args, platform)
+	}
+	query += ` ORDER BY r.updated_at DESC, r.created_at DESC`
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]RawCaptureRef, 0)
+	for rows.Next() {
+		var item RawCaptureRef
+		if err := rows.Scan(&item.Platform, &item.ExternalID, &item.URL, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func normalizeRequiredRunTime(value string) (time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {

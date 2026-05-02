@@ -13,6 +13,9 @@ Convenience identity:
 Default behavior:
 - `compile run` returns cached compile output when it already exists
 - `compile run --force` recomputes and overwrites the stored result
+- `compile sweep` compiles raw captures that do not yet have persisted compile
+  output; `compile sweep --user <user>` also backfills content-memory graphs for
+  that user
 - `compile show|summary|compare|card` read persisted compile output directly
 - `compile run` and `compile show` now expose `metrics.compile_elapsed_ms`
   in the JSON record payload for compile observability

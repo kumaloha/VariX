@@ -55,18 +55,19 @@ directly.
 
 - `varix-api.service`: memory API
 - `varix-poll.service`: followed-source polling loop
-- `varix-maintenance.timer`: provenance lookup, verify sweep, memory projection sweep
+- `varix-maintenance.timer`: provenance lookup, compile sweep, verify sweep, memory projection sweep
 
-Compile is intentionally not hidden in the timer yet because the CLI currently
-has reliable single-item persistence (`compile run`) but not a production-grade
-"compile all uncompiled captures" command. For now, compile new captures
-manually or add the dedicated sweep command before relying on unattended compile.
+`compile sweep` compiles raw captures that do not yet have persisted compile
+outputs. When `--user` is supplied, it also backfills those compiled outputs into
+that user's content-memory graph so the projection sweep can refresh the API
+surfaces.
 
 Useful manual commands:
 
 ```bash
 VARIX_ROOT=/opt/varix /opt/varix/bin/varix ingest list-follows
 VARIX_ROOT=/opt/varix /opt/varix/bin/varix ingest fetch --follow-author <url>
+VARIX_ROOT=/opt/varix /opt/varix/bin/varix compile sweep --user kuma --limit 20
 VARIX_ROOT=/opt/varix /opt/varix/bin/varix compile run --platform <platform> --id <external_id>
 VARIX_ROOT=/opt/varix /opt/varix/bin/varix verify run --platform <platform> --id <external_id>
 VARIX_ROOT=/opt/varix /opt/varix/bin/varix memory project-all --user kuma

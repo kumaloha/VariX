@@ -10,5 +10,6 @@ fi
 VARIX_BIN="${VARIX_BIN:-/opt/varix/bin/varix}"
 
 "${VARIX_BIN}" ingest provenance-run --limit 100
+"${VARIX_BIN}" compile sweep --user "${USER_ID}" --limit 20 --workers 1
 "${VARIX_BIN}" verify sweep --limit 20
 "${VARIX_BIN}" memory projection-sweep --user "${USER_ID}" --limit 100 --workers 1

@@ -4,8 +4,10 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/kumaloha/VariX/varix/ingest/types"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func TestSQLiteStore_UpsertRawCaptureAndQueueLookup(t *testing.T) {
@@ -56,6 +58,67 @@ func TestSQLiteStore_UpsertRawCaptureAndQueueLookup(t *testing.T) {
 	}
 	if items[0].ExternalID != "abc123" {
 		t.Fatalf("pending ExternalID = %q, want abc123", items[0].ExternalID)
+	}
+}
+
+func TestSQLiteStore_ListUncompiledRawCaptureRefs(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(filepath.Join(root, "data", "content.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	for _, raw := range []types.RawContent{
+		{Source: "twitter", ExternalID: "newer", Content: "newer raw", URL: "https://x.com/a/status/newer"},
+		{Source: "twitter", ExternalID: "compiled", Content: "compiled raw", URL: "https://x.com/a/status/compiled"},
+		{Source: "weibo", ExternalID: "other-platform", Content: "other raw", URL: "https://weibo.com/1/other-platform"},
+	} {
+		if err := store.UpsertRawCapture(context.Background(), raw); err != nil {
+			t.Fatalf("UpsertRawCapture(%s) error = %v", raw.ExternalID, err)
+		}
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), model.Record{
+		UnitID:         "twitter:compiled",
+		Source:         "twitter",
+		ExternalID:     "compiled",
+		RootExternalID: "compiled",
+		Model:          "test-model",
+		Output: model.Output{
+			Summary: "already compiled",
+			Graph: model.ReasoningGraph{
+				Nodes: []model.GraphNode{
+					{ID: "n1", Kind: model.NodeFact, Text: "compiled raw", ValidFrom: time.Now().UTC(), ValidTo: time.Now().UTC().Add(time.Hour)},
+					{ID: "n2", Kind: model.NodeConclusion, Text: "compiled output", ValidFrom: time.Now().UTC(), ValidTo: time.Now().UTC().Add(time.Hour)},
+				},
+				Edges: []model.GraphEdge{{From: "n1", To: "n2", Kind: model.EdgePositive}},
+			},
+			Details: model.HiddenDetails{Caveats: []string{"compiled caveat"}},
+		},
+		CompiledAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpsertCompiledOutput() error = %v", err)
+	}
+
+	got, err := store.ListUncompiledRawCaptureRefs(context.Background(), 0, "")
+	if err != nil {
+		t.Fatalf("ListUncompiledRawCaptureRefs() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(ListUncompiledRawCaptureRefs) = %d, want 2: %#v", len(got), got)
+	}
+	for _, ref := range got {
+		if ref.ExternalID == "compiled" {
+			t.Fatalf("compiled ref was returned: %#v", got)
+		}
+	}
+
+	got, err = store.ListUncompiledRawCaptureRefs(context.Background(), 10, "twitter")
+	if err != nil {
+		t.Fatalf("ListUncompiledRawCaptureRefs(twitter) error = %v", err)
+	}
+	if len(got) != 1 || got[0].ExternalID != "newer" {
+		t.Fatalf("twitter refs = %#v, want only newer", got)
 	}
 }
 

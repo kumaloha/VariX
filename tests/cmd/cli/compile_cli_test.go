@@ -504,6 +504,126 @@ func TestRunCompileForceBypassesStoredCompiledOutput(t *testing.T) {
 	}
 }
 
+func TestRunCompileSweepCompilesOnlyUncompiledCapturesAndBackfillsMemory(t *testing.T) {
+	prevNewIngestRuntime := newIngestRuntime
+	prevBuildCompileClientCurrent := buildCompileClientCurrent
+	t.Cleanup(func() {
+		newIngestRuntime = prevNewIngestRuntime
+		buildCompileClientCurrent = prevBuildCompileClientCurrent
+	})
+
+	tmp := t.TempDir()
+	dbPath := tmp + "/content.db"
+	store, err := contentstore.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	for _, raw := range []types.RawContent{
+		{Source: "twitter", ExternalID: "raw-new", Content: "CPI cooled again, yields may fall.", URL: "https://x.com/a/status/raw-new", PostedAt: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC)},
+		{Source: "twitter", ExternalID: "raw-old", Content: "Already compiled.", URL: "https://x.com/a/status/raw-old", PostedAt: time.Date(2026, 4, 15, 9, 0, 0, 0, time.UTC)},
+	} {
+		if err := store.UpsertRawCapture(context.Background(), raw); err != nil {
+			t.Fatalf("UpsertRawCapture(%s) error = %v", raw.ExternalID, err)
+		}
+	}
+	if err := store.UpsertCompiledOutput(context.Background(), c.Record{
+		UnitID:         "twitter:raw-old",
+		Source:         "twitter",
+		ExternalID:     "raw-old",
+		RootExternalID: "raw-old",
+		Model:          "test-model",
+		Output: c.Output{
+			Summary: "old summary",
+			Graph: c.ReasoningGraph{
+				Nodes: []c.GraphNode{testGraphNode("old-1", c.NodeFact, "old fact"), testGraphNode("old-2", c.NodeConclusion, "old conclusion")},
+				Edges: []c.GraphEdge{{From: "old-1", To: "old-2", Kind: c.EdgeDerives}},
+			},
+			Details: c.HiddenDetails{Caveats: []string{"old caveat"}},
+		},
+		CompiledAt: time.Date(2026, 4, 16, 8, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("UpsertCompiledOutput(raw-old) error = %v", err)
+	}
+	store.Close()
+
+	newIngestRuntime = func(projectRoot string) (*ingest.Runtime, error) {
+		store, err := contentstore.NewSQLiteStore(dbPath)
+		if err != nil {
+			return nil, err
+		}
+		app := &ingest.Runtime{Store: store}
+		app.Settings.ContentDBPath = dbPath
+		return app, nil
+	}
+
+	var compiled []string
+	buildCompileClientCurrent = func(projectRoot string) compileClient {
+		return fakeCompileClient{
+			compileFn: func(_ context.Context, bundle c.Bundle) (c.Record, error) {
+				compiled = append(compiled, bundle.ExternalID)
+				return c.Record{
+					UnitID:         bundle.Source + ":" + bundle.ExternalID,
+					Source:         bundle.Source,
+					ExternalID:     bundle.ExternalID,
+					RootExternalID: bundle.ExternalID,
+					Model:          "test-model",
+					Output: c.Output{
+						Summary: "compiled " + bundle.ExternalID,
+						Graph: c.ReasoningGraph{
+							Nodes: []c.GraphNode{
+								{ID: "n1", Kind: c.NodeFact, Text: bundle.Content, OccurredAt: bundle.PostedAt},
+								{ID: "n2", Kind: c.NodeConclusion, Text: "memory conclusion", PredictionStartAt: bundle.PostedAt, PredictionDueAt: bundle.PostedAt.Add(24 * time.Hour)},
+							},
+							Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+						},
+						Details: c.HiddenDetails{Caveats: []string{"sweep caveat"}},
+					},
+					CompiledAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+				}, nil
+			},
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "sweep", "--user", "u-sweep", "--limit", "10", "--workers", "2"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("compile sweep code = %d, stderr = %s", code, stderr.String())
+	}
+	var summary struct {
+		Scanned                 int    `json:"scanned"`
+		Compiled                int    `json:"compiled"`
+		Failed                  int    `json:"failed"`
+		ContentGraphsBackfilled int    `json:"content_graphs_backfilled"`
+		User                    string `json:"user"`
+		Status                  string `json:"status"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
+		t.Fatalf("json.Unmarshal(compile sweep stdout) error = %v", err)
+	}
+	if summary.Scanned != 1 || summary.Compiled != 1 || summary.Failed != 0 || summary.ContentGraphsBackfilled != 1 || summary.User != "u-sweep" || summary.Status != "ok" {
+		t.Fatalf("summary = %#v, want one successful compile/backfill", summary)
+	}
+	if len(compiled) != 1 || compiled[0] != "raw-new" {
+		t.Fatalf("compiled = %#v, want only raw-new", compiled)
+	}
+
+	store, err = contentstore.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(reopen) error = %v", err)
+	}
+	defer store.Close()
+	if got, err := store.GetCompiledOutput(context.Background(), "twitter", "raw-new"); err != nil || got.Output.Summary != "compiled raw-new" {
+		t.Fatalf("GetCompiledOutput(raw-new) = %#v, %v", got, err)
+	}
+	graphs, err := store.ListMemoryContentGraphs(context.Background(), "u-sweep")
+	if err != nil {
+		t.Fatalf("ListMemoryContentGraphs() error = %v", err)
+	}
+	if len(graphs) != 1 || graphs[0].SourceExternalID != "raw-new" {
+		t.Fatalf("memory graphs = %#v, want raw-new backfilled", graphs)
+	}
+}
+
 func TestRunHarnessPersistsNoNetworkIngestCompileAndMemoryFlow(t *testing.T) {
 	prevNewIngestRuntime := newIngestRuntime
 	prevBuildCompileClientCurrent := buildCompileClientCurrent

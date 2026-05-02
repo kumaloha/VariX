@@ -33,7 +33,7 @@ var openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
 	return contentstore.NewSQLiteStore(path)
 }
 
-const compileCommandUsage = "usage: varix compile <run|batch-run|validate-run|show|summary|compare|card> ..."
+const compileCommandUsage = "usage: varix compile <run|sweep|batch-run|validate-run|show|summary|compare|card> ..."
 
 func parseLLMCacheMode(value string) (contentstore.LLMCacheMode, error) {
 	switch strings.TrimSpace(value) {
@@ -67,6 +67,8 @@ func runCompileCommand(args []string, projectRoot string, stdout, stderr io.Writ
 	switch args[0] {
 	case "run":
 		return runCompileRun(args[1:], projectRoot, stdout, stderr)
+	case "sweep":
+		return runCompileSweep(args[1:], projectRoot, stdout, stderr)
 	case "batch-run":
 		return runCompileBatchRun(args[1:], projectRoot, stdout, stderr)
 	case "validate-run":
