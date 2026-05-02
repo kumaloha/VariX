@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kumaloha/VariX/varix/ingest/sources/httputil"
 	"github.com/kumaloha/VariX/varix/ingest/types"
 )
 
@@ -19,7 +20,7 @@ type RuleFinder struct {
 }
 
 func NewRuleFinder() RuleFinder {
-	return NewRuleFinderWithResolver(NewHTTPResolver(&http.Client{Timeout: 15 * time.Second}))
+	return NewRuleFinderWithResolver(NewHTTPResolver(httputil.NewPublicHTTPClient(15*time.Second, nil)))
 }
 
 func NewRuleFinderWithResolver(resolver LinkResolver) RuleFinder {
@@ -82,7 +83,7 @@ func NewHTTPResolver(client *http.Client) HTTPResolver {
 func (r HTTPResolver) Resolve(ctx context.Context, raw string) (string, error) {
 	client := r.client
 	if client == nil {
-		client = &http.Client{Timeout: 15 * time.Second}
+		client = httputil.NewPublicHTTPClient(15*time.Second, nil)
 	}
 	resolveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

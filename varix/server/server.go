@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -237,10 +238,11 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		return
 	}
 	if errors.Is(err, context.Canceled) {
-		writeAPIError(w, http.StatusRequestTimeout, "REQUEST_CANCELLED", err.Error())
+		writeAPIError(w, http.StatusRequestTimeout, "REQUEST_CANCELLED", "request cancelled")
 		return
 	}
-	writeAPIError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+	slog.Error("memory API store error", "error", err)
+	writeAPIError(w, http.StatusInternalServerError, "INTERNAL", "internal server error")
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

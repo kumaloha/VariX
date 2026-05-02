@@ -2,7 +2,6 @@ package ingest
 
 import (
 	"fmt"
-	"net/http"
 	"net/http/cookiejar"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/kumaloha/VariX/varix/ingest/provenance"
 	"github.com/kumaloha/VariX/varix/ingest/router"
 	"github.com/kumaloha/VariX/varix/ingest/sources/bilibili"
+	"github.com/kumaloha/VariX/varix/ingest/sources/httputil"
 	"github.com/kumaloha/VariX/varix/ingest/sources/rss"
 	"github.com/kumaloha/VariX/varix/ingest/sources/search"
 	"github.com/kumaloha/VariX/varix/ingest/sources/twitter"
@@ -49,7 +49,7 @@ func NewRuntime(projectRoot string) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	httpClient := &http.Client{Timeout: 30 * time.Second, Jar: jar}
+	httpClient := httputil.NewPublicHTTPClient(30*time.Second, jar)
 	resolver := provenance.NewHTTPResolver(httpClient)
 
 	webSource := web.New(httpClient)

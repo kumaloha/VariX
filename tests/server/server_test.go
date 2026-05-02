@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -174,14 +176,36 @@ func TestBearerTokenAuthBindsUserID(t *testing.T) {
 	}
 }
 
+func TestServerStoreErrorHidesInternalMessage(t *testing.T) {
+	srv := NewServer(&fakeStore{storeError: errors.New("sql: leaked /var/lib/varix/content.db")})
+	req := httptest.NewRequest(http.MethodGet, "/memory/subjects/a/timeline?user=u1", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "content.db") || strings.Contains(rec.Body.String(), "sql:") {
+		t.Fatalf("body leaks internal error: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "internal server error") {
+		t.Fatalf("body = %s, want generic internal server error", rec.Body.String())
+	}
+}
+
 type fakeStore struct {
 	timeline   memory.SubjectTimeline
 	horizons   map[string]memory.SubjectHorizonMemory
 	experience memory.SubjectExperienceMemory
 	marks      []contentstore.ProjectionDirtyMark
+	storeError error
 }
 
 func (f *fakeStore) BuildSubjectTimeline(_ context.Context, userID, subject string, now time.Time) (memory.SubjectTimeline, error) {
+	if f.storeError != nil {
+		return memory.SubjectTimeline{}, f.storeError
+	}
 	if f.timeline.Subject != "" {
 		return f.timeline, nil
 	}
@@ -189,6 +213,9 @@ func (f *fakeStore) BuildSubjectTimeline(_ context.Context, userID, subject stri
 }
 
 func (f *fakeStore) GetSubjectHorizonMemory(_ context.Context, userID, subject, horizon string, now time.Time, _ bool) (memory.SubjectHorizonMemory, error) {
+	if f.storeError != nil {
+		return memory.SubjectHorizonMemory{}, f.storeError
+	}
 	if f.horizons != nil {
 		if item, ok := f.horizons[horizon]; ok {
 			return item, nil
@@ -198,6 +225,9 @@ func (f *fakeStore) GetSubjectHorizonMemory(_ context.Context, userID, subject, 
 }
 
 func (f *fakeStore) GetSubjectExperienceMemory(_ context.Context, userID, subject string, horizons []string, now time.Time, _ bool) (memory.SubjectExperienceMemory, error) {
+	if f.storeError != nil {
+		return memory.SubjectExperienceMemory{}, f.storeError
+	}
 	if f.experience.Subject != "" {
 		f.experience.Horizons = horizons
 		return f.experience, nil
@@ -206,6 +236,9 @@ func (f *fakeStore) GetSubjectExperienceMemory(_ context.Context, userID, subjec
 }
 
 func (f *fakeStore) HasProjectionDirtyMark(_ context.Context, userID, layer, subject, horizon string) (bool, error) {
+	if f.storeError != nil {
+		return false, f.storeError
+	}
 	for _, mark := range f.marks {
 		if userID != "" && mark.UserID != userID {
 			continue

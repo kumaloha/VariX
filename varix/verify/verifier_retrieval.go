@@ -2,10 +2,10 @@ package verify
 
 import (
 	"context"
-	"net/http"
 	"strings"
 	"time"
 
+	"github.com/kumaloha/VariX/varix/ingest/sources/httputil"
 	"github.com/kumaloha/VariX/varix/ingest/sources/search"
 	websource "github.com/kumaloha/VariX/varix/ingest/sources/web"
 	"github.com/kumaloha/VariX/varix/ingest/types"
@@ -21,7 +21,7 @@ func EnableFactWebVerification() {
 }
 
 func defaultFactRetrievalContext(ctx context.Context, bundle Bundle, nodes []GraphNode) ([]map[string]any, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := httputil.NewPublicHTTPClient(15*time.Second, nil)
 	searchCollector := search.NewGoogle(types.PlatformWeb, "", client)
 	webCollector := websource.New(client)
 

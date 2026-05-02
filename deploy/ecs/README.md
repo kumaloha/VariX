@@ -40,16 +40,17 @@ even when the source checkout lives elsewhere.
 
 ## 3. Nginx
 
-Copy `deploy/ecs/nginx/varix.conf` to `/etc/nginx/conf.d/varix.conf`, replace
-`server_name`, then reload Nginx:
+Issue an HTTPS certificate first, then copy `deploy/ecs/nginx/varix.conf` to
+`/etc/nginx/conf.d/varix.conf`, replace `server_name` and the certificate paths,
+then reload Nginx:
 
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Open only SSH and HTTP/HTTPS in the ECS security group. Do not expose port 8000
-directly.
+Open only SSH and HTTP/HTTPS in the ECS security group. Port 80 should only
+redirect to HTTPS. Do not expose port 8000 directly.
 
 ## 4. What runs automatically
 
