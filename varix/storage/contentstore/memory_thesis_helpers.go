@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func thesisSourceRef(node memory.AcceptedNode) string {
@@ -28,15 +28,15 @@ func collectAcceptedNodes(ids []string, nodesByID map[string]memory.AcceptedNode
 
 func nodeRoleForKind(kind string) string {
 	switch kind {
-	case string(compile.NodeFact):
+	case string(model.NodeFact):
 		return "fact"
-	case string(compile.NodeExplicitCondition):
+	case string(model.NodeExplicitCondition):
 		return "condition"
-	case string(compile.NodeMechanism), string(compile.NodeImplicitCondition):
+	case string(model.NodeMechanism), string(model.NodeImplicitCondition):
 		return "mechanism"
-	case string(compile.NodeConclusion):
+	case string(model.NodeConclusion):
 		return "conclusion"
-	case string(compile.NodePrediction):
+	case string(model.NodePrediction):
 		return "prediction"
 	default:
 		return "supporting"

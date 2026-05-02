@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
-func replaceMemoryContentGraphSubjectsTx(ctx context.Context, tx *sql.Tx, userID string, subgraph graphmodel.ContentSubgraph, updatedAt time.Time) error {
+func replaceMemoryContentGraphSubjectsTx(ctx context.Context, tx *sql.Tx, userID string, subgraph model.ContentSubgraph, updatedAt time.Time) error {
 	userID = strings.TrimSpace(userID)
 	sourcePlatform := strings.TrimSpace(subgraph.SourcePlatform)
 	sourceExternalID := strings.TrimSpace(subgraph.SourceExternalID)
@@ -36,7 +36,7 @@ func replaceMemoryContentGraphSubjectsTx(ctx context.Context, tx *sql.Tx, userID
 	return nil
 }
 
-func memoryContentGraphSubjectCounts(subgraph graphmodel.ContentSubgraph) map[string]int {
+func memoryContentGraphSubjectCounts(subgraph model.ContentSubgraph) map[string]int {
 	out := map[string]int{}
 	for _, node := range subgraph.Nodes {
 		for _, subject := range []string{node.SubjectCanonical, node.SubjectText} {
@@ -90,7 +90,7 @@ func (s *SQLiteStore) backfillMemoryContentGraphSubjects() error {
 	}
 	defer tx.Rollback()
 	for _, item := range items {
-		var subgraph graphmodel.ContentSubgraph
+		var subgraph model.ContentSubgraph
 		if err := json.Unmarshal([]byte(item.payload), &subgraph); err != nil {
 			return fmt.Errorf("decode memory content graph for subject backfill: %w", err)
 		}

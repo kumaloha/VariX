@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 type canonicalNodeGroup struct {
@@ -13,7 +13,7 @@ type canonicalNodeGroup struct {
 	ids       []string
 }
 
-func buildDedupeGroups(nodes []memory.AcceptedNode, _ map[string]compile.FactStatus, _ map[string]compile.PredictionStatus) []memory.DedupeGroup {
+func buildDedupeGroups(nodes []memory.AcceptedNode, _ map[string]model.FactStatus, _ map[string]model.PredictionStatus) []memory.DedupeGroup {
 	groups := groupNodesByCanonicalText(nodes)
 	out := make([]memory.DedupeGroup, 0, len(groups))
 	for _, group := range groups {

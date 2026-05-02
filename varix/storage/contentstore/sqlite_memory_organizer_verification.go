@@ -6,12 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
-	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
-func extractPredictionStatuses(nodes []memory.AcceptedNode, verification compile.Verification) []memory.PredictionStatus {
+func extractPredictionStatuses(nodes []memory.AcceptedNode, verification model.Verification) []memory.PredictionStatus {
 	accepted := map[string]struct{}{}
 	for _, node := range nodes {
 		accepted[node.NodeID] = struct{}{}
@@ -30,7 +29,7 @@ func extractPredictionStatuses(nodes []memory.AcceptedNode, verification compile
 	return out
 }
 
-func extractFactVerifications(nodes []memory.AcceptedNode, verification compile.Verification) []memory.FactVerification {
+func extractFactVerifications(nodes []memory.AcceptedNode, verification model.Verification) []memory.FactVerification {
 	active := map[string]struct{}{}
 	for _, node := range nodes {
 		active[node.NodeID] = struct{}{}
@@ -62,10 +61,10 @@ func extractFactVerifications(nodes []memory.AcceptedNode, verification compile.
 	return out
 }
 
-func buildOpenQuestions(nodes []memory.AcceptedNode, verification compile.Verification) []string {
+func buildOpenQuestions(nodes []memory.AcceptedNode, verification model.Verification) []string {
 	questions := make([]string, 0)
 	for _, node := range nodes {
-		if node.ValidFrom.IsZero() && node.ValidTo.IsZero() && node.NodeKind != string(compile.NodeExplicitCondition) && node.NodeKind != string(compile.NodeConclusion) {
+		if node.ValidFrom.IsZero() && node.ValidTo.IsZero() && node.NodeKind != string(model.NodeExplicitCondition) && node.NodeKind != string(model.NodeConclusion) {
 			questions = append(questions, fmt.Sprintf("node %s has no validity window", node.NodeID))
 		}
 		switch node.PosteriorState {
@@ -86,17 +85,17 @@ func buildOpenQuestions(nodes []memory.AcceptedNode, verification compile.Verifi
 		}
 	}
 	for _, check := range verification.FactChecks {
-		if check.Status == compile.FactStatusUnverifiable {
+		if check.Status == model.FactStatusUnverifiable {
 			questions = append(questions, fmt.Sprintf("fact node %s remains unverifiable", check.NodeID))
 		}
 	}
 	for _, check := range verification.ImplicitConditionChecks {
-		if check.Status == compile.FactStatusUnverifiable {
+		if check.Status == model.FactStatusUnverifiable {
 			questions = append(questions, fmt.Sprintf("implicit condition node %s remains unverifiable", check.NodeID))
 		}
 	}
 	for _, check := range verification.ExplicitConditionChecks {
-		if check.Status == compile.ExplicitConditionStatusUnknown {
+		if check.Status == model.ExplicitConditionStatusUnknown {
 			questions = append(questions, fmt.Sprintf("explicit condition node %s remains probability-unknown", check.NodeID))
 		}
 	}
@@ -105,7 +104,7 @@ func buildOpenQuestions(nodes []memory.AcceptedNode, verification compile.Verifi
 
 func isAcceptedNodeActiveAt(node memory.AcceptedNode, now time.Time) bool {
 	switch node.NodeKind {
-	case string(compile.NodeFact), string(compile.NodeImplicitCondition), string(compile.NodePrediction):
+	case string(model.NodeFact), string(model.NodeImplicitCondition), string(model.NodePrediction):
 		if node.ValidFrom.IsZero() {
 			return false
 		}
@@ -113,7 +112,7 @@ func isAcceptedNodeActiveAt(node memory.AcceptedNode, now time.Time) bool {
 			return true
 		}
 		return false
-	case string(compile.NodeExplicitCondition), string(compile.NodeConclusion):
+	case string(model.NodeExplicitCondition), string(model.NodeConclusion):
 		if node.ValidFrom.IsZero() && node.ValidTo.IsZero() {
 			return true
 		}
@@ -135,8 +134,8 @@ func isAcceptedNodeActiveAt(node memory.AcceptedNode, now time.Time) bool {
 	}
 }
 
-func factStatusMap(verification compile.Verification) map[string]compile.FactStatus {
-	out := make(map[string]compile.FactStatus, len(verification.FactChecks)+len(verification.ImplicitConditionChecks))
+func factStatusMap(verification model.Verification) map[string]model.FactStatus {
+	out := make(map[string]model.FactStatus, len(verification.FactChecks)+len(verification.ImplicitConditionChecks))
 	for _, check := range verification.FactChecks {
 		out[check.NodeID] = check.Status
 	}
@@ -146,35 +145,35 @@ func factStatusMap(verification compile.Verification) map[string]compile.FactSta
 	return out
 }
 
-func explicitConditionStatusMap(verification compile.Verification) map[string]compile.ExplicitConditionStatus {
-	out := make(map[string]compile.ExplicitConditionStatus, len(verification.ExplicitConditionChecks))
+func explicitConditionStatusMap(verification model.Verification) map[string]model.ExplicitConditionStatus {
+	out := make(map[string]model.ExplicitConditionStatus, len(verification.ExplicitConditionChecks))
 	for _, check := range verification.ExplicitConditionChecks {
 		out[check.NodeID] = check.Status
 	}
 	return out
 }
 
-func predictionStatusMap(verification compile.Verification) map[string]compile.PredictionStatus {
-	out := make(map[string]compile.PredictionStatus, len(verification.PredictionChecks))
+func predictionStatusMap(verification model.Verification) map[string]model.PredictionStatus {
+	out := make(map[string]model.PredictionStatus, len(verification.PredictionChecks))
 	for _, check := range verification.PredictionChecks {
 		out[check.NodeID] = check.Status
 	}
 	return out
 }
 
-func effectiveVerification(record compile.Record, verifyRecord compile.VerificationRecord) compile.Verification {
+func effectiveVerification(record model.Record, verifyRecord model.VerificationRecord) model.Verification {
 	if !verifyRecord.VerifiedAt.IsZero() || verifyRecord.Verification.VerifiedAt.After(time.Time{}) || len(verifyRecord.Verification.Passes) > 0 || len(verifyRecord.Verification.FactChecks) > 0 || len(verifyRecord.Verification.ExplicitConditionChecks) > 0 || len(verifyRecord.Verification.ImplicitConditionChecks) > 0 || len(verifyRecord.Verification.PredictionChecks) > 0 {
 		return verifyRecord.Verification
 	}
 	return record.Output.Verification
 }
 
-func overlayVerificationFromContentGraph(verification compile.Verification, subgraph graphmodel.ContentSubgraph) compile.Verification {
-	predictionByNodeID := make(map[string]compile.PredictionCheck, len(verification.PredictionChecks))
+func overlayVerificationFromContentGraph(verification model.Verification, subgraph model.ContentSubgraph) model.Verification {
+	predictionByNodeID := make(map[string]model.PredictionCheck, len(verification.PredictionChecks))
 	for _, check := range verification.PredictionChecks {
 		predictionByNodeID[check.NodeID] = check
 	}
-	factByNodeID := make(map[string]compile.FactCheck, len(verification.FactChecks))
+	factByNodeID := make(map[string]model.FactCheck, len(verification.FactChecks))
 	for _, check := range verification.FactChecks {
 		factByNodeID[check.NodeID] = check
 	}
@@ -183,32 +182,32 @@ func overlayVerificationFromContentGraph(verification compile.Verification, subg
 			continue
 		}
 		switch node.Kind {
-		case graphmodel.NodeKindPrediction:
-			status := compile.PredictionStatusUnresolved
+		case model.NodeKindPrediction:
+			status := model.PredictionStatusUnresolved
 			switch node.VerificationStatus {
-			case graphmodel.VerificationProved:
-				status = compile.PredictionStatusResolvedTrue
-			case graphmodel.VerificationDisproved:
-				status = compile.PredictionStatusResolvedFalse
-			case graphmodel.VerificationPending:
-				status = compile.PredictionStatusUnresolved
-			case graphmodel.VerificationUnverifiable:
-				status = compile.PredictionStatusStaleUnresolved
+			case model.VerificationProved:
+				status = model.PredictionStatusResolvedTrue
+			case model.VerificationDisproved:
+				status = model.PredictionStatusResolvedFalse
+			case model.VerificationPending:
+				status = model.PredictionStatusUnresolved
+			case model.VerificationUnverifiable:
+				status = model.PredictionStatusStaleUnresolved
 			}
-			predictionByNodeID[node.ID] = compile.PredictionCheck{NodeID: node.ID, Status: status, Reason: node.VerificationReason, AsOf: parseSQLiteTime(node.VerificationAsOf)}
+			predictionByNodeID[node.ID] = model.PredictionCheck{NodeID: node.ID, Status: status, Reason: node.VerificationReason, AsOf: parseSQLiteTime(node.VerificationAsOf)}
 		default:
-			var status compile.FactStatus
+			var status model.FactStatus
 			switch node.VerificationStatus {
-			case graphmodel.VerificationProved:
-				status = compile.FactStatusClearlyTrue
-			case graphmodel.VerificationDisproved:
-				status = compile.FactStatusClearlyFalse
-			case graphmodel.VerificationUnverifiable:
-				status = compile.FactStatusUnverifiable
+			case model.VerificationProved:
+				status = model.FactStatusClearlyTrue
+			case model.VerificationDisproved:
+				status = model.FactStatusClearlyFalse
+			case model.VerificationUnverifiable:
+				status = model.FactStatusUnverifiable
 			default:
 				continue
 			}
-			factByNodeID[node.ID] = compile.FactCheck{NodeID: node.ID, Status: status, Reason: node.VerificationReason}
+			factByNodeID[node.ID] = model.FactCheck{NodeID: node.ID, Status: status, Reason: node.VerificationReason}
 		}
 	}
 	if len(predictionByNodeID) > 0 {
@@ -230,10 +229,10 @@ func overlayVerificationFromContentGraph(verification compile.Verification, subg
 	return verification
 }
 
-func graphFirstValidityWindow(node graphmodel.GraphNode) (time.Time, time.Time) {
+func graphFirstValidityWindow(node model.ContentNode) (time.Time, time.Time) {
 	start := parseSQLiteTime(node.TimeStart)
 	end := parseSQLiteTime(node.TimeEnd)
-	if node.Kind == graphmodel.NodeKindObservation {
+	if node.Kind == model.NodeKindObservation {
 		if start.IsZero() {
 			return time.Time{}, time.Time{}
 		}

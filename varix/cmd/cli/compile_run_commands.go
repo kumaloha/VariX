@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	c "github.com/kumaloha/VariX/varix/compile"
-	cv2 "github.com/kumaloha/VariX/varix/compilev2"
 	"github.com/kumaloha/VariX/varix/ingest/types"
+	varixllm "github.com/kumaloha/VariX/varix/llm"
+	"github.com/kumaloha/VariX/varix/model"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
@@ -21,10 +21,8 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 	platform := fs.String("platform", "", "content platform")
 	externalID := fs.String("id", "", "content external id")
 	force := fs.Bool("force", false, "force recompilation even if compiled output already exists")
-	noVerify := fs.Bool("no-verify", false, "skip compile-time verification and retrieval")
-	pipeline := fs.String("pipeline", "legacy", "compile pipeline: legacy | v2")
 	timeout := fs.Duration("timeout", 20*time.Minute, "compile timeout")
-	llmCache := fs.String("llm-cache", string(contentstore.LLMCacheReadThrough), "LLM cache mode for v2: read-through, refresh, off")
+	llmCache := fs.String("llm-cache", string(contentstore.LLMCacheReadThrough), "LLM cache mode: read-through, refresh, off")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -33,7 +31,7 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 		fmt.Fprintln(stderr, "usage: varix compile run --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
-	cacheMode, err := parseCompileLLMCacheMode(*llmCache)
+	cacheMode, err := parseLLMCacheMode(*llmCache)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -42,26 +40,21 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 		cacheMode = contentstore.LLMCacheRefresh
 	}
 
-	app, store, err := openAppStore(projectRoot)
+	app, store, err := openRuntimeStore(projectRoot)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
-	if !*noVerify {
-		c.EnableFactWebVerification()
-	}
-	client, err := selectCompileClient(projectRoot, *pipeline, *noVerify)
-	if err != nil {
-		writeErr(stderr, err)
-		return 2
-	}
+	client := buildCompileClientCurrent(projectRoot)
 	if client == nil {
 		fmt.Fprintln(stderr, "compile client config missing")
 		return 1
 	}
-	if v2Client, ok := client.(*cv2.Client); ok {
-		v2Client.EnableLLMCache(store, cacheMode)
+	if currentClient, ok := client.(interface {
+		EnableLLMCache(varixllm.CacheStore, contentstore.LLMCacheMode)
+	}); ok {
+		currentClient.EnableLLMCache(store, cacheMode)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
@@ -111,7 +104,7 @@ func runCompileRun(args []string, projectRoot string, stdout, stderr io.Writer) 
 		}
 	}
 
-	bundle := c.BuildBundle(raw)
+	bundle := model.BuildBundle(raw)
 	compileStart := time.Now()
 	record, err := client.Compile(ctx, bundle)
 	if err != nil {

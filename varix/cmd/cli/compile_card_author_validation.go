@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	c "github.com/kumaloha/VariX/varix/compile"
 	"strings"
+
+	"github.com/kumaloha/VariX/varix/model"
 )
 
-func authorValidationSummaryLines(validation c.AuthorValidation) []string {
+func authorValidationSummaryLines(validation model.AuthorValidation) []string {
 	if validation.IsZero() {
 		return nil
 	}
@@ -20,7 +21,7 @@ func authorValidationSummaryLines(validation c.AuthorValidation) []string {
 		lines = append(lines, fmt.Sprintf("Not author claims/inferences: %d/%d", summary.NotAuthorClaims, summary.NotAuthorInferences))
 	}
 	for _, check := range validation.ClaimChecks {
-		if check.Status != c.AuthorClaimContradicted && check.Status != c.AuthorClaimUnverified && check.Status != c.AuthorClaimNotAuthorClaim {
+		if check.Status != model.AuthorClaimContradicted && check.Status != model.AuthorClaimUnverified && check.Status != model.AuthorClaimNotAuthorClaim {
 			continue
 		}
 		lines = append(lines, fmt.Sprintf("Claim %s: %s%s", truncate(check.Text, 42), check.Status, authorValidationNoteSuffix(firstNonEmpty(check.DecisionNote, check.Reason))))
@@ -29,7 +30,7 @@ func authorValidationSummaryLines(validation c.AuthorValidation) []string {
 		}
 	}
 	for _, check := range validation.InferenceChecks {
-		if check.Status != c.AuthorInferenceWeak && check.Status != c.AuthorInferenceUnsupportedJump && check.Status != c.AuthorInferenceNotAuthorInference {
+		if check.Status != model.AuthorInferenceWeak && check.Status != model.AuthorInferenceUnsupportedJump && check.Status != model.AuthorInferenceNotAuthorInference {
 			continue
 		}
 		lines = append(lines, fmt.Sprintf("Path %s -> %s: %s%s", truncate(check.From, 24), truncate(check.To, 24), check.Status, authorValidationNoteSuffix(firstNonEmpty(check.DecisionNote, check.Reason))))

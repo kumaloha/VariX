@@ -7,11 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
-func (s *SQLiteStore) UpsertCompiledOutput(ctx context.Context, record compile.Record) error {
+func (s *SQLiteStore) UpsertCompiledOutput(ctx context.Context, record model.Record) error {
 	if record.Source == "" || record.ExternalID == "" || record.Model == "" {
 		return fmt.Errorf("invalid compiled output")
 	}
@@ -45,26 +44,26 @@ func (s *SQLiteStore) UpsertCompiledOutput(ctx context.Context, record compile.R
 	if err != nil {
 		return err
 	}
-	if subgraph, err := graphmodel.FromCompileRecord(record); err != nil {
+	if subgraph, err := model.FromCompileRecord(record); err != nil {
 		return err
 	} else if err := s.UpsertContentSubgraph(ctx, subgraph); err != nil {
 		return err
 	}
 	if !record.Output.Verification.IsZero() {
-		model := strings.TrimSpace(record.Output.Verification.Model)
-		if model == "" {
-			model = record.Model
+		verificationModel := strings.TrimSpace(record.Output.Verification.Model)
+		if verificationModel == "" {
+			verificationModel = record.Model
 		}
 		verifiedAt := record.Output.Verification.VerifiedAt
 		if verifiedAt.IsZero() {
 			verifiedAt = normalizeRecordedTime(verifiedAt)
 		}
-		if err := s.UpsertVerificationResult(ctx, compile.VerificationRecord{
+		if err := s.UpsertVerificationResult(ctx, model.VerificationRecord{
 			UnitID:         record.UnitID,
 			Source:         record.Source,
 			ExternalID:     record.ExternalID,
 			RootExternalID: record.RootExternalID,
-			Model:          model,
+			Model:          verificationModel,
 			Verification:   record.Output.Verification,
 			VerifiedAt:     verifiedAt,
 		}); err != nil {
@@ -74,7 +73,7 @@ func (s *SQLiteStore) UpsertCompiledOutput(ctx context.Context, record compile.R
 	return nil
 }
 
-func (s *SQLiteStore) GetCompiledOutput(ctx context.Context, platform, externalID string) (compile.Record, error) {
+func (s *SQLiteStore) GetCompiledOutput(ctx context.Context, platform, externalID string) (model.Record, error) {
 	var payload string
 	err := s.db.QueryRowContext(
 		ctx,
@@ -83,40 +82,40 @@ func (s *SQLiteStore) GetCompiledOutput(ctx context.Context, platform, externalI
 		externalID,
 	).Scan(&payload)
 	if err != nil {
-		return compile.Record{}, err
+		return model.Record{}, err
 	}
-	var record compile.Record
+	var record model.Record
 	if err := json.Unmarshal([]byte(payload), &record); err != nil {
-		return compile.Record{}, err
+		return model.Record{}, err
 	}
 	return record, nil
 }
 
-func marshalStoredCompileRecord(record compile.Record) ([]byte, error) {
+func marshalStoredCompileRecord(record model.Record) ([]byte, error) {
 	type storedOutput struct {
-		Summary            string                     `json:"summary,omitempty"`
-		Drivers            []string                   `json:"drivers,omitempty"`
-		Targets            []string                   `json:"targets,omitempty"`
-		TransmissionPaths  []compile.TransmissionPath `json:"transmission_paths,omitempty"`
-		Branches           []compile.Branch           `json:"branches,omitempty"`
-		EvidenceNodes      []string                   `json:"evidence_nodes,omitempty"`
-		ExplanationNodes   []string                   `json:"explanation_nodes,omitempty"`
-		SupplementaryNodes []string                   `json:"supplementary_nodes,omitempty"`
-		Graph              compile.ReasoningGraph     `json:"graph,omitempty"`
-		Details            compile.HiddenDetails      `json:"details,omitempty"`
-		Topics             []string                   `json:"topics,omitempty"`
-		Confidence         string                     `json:"confidence,omitempty"`
-		AuthorValidation   compile.AuthorValidation   `json:"author_validation,omitempty"`
+		Summary            string                   `json:"summary,omitempty"`
+		Drivers            []string                 `json:"drivers,omitempty"`
+		Targets            []string                 `json:"targets,omitempty"`
+		TransmissionPaths  []model.TransmissionPath `json:"transmission_paths,omitempty"`
+		Branches           []model.Branch           `json:"branches,omitempty"`
+		EvidenceNodes      []string                 `json:"evidence_nodes,omitempty"`
+		ExplanationNodes   []string                 `json:"explanation_nodes,omitempty"`
+		SupplementaryNodes []string                 `json:"supplementary_nodes,omitempty"`
+		Graph              model.ReasoningGraph     `json:"graph,omitempty"`
+		Details            model.HiddenDetails      `json:"details,omitempty"`
+		Topics             []string                 `json:"topics,omitempty"`
+		Confidence         string                   `json:"confidence,omitempty"`
+		AuthorValidation   model.AuthorValidation   `json:"author_validation,omitempty"`
 	}
 	type storedRecord struct {
-		UnitID         string                `json:"unit_id"`
-		Source         string                `json:"source"`
-		ExternalID     string                `json:"external_id"`
-		RootExternalID string                `json:"root_external_id,omitempty"`
-		Model          string                `json:"model"`
-		Metrics        compile.RecordMetrics `json:"metrics,omitempty"`
-		Output         storedOutput          `json:"output"`
-		CompiledAt     time.Time             `json:"compiled_at"`
+		UnitID         string              `json:"unit_id"`
+		Source         string              `json:"source"`
+		ExternalID     string              `json:"external_id"`
+		RootExternalID string              `json:"root_external_id,omitempty"`
+		Model          string              `json:"model"`
+		Metrics        model.RecordMetrics `json:"metrics,omitempty"`
+		Output         storedOutput        `json:"output"`
+		CompiledAt     time.Time           `json:"compiled_at"`
 	}
 	return json.Marshal(storedRecord{
 		UnitID:         record.UnitID,

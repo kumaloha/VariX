@@ -158,7 +158,7 @@ func projectionDirtyMarkGroupPhases(marks []ProjectionDirtyMark) []projectionDir
 		switch strings.TrimSpace(mark.Layer) {
 		case "event", "paradigm":
 			base = append(base, mark)
-		case "global-v2":
+		case "global-synthesis":
 			global = append(global, mark)
 		case "subject-horizon":
 			horizons = append(horizons, mark)
@@ -262,7 +262,7 @@ func projectionDirtyLayerPriority(layer string) int {
 	switch strings.TrimSpace(layer) {
 	case "event", "paradigm":
 		return 0
-	case "global-v2":
+	case "global-synthesis":
 		return 1
 	default:
 		return 2

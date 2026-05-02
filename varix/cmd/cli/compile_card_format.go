@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	c "github.com/kumaloha/VariX/varix/compile"
 	"strings"
+
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func formatCompileCard(projection compileCardProjection) string {
@@ -64,7 +65,7 @@ func formatCompactCompileCard(projection compileCardProjection) string {
 	return b.String()
 }
 
-func writeBranchSection(b *strings.Builder, branches []c.Branch, limit int) {
+func writeBranchSection(b *strings.Builder, branches []model.Branch, limit int) {
 	if len(branches) == 0 || limit <= 0 {
 		return
 	}
@@ -94,7 +95,7 @@ func writeBranchSection(b *strings.Builder, branches []c.Branch, limit int) {
 	b.WriteString("\n")
 }
 
-func branchLogicChains(branch c.Branch) []string {
+func branchLogicChains(branch model.Branch) []string {
 	if len(branch.TransmissionPaths) == 0 {
 		return nil
 	}

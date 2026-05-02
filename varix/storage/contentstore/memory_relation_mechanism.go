@@ -1,8 +1,8 @@
 package contentstore
 
 import (
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 	"strings"
 	"time"
 )
@@ -46,7 +46,7 @@ func normalizedTransmissionEdgeType(fromRole, toRole string) memory.MechanismEdg
 	}
 }
 
-func relationConditionScope(thesis memory.CausalThesis, compiledNodes map[string]compile.GraphNode) string {
+func relationConditionScope(thesis memory.CausalThesis, compiledNodes map[string]model.GraphNode) string {
 	for _, nodeID := range thesis.CorePathNodeIDs {
 		if thesis.NodeRoles[nodeID] == "condition" {
 			return relationNodeLabel(nodeID, compiledNodes)
@@ -55,13 +55,13 @@ func relationConditionScope(thesis memory.CausalThesis, compiledNodes map[string
 	return ""
 }
 
-func predictionContractForPath(corePath []string, nodeIDMap map[string]string, compiledNodes map[string]compile.GraphNode) ([]string, time.Time, time.Time) {
+func predictionContractForPath(corePath []string, nodeIDMap map[string]string, compiledNodes map[string]model.GraphNode) ([]string, time.Time, time.Time) {
 	predictionNodeIDs := make([]string, 0)
 	var predictionStartAt time.Time
 	var predictionDueAt time.Time
 	for _, globalNodeID := range corePath {
 		node, ok := compiledNodes[globalNodeID]
-		if !ok || node.Kind != compile.NodePrediction {
+		if !ok || node.Kind != model.NodePrediction {
 			continue
 		}
 		if mechanismNodeID := nodeIDMap[globalNodeID]; mechanismNodeID != "" {

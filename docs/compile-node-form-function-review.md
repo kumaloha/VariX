@@ -18,7 +18,7 @@ have to change for the form+function redesign:
 - `prompts/compile/node_challenge_system.tmpl`
 - `prompts/compile/graph_system.tmpl`
 - `varix/compile/prompt_test.go`
-- batch-1 gold sample `G04` in `data/gold/compile-gold-batch1-v1.json`
+- batch-1 gold sample `G04` in `eval/gold/compile-gold-batch1-baseline.json`
 
 The goal of this review is to document **why** the redesign was justified,
 record the implementation contract that shipped, and lock the focused G04

@@ -26,6 +26,7 @@ var sqliteInitStatements = []string{
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			platform TEXT NOT NULL,
 			author_name TEXT NOT NULL DEFAULT '',
+			identity_key TEXT NOT NULL DEFAULT '',
 			platform_id TEXT NOT NULL DEFAULT '',
 			profile_url TEXT NOT NULL DEFAULT '',
 			strategy TEXT NOT NULL,
@@ -33,8 +34,7 @@ var sqliteInitStatements = []string{
 			status TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
-			last_checked_at TEXT,
-			UNIQUE(platform, platform_id, profile_url, author_name)
+			last_checked_at TEXT
 		)`,
 	`CREATE TABLE IF NOT EXISTS subscription_queries (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -396,7 +396,7 @@ var sqliteInitStatements = []string{
 			payload_json TEXT NOT NULL,
 			created_at TEXT NOT NULL
 		)`,
-	`CREATE TABLE IF NOT EXISTS global_memory_v2_outputs (
+	`CREATE TABLE IF NOT EXISTS global_memory_synthesis_outputs (
 				output_id INTEGER PRIMARY KEY AUTOINCREMENT,
 				user_id TEXT NOT NULL UNIQUE,
 				payload_json TEXT NOT NULL,
@@ -612,6 +612,7 @@ var sqliteColumnMigrations = []struct {
 	column     string
 	definition string
 }{
+	{table: "author_subscriptions", column: "identity_key", definition: "TEXT NOT NULL DEFAULT ''"},
 	{table: "user_memory_nodes", column: "valid_from", definition: "TEXT NOT NULL DEFAULT ''"},
 	{table: "user_memory_nodes", column: "valid_to", definition: "TEXT NOT NULL DEFAULT ''"},
 }

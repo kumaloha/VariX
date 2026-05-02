@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	c "github.com/kumaloha/VariX/varix/compile"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func runCompileShow(args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -21,8 +21,12 @@ func runCompileShow(args []string, projectRoot string, stdout, stderr io.Writer)
 		return 2
 	}
 	setRawURLFromArg(fs, rawURL)
+	if strings.TrimSpace(*rawURL) == "" && !hasContentTarget(*platform, *externalID) {
+		fmt.Fprintln(stderr, "usage: varix compile show --url <url> | --platform <platform> --id <external_id>")
+		return 2
+	}
 
-	app, store, err := openAppStore(projectRoot)
+	app, store, err := openRuntimeStore(projectRoot)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
@@ -32,10 +36,6 @@ func runCompileShow(args []string, projectRoot string, stdout, stderr io.Writer)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
-	}
-	if !hasContentTarget(*platform, *externalID) {
-		fmt.Fprintln(stderr, "usage: varix compile show --url <url> | --platform <platform> --id <external_id>")
-		return 2
 	}
 	record, err := store.GetCompiledOutput(context.Background(), *platform, *externalID)
 	if err != nil {
@@ -55,8 +55,12 @@ func runCompileSummary(args []string, projectRoot string, stdout, stderr io.Writ
 		return 2
 	}
 	setRawURLFromArg(fs, rawURL)
+	if strings.TrimSpace(*rawURL) == "" && !hasContentTarget(*platform, *externalID) {
+		fmt.Fprintln(stderr, "usage: varix compile summary --url <url> | --platform <platform> --id <external_id>")
+		return 2
+	}
 
-	app, store, err := openAppStore(projectRoot)
+	app, store, err := openRuntimeStore(projectRoot)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
@@ -66,10 +70,6 @@ func runCompileSummary(args []string, projectRoot string, stdout, stderr io.Writ
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
-	}
-	if !hasContentTarget(*platform, *externalID) {
-		fmt.Fprintln(stderr, "usage: varix compile summary --url <url> | --platform <platform> --id <external_id>")
-		return 2
 	}
 	record, err := store.GetCompiledOutput(context.Background(), *platform, *externalID)
 	if err != nil {
@@ -99,8 +99,12 @@ func runCompileCompare(args []string, projectRoot string, stdout, stderr io.Writ
 		return 2
 	}
 	setRawURLFromArg(fs, rawURL)
+	if strings.TrimSpace(*rawURL) == "" && !hasContentTarget(*platform, *externalID) {
+		fmt.Fprintln(stderr, "usage: varix compile compare --url <url> | --platform <platform> --id <external_id>")
+		return 2
+	}
 
-	app, store, err := openAppStore(projectRoot)
+	app, store, err := openRuntimeStore(projectRoot)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
@@ -110,10 +114,6 @@ func runCompileCompare(args []string, projectRoot string, stdout, stderr io.Writ
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
-	}
-	if !hasContentTarget(*platform, *externalID) {
-		fmt.Fprintln(stderr, "usage: varix compile compare --url <url> | --platform <platform> --id <external_id>")
-		return 2
 	}
 	raw, err := store.GetRawCapture(context.Background(), *platform, *externalID)
 	if err != nil {
@@ -140,7 +140,7 @@ func runCompileCompare(args []string, projectRoot string, stdout, stderr io.Writ
 	return 0
 }
 
-func writeHumanReadableCompileMetrics(w io.Writer, record c.Record) {
+func writeHumanReadableCompileMetrics(w io.Writer, record model.Record) {
 	if record.Metrics.CompileElapsedMS > 0 {
 		fmt.Fprintf(w, "Compile elapsed: %dms\n", record.Metrics.CompileElapsedMS)
 	} else {

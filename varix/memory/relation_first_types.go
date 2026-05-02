@@ -2,7 +2,7 @@ package memory
 
 import "time"
 
-// Relation-first v2 types live here so canonical entities, relations, mechanisms, and aggregates stay reviewable as one boundary.
+// Relation-first synthesis types live here so canonical entities, relations, mechanisms, and aggregates stay reviewable as one boundary.
 
 type CanonicalEntityType string
 

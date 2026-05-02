@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
-	c "github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/ingest/types"
+	"github.com/kumaloha/VariX/varix/model"
+	"github.com/kumaloha/VariX/varix/storage/contentstore"
+	verification "github.com/kumaloha/VariX/varix/verify"
 )
 
 const verifyCommandUsage = "usage: varix verify <run|show|queue|sweep> ..."
@@ -43,6 +45,7 @@ func runVerifyRun(args []string, projectRoot string, stdout, stderr io.Writer) i
 	externalID := fs.String("id", "", "content external id")
 	force := fs.Bool("force", false, "force re-verification even if verification result already exists")
 	timeout := fs.Duration("timeout", 10*time.Minute, "verify timeout")
+	llmCache := fs.String("llm-cache", string(contentstore.LLMCacheReadThrough), "LLM cache mode: read-through, refresh, off")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -51,18 +54,31 @@ func runVerifyRun(args []string, projectRoot string, stdout, stderr io.Writer) i
 		fmt.Fprintln(stderr, "usage: varix verify run --url <url> | --platform <platform> --id <external_id>")
 		return 2
 	}
+	cacheMode, err := parseLLMCacheMode(*llmCache)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if *force && !flagWasSet(fs, "llm-cache") {
+		cacheMode = contentstore.LLMCacheRefresh
+	}
 
-	app, store, err := openAppStore(projectRoot)
+	app, store, err := openRuntimeStore(projectRoot)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
 	}
 	defer store.Close()
-	c.EnableFactWebVerification()
-	client := buildCompileClient(projectRoot)
+	verification.EnableFactWebVerification()
+	client := buildVerifyClient(projectRoot)
 	if client == nil {
 		fmt.Fprintln(stderr, "verify client config missing")
 		return 1
+	}
+	if currentClient, ok := client.(interface {
+		EnableLLMCache(contentstore.LLMCacheStore, contentstore.LLMCacheMode)
+	}); ok {
+		currentClient.EnableLLMCache(store, cacheMode)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
@@ -90,13 +106,13 @@ func runVerifyRun(args []string, projectRoot string, stdout, stderr io.Writer) i
 		writeErr(stderr, err)
 		return 1
 	}
-	bundle := c.BuildBundle(types.RawContent(raw))
+	bundle := model.BuildBundle(types.RawContent(raw))
 	verification, err := client.VerifyDetailed(ctx, bundle, record.Output)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
 	}
-	verifyRecord := c.VerificationRecord{
+	verifyRecord := model.VerificationRecord{
 		UnitID:         record.UnitID,
 		Source:         record.Source,
 		ExternalID:     record.ExternalID,
@@ -127,7 +143,7 @@ func runVerifyShow(args []string, projectRoot string, stdout, stderr io.Writer) 
 	}
 	setRawURLFromArg(fs, rawURL)
 
-	app, store, err := openAppStore(projectRoot)
+	app, store, err := openRuntimeStore(projectRoot)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
@@ -153,7 +169,7 @@ func runVerifyShow(args []string, projectRoot string, stdout, stderr io.Writer) 
 	return writeJSON(stdout, stderr, record)
 }
 
-func firstVerificationTime(v c.Verification) time.Time {
+func firstVerificationTime(v model.Verification) time.Time {
 	if !v.VerifiedAt.IsZero() {
 		return v.VerifiedAt
 	}

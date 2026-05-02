@@ -10,7 +10,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
@@ -165,7 +165,7 @@ func runMemoryContentGraphs(args []string, projectRoot string, stdout, stderr io
 	}
 	items, err := store.ListMemoryContentGraphs(context.Background(), strings.TrimSpace(*userID))
 	if err == nil && hasContentTarget(*platform, *externalID) {
-		filtered := make([]graphmodel.ContentSubgraph, 0, len(items))
+		filtered := make([]model.ContentSubgraph, 0, len(items))
 		for _, item := range items {
 			if item.SourcePlatform == strings.TrimSpace(*platform) && item.SourceExternalID == strings.TrimSpace(*externalID) {
 				filtered = append(filtered, item)
@@ -181,7 +181,7 @@ func runMemoryContentGraphs(args []string, projectRoot string, stdout, stderr io
 			fmt.Fprintln(stderr, resolveErr)
 			return 1
 		}
-		filtered := make([]graphmodel.ContentSubgraph, 0, len(items))
+		filtered := make([]model.ContentSubgraph, 0, len(items))
 		for _, item := range items {
 			matched := false
 			for _, node := range item.Nodes {

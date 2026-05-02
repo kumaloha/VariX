@@ -4,16 +4,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func sameGlobalClusterFamily(left, right memory.AcceptedNode) bool {
 	bucket := func(kind string) string {
 		switch kind {
-		case string(compile.NodeFact), string(compile.NodeConclusion), string(compile.NodePrediction):
+		case string(model.NodeFact), string(model.NodeConclusion), string(model.NodePrediction):
 			return "claim"
-		case string(compile.NodeExplicitCondition), string(compile.NodeImplicitCondition):
+		case string(model.NodeExplicitCondition), string(model.NodeImplicitCondition):
 			return "condition"
 		default:
 			return "other"

@@ -3,12 +3,11 @@ package contentstore
 import (
 	"sort"
 
-	"github.com/kumaloha/VariX/varix/compile"
-	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
-func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record, verification compile.Verification, graphFirstSubgraph graphmodel.ContentSubgraph, hasGraphFirstSubgraph bool) []memory.HierarchyLink {
+func buildHierarchy(nodes []memory.AcceptedNode, record model.Record, verification model.Verification, graphFirstSubgraph model.ContentSubgraph, hasGraphFirstSubgraph bool) []memory.HierarchyLink {
 	active := map[string]struct{}{}
 	nodeKindByID := map[string]string{}
 	for _, node := range nodes {
@@ -28,7 +27,7 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record, verifica
 		if !hierarchyTransitionAllowed(nodeKindByID[edge.From], nodeKindByID[edge.To]) {
 			continue
 		}
-		if status, ok := factStatusByNode[edge.From]; ok && status != compile.FactStatusClearlyTrue {
+		if status, ok := factStatusByNode[edge.From]; ok && status != model.FactStatusClearlyTrue {
 			continue
 		}
 		link := memory.HierarchyLink{
@@ -46,14 +45,14 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record, verifica
 	}
 
 	nodesByKind := groupNodesByKind(nodes)
-	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeFact)], nodesByKind[string(compile.NodeExplicitCondition)])
-	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeFact)], nodesByKind[string(compile.NodeImplicitCondition)])
-	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeImplicitCondition)], nodesByKind[string(compile.NodeConclusion)])
-	if len(nodesByKind[string(compile.NodeImplicitCondition)]) == 0 {
-		addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeFact)], nodesByKind[string(compile.NodeConclusion)])
+	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(model.NodeFact)], nodesByKind[string(model.NodeExplicitCondition)])
+	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(model.NodeFact)], nodesByKind[string(model.NodeImplicitCondition)])
+	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(model.NodeImplicitCondition)], nodesByKind[string(model.NodeConclusion)])
+	if len(nodesByKind[string(model.NodeImplicitCondition)]) == 0 {
+		addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(model.NodeFact)], nodesByKind[string(model.NodeConclusion)])
 	}
-	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeExplicitCondition)], nodesByKind[string(compile.NodePrediction)])
-	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(compile.NodeConclusion)], nodesByKind[string(compile.NodePrediction)])
+	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(model.NodeExplicitCondition)], nodesByKind[string(model.NodePrediction)])
+	addInferredHierarchyLinks(&out, seen, factStatusByNode, nodesByKind[string(model.NodeConclusion)], nodesByKind[string(model.NodePrediction)])
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].ParentNodeID != out[j].ParentNodeID {
 			return out[i].ParentNodeID < out[j].ParentNodeID
@@ -72,9 +71,9 @@ func buildHierarchy(nodes []memory.AcceptedNode, record compile.Record, verifica
 	return out
 }
 
-func addInferredHierarchyLinks(out *[]memory.HierarchyLink, seen map[string]struct{}, factStatusByNode map[string]compile.FactStatus, parents, children []memory.AcceptedNode) {
+func addInferredHierarchyLinks(out *[]memory.HierarchyLink, seen map[string]struct{}, factStatusByNode map[string]model.FactStatus, parents, children []memory.AcceptedNode) {
 	for _, parent := range parents {
-		if status, ok := factStatusByNode[parent.NodeID]; ok && status != compile.FactStatusClearlyTrue {
+		if status, ok := factStatusByNode[parent.NodeID]; ok && status != model.FactStatusClearlyTrue {
 			continue
 		}
 		for _, child := range children {
@@ -101,40 +100,40 @@ func addInferredHierarchyLinks(out *[]memory.HierarchyLink, seen map[string]stru
 
 func hierarchyTransitionAllowed(parentKind, childKind string) bool {
 	switch {
-	case parentKind == string(compile.NodeFact) && childKind == string(compile.NodeExplicitCondition):
+	case parentKind == string(model.NodeFact) && childKind == string(model.NodeExplicitCondition):
 		return true
-	case parentKind == string(compile.NodeFact) && childKind == string(compile.NodeImplicitCondition):
+	case parentKind == string(model.NodeFact) && childKind == string(model.NodeImplicitCondition):
 		return true
-	case parentKind == string(compile.NodeFact) && childKind == string(compile.NodeMechanism):
+	case parentKind == string(model.NodeFact) && childKind == string(model.NodeMechanism):
 		return true
-	case parentKind == string(compile.NodeFact) && childKind == string(compile.NodeConclusion):
+	case parentKind == string(model.NodeFact) && childKind == string(model.NodeConclusion):
 		return true
-	case parentKind == string(compile.NodeExplicitCondition) && childKind == string(compile.NodeImplicitCondition):
+	case parentKind == string(model.NodeExplicitCondition) && childKind == string(model.NodeImplicitCondition):
 		return true
-	case parentKind == string(compile.NodeExplicitCondition) && childKind == string(compile.NodeMechanism):
+	case parentKind == string(model.NodeExplicitCondition) && childKind == string(model.NodeMechanism):
 		return true
-	case parentKind == string(compile.NodeExplicitCondition) && childKind == string(compile.NodeConclusion):
+	case parentKind == string(model.NodeExplicitCondition) && childKind == string(model.NodeConclusion):
 		return true
-	case parentKind == string(compile.NodeImplicitCondition) && childKind == string(compile.NodeConclusion):
+	case parentKind == string(model.NodeImplicitCondition) && childKind == string(model.NodeConclusion):
 		return true
-	case parentKind == string(compile.NodeMechanism) && childKind == string(compile.NodeConclusion):
+	case parentKind == string(model.NodeMechanism) && childKind == string(model.NodeConclusion):
 		return true
-	case parentKind == string(compile.NodeExplicitCondition) && childKind == string(compile.NodePrediction):
+	case parentKind == string(model.NodeExplicitCondition) && childKind == string(model.NodePrediction):
 		return true
-	case parentKind == string(compile.NodeConclusion) && childKind == string(compile.NodePrediction):
+	case parentKind == string(model.NodeConclusion) && childKind == string(model.NodePrediction):
 		return true
 	default:
 		return false
 	}
 }
 
-func graphHierarchyHint(kind compile.EdgeKind) string {
+func graphHierarchyHint(kind model.EdgeKind) string {
 	switch kind {
-	case compile.EdgeDerives:
+	case model.EdgeDerives:
 		return "compiled-derives"
-	case compile.EdgePositive:
+	case model.EdgePositive:
 		return "compiled-supports"
-	case compile.EdgePresets:
+	case model.EdgePresets:
 		return "compiled-presets"
 	default:
 		return "compiled-link"
@@ -147,15 +146,15 @@ func inferredHierarchyHint(parentKind, childKind string) string {
 
 func nodeKindSlug(kind string) string {
 	switch kind {
-	case string(compile.NodeFact):
+	case string(model.NodeFact):
 		return "fact"
-	case string(compile.NodeExplicitCondition):
+	case string(model.NodeExplicitCondition):
 		return "explicit-condition"
-	case string(compile.NodeAssumption):
+	case string(model.NodeAssumption):
 		return "implicit-condition"
-	case string(compile.NodeConclusion):
+	case string(model.NodeConclusion):
 		return "conclusion"
-	case string(compile.NodePrediction):
+	case string(model.NodePrediction):
 		return "prediction"
 	default:
 		return "node"
@@ -173,11 +172,11 @@ func groupNodesByKind(nodes []memory.AcceptedNode) map[string][]memory.AcceptedN
 type hierarchyEdge struct {
 	From   string
 	To     string
-	Kind   compile.EdgeKind
+	Kind   model.EdgeKind
 	Source string
 }
 
-func preferredHierarchyEdges(record compile.Record, graphFirstSubgraph graphmodel.ContentSubgraph, hasGraphFirstSubgraph bool) []hierarchyEdge {
+func preferredHierarchyEdges(record model.Record, graphFirstSubgraph model.ContentSubgraph, hasGraphFirstSubgraph bool) []hierarchyEdge {
 	compileKeys := map[string]struct{}{}
 	for _, edge := range record.Output.Graph.Edges {
 		compileKeys[edge.From+"->"+edge.To] = struct{}{}
@@ -196,16 +195,16 @@ func preferredHierarchyEdges(record compile.Record, graphFirstSubgraph graphmode
 		}
 		out := make([]hierarchyEdge, 0, len(graphFirstSubgraph.Edges))
 		for _, edge := range graphFirstSubgraph.Edges {
-			kind := compile.EdgePositive
+			kind := model.EdgePositive
 			switch edge.Type {
-			case graphmodel.EdgeTypeExplains:
-				kind = compile.EdgeExplains
-			case graphmodel.EdgeTypeContext:
-				kind = compile.EdgePresets
-			case graphmodel.EdgeTypeSupports:
-				kind = compile.EdgeDerives
-			case graphmodel.EdgeTypeDrives:
-				kind = compile.EdgePositive
+			case model.EdgeTypeExplains:
+				kind = model.EdgeExplains
+			case model.EdgeTypeContext:
+				kind = model.EdgePresets
+			case model.EdgeTypeSupports:
+				kind = model.EdgeDerives
+			case model.EdgeTypeDrives:
+				kind = model.EdgePositive
 			}
 			source := "graph"
 			if graphFirstOnly {

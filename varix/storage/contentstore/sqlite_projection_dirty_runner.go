@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark ProjectionDirtyMark, now time.Time, state *projectionDirtyUserState) error {
@@ -26,9 +26,9 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 		if err == nil && state != nil {
 			state.paradigmRefreshed = true
 		}
-	case "global-v2":
+	case "global-synthesis":
 		refreshProjections := state == nil || !state.eventRefreshed || !state.paradigmRefreshed
-		_, err = s.runGlobalMemoryOrganizationV2(ctx, userID, now, refreshProjections)
+		_, err = s.runGlobalMemorySynthesis(ctx, userID, now, refreshProjections)
 		if err == nil && refreshProjections && state != nil {
 			state.eventRefreshed = true
 			state.paradigmRefreshed = true
@@ -43,7 +43,7 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 			return fmt.Errorf("subject-horizon mark requires subject and horizon")
 		}
 		var item memory.SubjectHorizonMemory
-		var graphs []graphmodel.ContentSubgraph
+		var graphs []model.ContentSubgraph
 		hasGraphInputs := false
 		if state != nil {
 			graphs, err = state.memoryContentGraphsBySubject(ctx, userID, mark.Subject, s.ListMemoryContentGraphsBySubject)
@@ -54,7 +54,7 @@ func (s *SQLiteStore) runProjectionDirtyMark(ctx context.Context, mark Projectio
 		}
 		var resolve projectionSubjectResolver
 		if state != nil {
-			resolve = func(ctx context.Context, node graphmodel.GraphNode) (string, error) {
+			resolve = func(ctx context.Context, node model.ContentNode) (string, error) {
 				return state.canonicalGraphNodeSubject(ctx, node, s.resolveCanonicalGraphNodeSubject)
 			}
 		}

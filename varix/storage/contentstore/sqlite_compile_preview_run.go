@@ -22,25 +22,25 @@ type CompilePreviewRun struct {
 }
 
 type CompilePreviewRunItem struct {
-	ItemID            int64  `json:"item_id"`
-	RunID             int64  `json:"run_id"`
-	Platform          string `json:"platform"`
-	ExternalID        string `json:"external_id"`
-	URL               string `json:"url,omitempty"`
-	Status            string `json:"status"`
-	ErrorDetail       string `json:"error_detail,omitempty"`
-	ExtractNodes      int    `json:"extract_nodes"`
-	RelationsNodes    int    `json:"relations_nodes"`
-	RelationsEdges    int    `json:"relations_edges"`
-	ClassifyTargets   int    `json:"classify_targets"`
-	ValidateTargets   int    `json:"validate_targets"`
-	RenderDrivers     int    `json:"render_drivers"`
-	RenderTargets     int    `json:"render_targets"`
-	RenderPaths       int    `json:"render_paths"`
-	PayloadJSON       string `json:"payload_json,omitempty"`
-	MainlineMarkdown  string `json:"mainline_markdown,omitempty"`
-	StartedAt         string `json:"started_at"`
-	FinishedAt        string `json:"finished_at,omitempty"`
+	ItemID           int64  `json:"item_id"`
+	RunID            int64  `json:"run_id"`
+	Platform         string `json:"platform"`
+	ExternalID       string `json:"external_id"`
+	URL              string `json:"url,omitempty"`
+	Status           string `json:"status"`
+	ErrorDetail      string `json:"error_detail,omitempty"`
+	ExtractNodes     int    `json:"extract_nodes"`
+	RelationsNodes   int    `json:"relations_nodes"`
+	RelationsEdges   int    `json:"relations_edges"`
+	ClassifyTargets  int    `json:"classify_targets"`
+	ValidateTargets  int    `json:"validate_targets"`
+	RenderDrivers    int    `json:"render_drivers"`
+	RenderTargets    int    `json:"render_targets"`
+	RenderPaths      int    `json:"render_paths"`
+	PayloadJSON      string `json:"payload_json,omitempty"`
+	MainlineMarkdown string `json:"mainline_markdown,omitempty"`
+	StartedAt        string `json:"started_at"`
+	FinishedAt       string `json:"finished_at,omitempty"`
 }
 
 type RawCaptureRef struct {

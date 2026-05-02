@@ -14,7 +14,7 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 	fs := flag.NewFlagSet("memory backfill", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
-	layer := fs.String("layer", "", "content | event | paradigm | global-v2 | all")
+	layer := fs.String("layer", "", "content | event | paradigm | global-synthesis | all")
 	platform := fs.String("platform", "", "source platform (required for content layer)")
 	externalID := fs.String("id", "", "source external id (required for content layer)")
 	if err := fs.Parse(args); err != nil {
@@ -27,13 +27,13 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 			fmt.Fprintln(stderr, "usage: varix memory backfill --layer content --user <user_id> --platform <platform> --id <external_id>")
 			return 2
 		}
-	case "event", "paradigm", "global-v2", "all":
+	case "event", "paradigm", "global-synthesis", "all":
 		if strings.TrimSpace(*userID) == "" {
-			fmt.Fprintln(stderr, "usage: varix memory backfill --layer <event|paradigm|global-v2|all> --user <user_id>")
+			fmt.Fprintln(stderr, "usage: varix memory backfill --layer <event|paradigm|global-synthesis|all> --user <user_id>")
 			return 2
 		}
 	default:
-		fmt.Fprintln(stderr, "usage: varix memory backfill --layer <content|event|paradigm|global-v2|all> ...")
+		fmt.Fprintln(stderr, "usage: varix memory backfill --layer <content|event|paradigm|global-synthesis|all> ...")
 		return 2
 	}
 	store, err := openStore(projectRoot)
@@ -105,14 +105,14 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 		}
 		fmt.Fprintln(stdout, string(payload))
 		return 0
-	case "global-v2":
+	case "global-synthesis":
 		start := time.Now()
-		global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), trimmedUserID, now)
+		global, err := store.RunGlobalMemorySynthesis(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		payload, err := json.MarshalIndent(map[string]any{"ok": true, "layer": "global-v2", "user": trimmedUserID, "global_v2": global.OutputID, "metrics": map[string]any{"global_v2_rebuild_ms": time.Since(start).Milliseconds()}}, "", "  ")
+		payload, err := json.MarshalIndent(map[string]any{"ok": true, "layer": "global-synthesis", "user": trimmedUserID, "global_synthesis": global.OutputID, "metrics": map[string]any{"global_synthesis_rebuild_ms": time.Since(start).Milliseconds()}}, "", "  ")
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -140,24 +140,24 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 		}
 		paradigmDurationMS := time.Since(paradigmStart).Milliseconds()
 		globalStart := time.Now()
-		global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), trimmedUserID, now)
+		global, err := store.RunGlobalMemorySynthesis(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		globalDurationMS := time.Since(globalStart).Milliseconds()
 		payload, err := json.MarshalIndent(map[string]any{
-			"ok":             true,
-			"layer":          "all",
-			"user":           trimmedUserID,
-			"content_graphs": len(contentGraphs),
-			"event_graphs":   len(events),
-			"paradigms":      len(paradigms),
-			"global_v2":      global.OutputID,
+			"ok":               true,
+			"layer":            "all",
+			"user":             trimmedUserID,
+			"content_graphs":   len(contentGraphs),
+			"event_graphs":     len(events),
+			"paradigms":        len(paradigms),
+			"global_synthesis": global.OutputID,
 			"metrics": map[string]any{
-				"event_graph_rebuild_ms": eventDurationMS,
-				"paradigm_recompute_ms":  paradigmDurationMS,
-				"global_v2_rebuild_ms":   globalDurationMS,
+				"event_graph_rebuild_ms":      eventDurationMS,
+				"paradigm_recompute_ms":       paradigmDurationMS,
+				"global_synthesis_rebuild_ms": globalDurationMS,
 			},
 		}, "", "  ")
 		if err != nil {
@@ -167,7 +167,7 @@ func runMemoryBackfill(args []string, projectRoot string, stdout, stderr io.Writ
 		fmt.Fprintln(stdout, string(payload))
 		return 0
 	default:
-		fmt.Fprintln(stderr, "usage: varix memory backfill --layer <content|event|paradigm|global-v2|all> ...")
+		fmt.Fprintln(stderr, "usage: varix memory backfill --layer <content|event|paradigm|global-synthesis|all> ...")
 		return 2
 	}
 }

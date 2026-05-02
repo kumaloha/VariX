@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func buildGlobalClusters(nodes []memory.AcceptedNode, dedupeGroups []memory.DedupeGroup, contradictionGroups []memory.ContradictionGroup, now time.Time) []memory.GlobalCluster {
@@ -119,9 +119,9 @@ func buildGlobalCluster(component []string, byID map[string]memory.AcceptedNode,
 	for _, id := range component {
 		node := byID[id]
 		switch node.NodeKind {
-		case string(compile.NodeExplicitCondition), string(compile.NodeImplicitCondition):
+		case string(model.NodeExplicitCondition), string(model.NodeImplicitCondition):
 			conditional = append(conditional, id)
-		case string(compile.NodePrediction):
+		case string(model.NodePrediction):
 			predictive = append(predictive, id)
 		default:
 			if _, conflicting := conflictingSet[id]; !conflicting {
@@ -148,7 +148,7 @@ func buildGlobalCluster(component []string, byID map[string]memory.AcceptedNode,
 	}
 	coreSupporting := selectCoreNodes(supporting, byID, 2)
 	coreConditional := selectCoreNodes(conditional, byID, 2)
-	coreConclusions := selectCoreNodes(filterNodesByKind(component, byID, string(compile.NodeConclusion)), byID, 1)
+	coreConclusions := selectCoreNodes(filterNodesByKind(component, byID, string(model.NodeConclusion)), byID, 1)
 	corePredictive := selectCoreNodes(predictive, byID, 2)
 	expanded := cloneStringSlice(component)
 	sort.Strings(expanded)

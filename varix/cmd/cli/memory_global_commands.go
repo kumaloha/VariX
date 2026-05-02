@@ -12,7 +12,7 @@ import (
 	"github.com/kumaloha/VariX/varix/memory"
 )
 
-const globalV2ItemTypeUsage = "item-type must be one of: card, conclusion, conflict"
+const globalSynthesisItemTypeUsage = "item-type must be one of: card, conclusion, conflict"
 
 func runMemoryGlobalOrganizeRun(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("memory global-organize-run", flag.ContinueOnError)
@@ -76,15 +76,15 @@ func runMemoryGlobalOrganized(args []string, projectRoot string, stdout, stderr 
 	return 0
 }
 
-func runMemoryGlobalV2OrganizeRun(args []string, projectRoot string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("memory global-v2-organize-run", flag.ContinueOnError)
+func runMemoryGlobalSynthesisOrganizeRun(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory global-synthesis-run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if strings.TrimSpace(*userID) == "" {
-		fmt.Fprintln(stderr, "usage: varix memory global-v2-organize-run --user <user_id>")
+		fmt.Fprintln(stderr, "usage: varix memory global-synthesis-run --user <user_id>")
 		return 2
 	}
 	store, err := openStore(projectRoot)
@@ -93,7 +93,7 @@ func runMemoryGlobalV2OrganizeRun(args []string, projectRoot string, stdout, std
 		return 1
 	}
 	defer store.Close()
-	out, err := store.RunGlobalMemoryOrganizationV2(context.Background(), strings.TrimSpace(*userID), currentUTC())
+	out, err := store.RunGlobalMemorySynthesis(context.Background(), strings.TrimSpace(*userID), currentUTC())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -107,15 +107,15 @@ func runMemoryGlobalV2OrganizeRun(args []string, projectRoot string, stdout, std
 	return 0
 }
 
-func runMemoryGlobalV2Organized(args []string, projectRoot string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("memory global-v2-organized", flag.ContinueOnError)
+func runMemoryGlobalSynthesisOrganized(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory global-synthesis", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if strings.TrimSpace(*userID) == "" {
-		fmt.Fprintln(stderr, "usage: varix memory global-v2-organized --user <user_id>")
+		fmt.Fprintln(stderr, "usage: varix memory global-synthesis --user <user_id>")
 		return 2
 	}
 	store, err := openStore(projectRoot)
@@ -124,10 +124,10 @@ func runMemoryGlobalV2Organized(args []string, projectRoot string, stdout, stder
 		return 1
 	}
 	defer store.Close()
-	out, err := store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), strings.TrimSpace(*userID))
+	out, err := store.GetLatestGlobalMemorySynthesisOutput(context.Background(), strings.TrimSpace(*userID))
 	if err != nil {
 		if err == sql.ErrNoRows {
-			writeMissingMemoryAction(stderr, "no v2 global memory output yet", "varix memory global-v2-organize-run", strings.TrimSpace(*userID))
+			writeMissingMemoryAction(stderr, "no global synthesis memory output yet", "varix memory global-synthesis-run", strings.TrimSpace(*userID))
 			return 1
 		}
 		fmt.Fprintln(stderr, err)
@@ -168,24 +168,24 @@ func runMemoryGlobalCard(args []string, projectRoot string, stdout, stderr io.Wr
 	return 0
 }
 
-func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("memory global-v2-card", flag.ContinueOnError)
+func runMemoryGlobalSynthesisCard(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("memory global-synthesis-card", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
-	runNow := fs.Bool("run", false, "recompute v2 output before rendering")
+	runNow := fs.Bool("run", false, "recompute synthesis output before rendering")
 	itemType := fs.String("item-type", "", "optional filter: card, conclusion, or conflict")
 	limit := fs.Int("limit", 0, "optional max number of top items to render")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if strings.TrimSpace(*userID) == "" {
-		fmt.Fprintln(stderr, "usage: varix memory global-v2-card --user <user_id>")
+		fmt.Fprintln(stderr, "usage: varix memory global-synthesis-card --user <user_id>")
 		return 2
 	}
 	trimmedUserID := strings.TrimSpace(*userID)
 	trimmedItemType := strings.TrimSpace(*itemType)
-	if !isGlobalV2ItemType(trimmedItemType) {
-		fmt.Fprintln(stderr, globalV2ItemTypeUsage)
+	if !isGlobalSynthesisItemType(trimmedItemType) {
+		fmt.Fprintln(stderr, globalSynthesisItemTypeUsage)
 		return 2
 	}
 	store, err := openStore(projectRoot)
@@ -194,27 +194,27 @@ func runMemoryGlobalV2Card(args []string, projectRoot string, stdout, stderr io.
 		return 1
 	}
 	defer store.Close()
-	var out memory.GlobalMemoryV2Output
+	var out memory.GlobalMemorySynthesisOutput
 	if *runNow {
-		out, err = store.RunGlobalMemoryOrganizationV2(context.Background(), trimmedUserID, currentUTC())
+		out, err = store.RunGlobalMemorySynthesis(context.Background(), trimmedUserID, currentUTC())
 	} else {
-		out, err = store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), trimmedUserID)
+		out, err = store.GetLatestGlobalMemorySynthesisOutput(context.Background(), trimmedUserID)
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
-			writeMissingMemoryAction(stderr, "no v2 card output yet", "varix memory global-v2-card --run", trimmedUserID)
+			writeMissingMemoryAction(stderr, "no synthesis card output yet", "varix memory global-synthesis-card --run", trimmedUserID)
 			return 1
 		}
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	filtered := filterGlobalV2Items(out, trimmedItemType)
-	filtered = limitGlobalV2Items(filtered, *limit)
+	filtered := filterGlobalSynthesisItems(out, trimmedItemType)
+	filtered = limitGlobalSynthesisItems(filtered, *limit)
 	if trimmedItemType != "" && len(filtered.TopMemoryItems) == 0 {
 		fmt.Fprintf(stdout, "Items (0, filter=%s)\n\nNo %s items for user %s\n", trimmedItemType, trimmedItemType, trimmedUserID)
 		return 0
 	}
-	fmt.Fprint(stdout, formatGlobalV2Cards(filtered, trimmedItemType))
+	fmt.Fprint(stdout, formatGlobalSynthesisCards(filtered, trimmedItemType))
 	return 0
 }
 
@@ -222,9 +222,9 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 	fs := flag.NewFlagSet("memory global-compare", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	userID := fs.String("user", "", "user id")
-	runNow := fs.Bool("run", false, "recompute both v1 and v2 outputs before comparing")
-	limit := fs.Int("limit", 0, "optional max number of v1 and v2 items to show")
-	itemType := fs.String("item-type", "", "optional filter for v2 side: card, conclusion, or conflict")
+	runNow := fs.Bool("run", false, "recompute both cluster and synthesis outputs before comparing")
+	limit := fs.Int("limit", 0, "optional max number of cluster and synthesis items to show")
+	itemType := fs.String("item-type", "", "optional filter for synthesis side: card, conclusion, or conflict")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -235,8 +235,8 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 	trimmedUserID := strings.TrimSpace(*userID)
 	trimmedItemType := strings.TrimSpace(*itemType)
 	now := currentUTC()
-	if !isGlobalV2ItemType(trimmedItemType) {
-		fmt.Fprintln(stderr, globalV2ItemTypeUsage)
+	if !isGlobalSynthesisItemType(trimmedItemType) {
+		fmt.Fprintln(stderr, globalSynthesisItemTypeUsage)
 		return 2
 	}
 	store, err := openStore(projectRoot)
@@ -246,21 +246,21 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 	}
 	defer store.Close()
 
-	var v1 memory.GlobalOrganizationOutput
-	var v2 memory.GlobalMemoryV2Output
+	var cluster memory.GlobalOrganizationOutput
+	var synthesis memory.GlobalMemorySynthesisOutput
 	if *runNow {
-		v1, err = store.RunGlobalMemoryOrganization(context.Background(), trimmedUserID, now)
+		cluster, err = store.RunGlobalMemoryOrganization(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		v2, err = store.RunGlobalMemoryOrganizationV2(context.Background(), trimmedUserID, now)
+		synthesis, err = store.RunGlobalMemorySynthesis(context.Background(), trimmedUserID, now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 	} else {
-		v1, err = store.GetLatestGlobalMemoryOrganizationOutput(context.Background(), trimmedUserID)
+		cluster, err = store.GetLatestGlobalMemoryOrganizationOutput(context.Background(), trimmedUserID)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				writeMissingMemoryAction(stderr, "no global memory outputs yet", "varix memory global-compare --run", trimmedUserID)
@@ -269,7 +269,7 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		v2, err = store.GetLatestGlobalMemoryOrganizationV2Output(context.Background(), trimmedUserID)
+		synthesis, err = store.GetLatestGlobalMemorySynthesisOutput(context.Background(), trimmedUserID)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				writeMissingMemoryAction(stderr, "no global memory outputs yet", "varix memory global-compare --run", trimmedUserID)
@@ -279,7 +279,7 @@ func runMemoryGlobalCompare(args []string, projectRoot string, stdout, stderr io
 			return 1
 		}
 	}
-	fmt.Fprint(stdout, formatGlobalCompare(limitGlobalOrganizationOutput(v1, *limit), limitGlobalV2Items(filterGlobalV2Items(v2, trimmedItemType), *limit), trimmedItemType))
+	fmt.Fprint(stdout, formatGlobalCompare(limitGlobalOrganizationOutput(cluster, *limit), limitGlobalSynthesisItems(filterGlobalSynthesisItems(synthesis, trimmedItemType), *limit), trimmedItemType))
 	return 0
 }
 
@@ -318,7 +318,7 @@ func formatGlobalClusterCards(out memory.GlobalOrganizationOutput) string {
 	return b.String()
 }
 
-func formatGlobalV2Cards(out memory.GlobalMemoryV2Output, itemType string) string {
+func formatGlobalSynthesisCards(out memory.GlobalMemorySynthesisOutput, itemType string) string {
 	var b strings.Builder
 	if strings.TrimSpace(itemType) != "" {
 		fmt.Fprintf(&b, "Items (%d, filter=%s)\n\n", len(out.TopMemoryItems), strings.TrimSpace(itemType))
@@ -388,7 +388,7 @@ func formatGlobalV2Cards(out memory.GlobalMemoryV2Output, itemType string) strin
 	return b.String()
 }
 
-func filterGlobalV2Items(out memory.GlobalMemoryV2Output, itemType string) memory.GlobalMemoryV2Output {
+func filterGlobalSynthesisItems(out memory.GlobalMemorySynthesisOutput, itemType string) memory.GlobalMemorySynthesisOutput {
 	itemType = strings.TrimSpace(itemType)
 	if itemType == "" {
 		return out
@@ -403,7 +403,7 @@ func filterGlobalV2Items(out memory.GlobalMemoryV2Output, itemType string) memor
 	return filtered
 }
 
-func limitGlobalV2Items(out memory.GlobalMemoryV2Output, limit int) memory.GlobalMemoryV2Output {
+func limitGlobalSynthesisItems(out memory.GlobalMemorySynthesisOutput, limit int) memory.GlobalMemorySynthesisOutput {
 	if limit <= 0 || len(out.TopMemoryItems) <= limit {
 		return out
 	}
@@ -421,7 +421,7 @@ func limitGlobalOrganizationOutput(out memory.GlobalOrganizationOutput, limit in
 	return limited
 }
 
-func isGlobalV2ItemType(itemType string) bool {
+func isGlobalSynthesisItemType(itemType string) bool {
 	switch itemType {
 	case "", "card", "conclusion", "conflict":
 		return true
@@ -434,25 +434,25 @@ func writeMissingMemoryAction(w io.Writer, message, command, userID string) {
 	fmt.Fprintf(w, "%s; run: %s --user %s\n", message, command, userID)
 }
 
-func formatGlobalCompare(v1 memory.GlobalOrganizationOutput, v2 memory.GlobalMemoryV2Output, itemType string) string {
+func formatGlobalCompare(cluster memory.GlobalOrganizationOutput, synthesis memory.GlobalMemorySynthesisOutput, itemType string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "V1 cluster-first (%d)\n", len(v1.Clusters))
-	for _, cluster := range v1.Clusters {
-		fmt.Fprintf(&b, "- %s\n", cluster.CanonicalProposition)
-		if strings.TrimSpace(cluster.Summary) != "" {
-			fmt.Fprintf(&b, "  summary: %s\n", cluster.Summary)
+	fmt.Fprintf(&b, "Cluster-first (%d)\n", len(cluster.Clusters))
+	for _, item := range cluster.Clusters {
+		fmt.Fprintf(&b, "- %s\n", item.CanonicalProposition)
+		if strings.TrimSpace(item.Summary) != "" {
+			fmt.Fprintf(&b, "  summary: %s\n", item.Summary)
 		}
 	}
 	if strings.TrimSpace(itemType) != "" {
-		fmt.Fprintf(&b, "\nV2 thesis-first (%d, filter=%s)\n", len(v2.TopMemoryItems), strings.TrimSpace(itemType))
+		fmt.Fprintf(&b, "\nSynthesis (%d, filter=%s)\n", len(synthesis.TopMemoryItems), strings.TrimSpace(itemType))
 	} else {
-		fmt.Fprintf(&b, "\nV2 thesis-first (%d)\n", len(v2.TopMemoryItems))
+		fmt.Fprintf(&b, "\nSynthesis (%d)\n", len(synthesis.TopMemoryItems))
 	}
-	if strings.TrimSpace(itemType) != "" && len(v2.TopMemoryItems) == 0 {
+	if strings.TrimSpace(itemType) != "" && len(synthesis.TopMemoryItems) == 0 {
 		fmt.Fprintf(&b, "No %s items\n", strings.TrimSpace(itemType))
 		return b.String()
 	}
-	for _, item := range v2.TopMemoryItems {
+	for _, item := range synthesis.TopMemoryItems {
 		fmt.Fprintf(&b, "- %s: %s\n", item.ItemType, item.Headline)
 		if strings.TrimSpace(item.Subheadline) != "" {
 			fmt.Fprintf(&b, "  summary: %s\n", item.Subheadline)

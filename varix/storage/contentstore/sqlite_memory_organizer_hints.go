@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func ensureNodeSet(m map[string]map[string]struct{}, key string) map[string]struct{} {
@@ -30,7 +30,7 @@ func sortedNodeSet(m map[string]struct{}) []string {
 	return out
 }
 
-func buildNodeHints(nodes, active []memory.AcceptedNode, dedupeGroups []memory.DedupeGroup, contradictionGroups []memory.ContradictionGroup, hierarchy []memory.HierarchyLink, factStatusByNode map[string]compile.FactStatus, explicitConditionStatusByNode map[string]compile.ExplicitConditionStatus, predictionStatusByNode map[string]compile.PredictionStatus) []memory.NodeHint {
+func buildNodeHints(nodes, active []memory.AcceptedNode, dedupeGroups []memory.DedupeGroup, contradictionGroups []memory.ContradictionGroup, hierarchy []memory.HierarchyLink, factStatusByNode map[string]model.FactStatus, explicitConditionStatusByNode map[string]model.ExplicitConditionStatus, predictionStatusByNode map[string]model.PredictionStatus) []memory.NodeHint {
 	activeSet := map[string]struct{}{}
 	for _, node := range active {
 		activeSet[node.NodeID] = struct{}{}
@@ -131,25 +131,25 @@ func deriveNodeVerdict(node memory.AcceptedNode, hint memory.NodeHint) string {
 		return "supported"
 	}
 	switch hint.VerificationStatus {
-	case string(compile.FactStatusClearlyTrue):
+	case string(model.FactStatusClearlyTrue):
 		return "supported"
-	case string(compile.FactStatusClearlyFalse):
+	case string(model.FactStatusClearlyFalse):
 		return "contradicted"
-	case string(compile.FactStatusUnverifiable):
+	case string(model.FactStatusUnverifiable):
 		return "needs_review"
 	}
 	switch hint.ConditionProbability {
-	case string(compile.ExplicitConditionStatusHigh), string(compile.ExplicitConditionStatusMedium), string(compile.ExplicitConditionStatusLow):
+	case string(model.ExplicitConditionStatusHigh), string(model.ExplicitConditionStatusMedium), string(model.ExplicitConditionStatusLow):
 		return "supported"
-	case string(compile.ExplicitConditionStatusUnknown):
+	case string(model.ExplicitConditionStatusUnknown):
 		return "needs_review"
 	}
 	switch hint.PredictionStatus {
-	case string(compile.PredictionStatusResolvedTrue):
+	case string(model.PredictionStatusResolvedTrue):
 		return "supported"
-	case string(compile.PredictionStatusResolvedFalse):
+	case string(model.PredictionStatusResolvedFalse):
 		return "contradicted"
-	case string(compile.PredictionStatusUnresolved), string(compile.PredictionStatusStaleUnresolved):
+	case string(model.PredictionStatusUnresolved), string(model.PredictionStatusStaleUnresolved):
 		return "needs_review"
 	}
 	if node.PosteriorState == memory.PosteriorStatePending {
@@ -194,7 +194,7 @@ func buildDominantDriverSummary(active []memory.AcceptedNode, hints []memory.Nod
 	}
 	if len(candidates) == 0 {
 		for _, node := range active {
-			if node.NodeKind == string(compile.NodePrediction) {
+			if node.NodeKind == string(model.NodePrediction) {
 				continue
 			}
 			candidates = append(candidates, node)
@@ -349,12 +349,12 @@ func feedbackForHint(node memory.AcceptedNode, hint memory.NodeHint) (memory.Org
 		base.Message = fmt.Sprintf("%s is blocked until its required conditions are resolved.", label)
 		base.Reason = node.PosteriorReason
 		return base, 3, 8, true
-	case hint.VerificationStatus == string(compile.FactStatusClearlyFalse):
+	case hint.VerificationStatus == string(model.FactStatusClearlyFalse):
 		base.Severity = "error"
 		base.Code = "fact_contradicted"
 		base.Message = fmt.Sprintf("%s is contradicted by fact verification.", label)
 		return base, 3, 7, true
-	case hint.PredictionStatus == string(compile.PredictionStatusResolvedFalse):
+	case hint.PredictionStatus == string(model.PredictionStatusResolvedFalse):
 		base.Severity = "error"
 		base.Code = "prediction_missed"
 		base.Message = fmt.Sprintf("%s resolved false and should be treated as a failed prediction.", label)
@@ -370,17 +370,17 @@ func feedbackForHint(node memory.AcceptedNode, hint memory.NodeHint) (memory.Org
 		base.Message = fmt.Sprintf("%s still needs posterior verification.", label)
 		base.Reason = node.PosteriorReason
 		return base, 2, 4, true
-	case hint.VerificationStatus == string(compile.FactStatusUnverifiable):
+	case hint.VerificationStatus == string(model.FactStatusUnverifiable):
 		base.Severity = "warning"
 		base.Code = "needs_evidence"
 		base.Message = fmt.Sprintf("%s remains unverifiable and needs stronger evidence.", label)
 		return base, 2, 3, true
-	case hint.ConditionProbability == string(compile.ExplicitConditionStatusUnknown):
+	case hint.ConditionProbability == string(model.ExplicitConditionStatusUnknown):
 		base.Severity = "warning"
 		base.Code = "condition_unknown"
 		base.Message = fmt.Sprintf("%s still has an unknown condition probability.", label)
 		return base, 2, 2, true
-	case hint.PredictionStatus == string(compile.PredictionStatusUnresolved) || hint.PredictionStatus == string(compile.PredictionStatusStaleUnresolved):
+	case hint.PredictionStatus == string(model.PredictionStatusUnresolved) || hint.PredictionStatus == string(model.PredictionStatusStaleUnresolved):
 		base.Severity = "warning"
 		base.Code = "prediction_open"
 		base.Message = fmt.Sprintf("%s still needs prediction follow-through.", label)
@@ -397,7 +397,7 @@ func feedbackForHint(node memory.AcceptedNode, hint memory.NodeHint) (memory.Org
 
 func isDriverKind(kind string) bool {
 	switch kind {
-	case string(compile.NodeFact), string(compile.NodeExplicitCondition), string(compile.NodeImplicitCondition):
+	case string(model.NodeFact), string(model.NodeExplicitCondition), string(model.NodeImplicitCondition):
 		return true
 	default:
 		return false
@@ -422,15 +422,15 @@ func countDescendants(nodeID string, childrenByID map[string][]string) int {
 
 func driverKindWeight(kind string) int {
 	switch kind {
-	case string(compile.NodeFact):
+	case string(model.NodeFact):
 		return 40
-	case string(compile.NodeExplicitCondition):
+	case string(model.NodeExplicitCondition):
 		return 35
-	case string(compile.NodeImplicitCondition):
+	case string(model.NodeImplicitCondition):
 		return 30
-	case string(compile.NodeConclusion):
+	case string(model.NodeConclusion):
 		return 20
-	case string(compile.NodePrediction):
+	case string(model.NodePrediction):
 		return 10
 	default:
 		return 0

@@ -25,13 +25,13 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, err := db.Exec("PRAGMA busy_timeout = 30000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set busy timeout: %w", err)
+	}
 	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("set busy timeout: %w", err)
 	}
 	var journalMode string
 	if err := db.QueryRow("PRAGMA journal_mode = WAL").Scan(&journalMode); err != nil {
@@ -55,7 +55,7 @@ func sqliteStoreDSN(path string) string {
 	if strings.Contains(path, "?") {
 		separator = "&"
 	}
-	return path + separator + "_pragma=busy_timeout%3D5000&_pragma=foreign_keys%3DON&_pragma=journal_mode%28WAL%29"
+	return path + separator + "_pragma=busy_timeout%2830000%29&_pragma=foreign_keys%281%29&_pragma=journal_mode%28WAL%29"
 }
 
 func (s *SQLiteStore) Close() error {
@@ -313,6 +313,9 @@ func (s *SQLiteStore) init() error {
 		if err := s.ensureColumn(m.table, m.column, m.definition); err != nil {
 			return err
 		}
+	}
+	if err := s.backfillAuthorSubscriptionIdentityKeys(); err != nil {
+		return err
 	}
 	if err := s.backfillMemoryContentGraphSubjects(); err != nil {
 		return err

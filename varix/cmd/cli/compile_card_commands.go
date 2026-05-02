@@ -6,8 +6,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 	"io"
+	"strings"
 )
 
 func runCompileCard(args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -21,8 +22,12 @@ func runCompileCard(args []string, projectRoot string, stdout, stderr io.Writer)
 		return 2
 	}
 	setRawURLFromArg(fs, rawURL)
+	if strings.TrimSpace(*rawURL) == "" && !hasContentTarget(*platform, *externalID) {
+		fmt.Fprintln(stderr, "usage: varix compile card --url <url> | --platform <platform> --id <external_id>")
+		return 2
+	}
 
-	app, store, err := openAppStore(projectRoot)
+	app, store, err := openRuntimeStore(projectRoot)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
@@ -33,16 +38,12 @@ func runCompileCard(args []string, projectRoot string, stdout, stderr io.Writer)
 		writeErr(stderr, err)
 		return 1
 	}
-	if !hasContentTarget(*platform, *externalID) {
-		fmt.Fprintln(stderr, "usage: varix compile card --url <url> | --platform <platform> --id <external_id>")
-		return 2
-	}
 	record, err := store.GetCompiledOutput(context.Background(), *platform, *externalID)
 	if err != nil {
 		writeErr(stderr, err)
 		return 1
 	}
-	var subgraph *graphmodel.ContentSubgraph
+	var subgraph *model.ContentSubgraph
 	if graph, graphErr := store.GetContentSubgraph(context.Background(), *platform, *externalID); graphErr == nil {
 		subgraph = &graph
 	} else if !errors.Is(graphErr, sql.ErrNoRows) {

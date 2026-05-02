@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func (s *SQLiteStore) RunPosteriorVerification(ctx context.Context, req memory.PosteriorRunRequest, now time.Time) (memory.PosteriorRunResult, error) {
@@ -82,7 +82,7 @@ func (s *SQLiteStore) RunPosteriorVerification(ctx context.Context, req memory.P
 			return memory.PosteriorRunResult{}, err
 		}
 		verification := effectiveVerification(record, verifyRecord)
-		graphNodesByID := make(map[string]compile.GraphNode, len(record.Output.Graph.Nodes))
+		graphNodesByID := make(map[string]model.GraphNode, len(record.Output.Graph.Nodes))
 		for _, node := range record.Output.Graph.Nodes {
 			graphNodesByID[node.ID] = node
 		}

@@ -8,14 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
-func (s *SQLiteStore) EnqueueVerifyQueueItem(ctx context.Context, item graphmodel.VerifyQueueItem) error {
+func (s *SQLiteStore) EnqueueVerifyQueueItem(ctx context.Context, item model.VerifyQueueItem) error {
 	if strings.TrimSpace(item.ID) == "" {
 		return fmt.Errorf("verify queue item id is required")
 	}
-	if item.ObjectType != graphmodel.VerifyQueueObjectNode && item.ObjectType != graphmodel.VerifyQueueObjectEdge {
+	if item.ObjectType != model.VerifyQueueObjectNode && item.ObjectType != model.VerifyQueueObjectEdge {
 		return fmt.Errorf("verify queue item object_type is unsupported")
 	}
 	if strings.TrimSpace(item.ObjectID) == "" {
@@ -25,9 +25,9 @@ func (s *SQLiteStore) EnqueueVerifyQueueItem(ctx context.Context, item graphmode
 		return fmt.Errorf("verify queue item source_article_id is required")
 	}
 	if item.Status == "" {
-		item.Status = graphmodel.VerifyQueueStatusQueued
+		item.Status = model.VerifyQueueStatusQueued
 	}
-	if item.Status != graphmodel.VerifyQueueStatusQueued && item.Status != graphmodel.VerifyQueueStatusRetry {
+	if item.Status != model.VerifyQueueStatusQueued && item.Status != model.VerifyQueueStatusRetry {
 		return fmt.Errorf("verify queue item status must be queued or retry on enqueue")
 	}
 	scheduledAt, err := time.Parse(time.RFC3339, item.ScheduledAt)
@@ -61,7 +61,7 @@ func (s *SQLiteStore) EnqueueVerifyQueueItem(ctx context.Context, item graphmode
 	return err
 }
 
-func (s *SQLiteStore) ListDueVerifyQueueItems(ctx context.Context, now time.Time, limit int) ([]graphmodel.VerifyQueueItem, error) {
+func (s *SQLiteStore) ListDueVerifyQueueItems(ctx context.Context, now time.Time, limit int) ([]model.VerifyQueueItem, error) {
 	now = normalizeNow(now)
 	if limit <= 0 {
 		limit = 100
@@ -77,7 +77,7 @@ func (s *SQLiteStore) ListDueVerifyQueueItems(ctx context.Context, now time.Time
 	return scanVerifyQueueItems(rows)
 }
 
-func (s *SQLiteStore) ListVerifyQueueItems(ctx context.Context, limit int) ([]graphmodel.VerifyQueueItem, error) {
+func (s *SQLiteStore) ListVerifyQueueItems(ctx context.Context, limit int) ([]model.VerifyQueueItem, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -92,7 +92,7 @@ func (s *SQLiteStore) ListVerifyQueueItems(ctx context.Context, limit int) ([]gr
 	return scanVerifyQueueItems(rows)
 }
 
-func (s *SQLiteStore) ClaimDueVerifyQueueItems(ctx context.Context, now time.Time, limit int) ([]graphmodel.VerifyQueueItem, error) {
+func (s *SQLiteStore) ClaimDueVerifyQueueItems(ctx context.Context, now time.Time, limit int) ([]model.VerifyQueueItem, error) {
 	now = normalizeNow(now)
 	if limit <= 0 {
 		limit = 100
@@ -115,10 +115,10 @@ func (s *SQLiteStore) ClaimDueVerifyQueueItems(ctx context.Context, now time.Tim
 		return nil, err
 	}
 	for i := range items {
-		if _, err := tx.ExecContext(ctx, `UPDATE verify_queue SET status = ?, attempts = attempts + 1, updated_at = ? WHERE queue_id = ?`, string(graphmodel.VerifyQueueStatusRunning), now.UTC().Format(time.RFC3339Nano), items[i].ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE verify_queue SET status = ?, attempts = attempts + 1, updated_at = ? WHERE queue_id = ?`, string(model.VerifyQueueStatusRunning), now.UTC().Format(time.RFC3339Nano), items[i].ID); err != nil {
 			return nil, err
 		}
-		items[i].Status = graphmodel.VerifyQueueStatusRunning
+		items[i].Status = model.VerifyQueueStatusRunning
 		items[i].Attempts++
 	}
 	if err := tx.Commit(); err != nil {
@@ -127,7 +127,7 @@ func (s *SQLiteStore) ClaimDueVerifyQueueItems(ctx context.Context, now time.Tim
 	return items, nil
 }
 
-func (s *SQLiteStore) RunVerifyQueueSweep(ctx context.Context, now time.Time, limit int, evaluator func(graphmodel.VerifyQueueItem) (graphmodel.VerifyVerdict, error)) (VerifyQueueSweepResult, error) {
+func (s *SQLiteStore) RunVerifyQueueSweep(ctx context.Context, now time.Time, limit int, evaluator func(model.VerifyQueueItem) (model.VerifyVerdict, error)) (VerifyQueueSweepResult, error) {
 	if evaluator == nil {
 		return VerifyQueueSweepResult{}, fmt.Errorf("verify queue evaluator is required")
 	}
@@ -145,7 +145,7 @@ func (s *SQLiteStore) RunVerifyQueueSweep(ctx context.Context, now time.Time, li
 			}
 			continue
 		}
-		if verdict.Verdict == graphmodel.VerificationPending {
+		if verdict.Verdict == model.VerificationPending {
 			result.Retried++
 			nextAt := verifyQueueRetryAt(now, item.Attempts)
 			if strings.TrimSpace(verdict.NextVerifyAt) != "" {
@@ -200,18 +200,18 @@ func (s *SQLiteStore) MarkVerifyQueueItemRunning(ctx context.Context, queueID st
 	now = normalizeNow(now)
 	_, err := s.db.ExecContext(ctx, `UPDATE verify_queue
 		SET status = ?, attempts = attempts + 1, updated_at = ?
-		WHERE queue_id = ?`, string(graphmodel.VerifyQueueStatusRunning), now.UTC().Format(time.RFC3339Nano), strings.TrimSpace(queueID))
+		WHERE queue_id = ?`, string(model.VerifyQueueStatusRunning), now.UTC().Format(time.RFC3339Nano), strings.TrimSpace(queueID))
 	return err
 }
 
-func (s *SQLiteStore) FinishVerifyQueueItem(ctx context.Context, queueID string, verdict graphmodel.VerifyVerdict, now time.Time) error {
+func (s *SQLiteStore) FinishVerifyQueueItem(ctx context.Context, queueID string, verdict model.VerifyVerdict, now time.Time) error {
 	if strings.TrimSpace(queueID) == "" {
 		return fmt.Errorf("verify queue queueID is required")
 	}
-	if verdict.ObjectType != graphmodel.VerifyQueueObjectNode && verdict.ObjectType != graphmodel.VerifyQueueObjectEdge {
+	if verdict.ObjectType != model.VerifyQueueObjectNode && verdict.ObjectType != model.VerifyQueueObjectEdge {
 		return fmt.Errorf("verify verdict object_type is unsupported")
 	}
-	if verdict.Verdict != graphmodel.VerificationPending && verdict.Verdict != graphmodel.VerificationProved && verdict.Verdict != graphmodel.VerificationDisproved && verdict.Verdict != graphmodel.VerificationUnverifiable {
+	if verdict.Verdict != model.VerificationPending && verdict.Verdict != model.VerificationProved && verdict.Verdict != model.VerificationDisproved && verdict.Verdict != model.VerificationUnverifiable {
 		return fmt.Errorf("verify verdict status is unsupported")
 	}
 	now = normalizeNow(now)
@@ -233,7 +233,7 @@ func (s *SQLiteStore) FinishVerifyQueueItem(ctx context.Context, queueID string,
 		string(verdict.ObjectType), verdict.ObjectID, string(verdict.Verdict), nullIfBlank(verdict.Reason), string(evidenceJSON), asOf.UTC().Format(time.RFC3339Nano), nullIfBlank(verdict.NextVerifyAt), now.UTC().Format(time.RFC3339Nano)); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE verify_queue SET status = ?, updated_at = ?, last_error = '' WHERE queue_id = ?`, string(graphmodel.VerifyQueueStatusDone), now.UTC().Format(time.RFC3339Nano), strings.TrimSpace(queueID)); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE verify_queue SET status = ?, updated_at = ?, last_error = '' WHERE queue_id = ?`, string(model.VerifyQueueStatusDone), now.UTC().Format(time.RFC3339Nano), strings.TrimSpace(queueID)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -247,12 +247,12 @@ type VerifyQueueSweepResult struct {
 }
 
 type VerifyQueueSummaryDetailed struct {
-	Counts            map[graphmodel.VerifyQueueStatus]int     `json:"counts"`
-	ObjectTypes       map[graphmodel.VerifyQueueObjectType]int `json:"object_types"`
-	TotalCount        int                                      `json:"total_count"`
-	DueCount          int                                      `json:"due_count"`
-	OldestScheduledAt string                                   `json:"oldest_scheduled_at,omitempty"`
-	PendingAgeBuckets map[string]int                           `json:"pending_age_buckets"`
+	Counts            map[model.VerifyQueueStatus]int     `json:"counts"`
+	ObjectTypes       map[model.VerifyQueueObjectType]int `json:"object_types"`
+	TotalCount        int                                 `json:"total_count"`
+	DueCount          int                                 `json:"due_count"`
+	OldestScheduledAt string                              `json:"oldest_scheduled_at,omitempty"`
+	PendingAgeBuckets map[string]int                      `json:"pending_age_buckets"`
 }
 
 func (s *SQLiteStore) RetryVerifyQueueItem(ctx context.Context, queueID string, nextAt time.Time, lastError string, now time.Time) error {
@@ -262,25 +262,25 @@ func (s *SQLiteStore) RetryVerifyQueueItem(ctx context.Context, queueID string, 
 	now = normalizeNow(now)
 	_, err := s.db.ExecContext(ctx, `UPDATE verify_queue
 		SET status = ?, scheduled_at = ?, last_error = ?, updated_at = ?
-		WHERE queue_id = ?`, string(graphmodel.VerifyQueueStatusRetry), nextAt.UTC().Format(time.RFC3339Nano), strings.TrimSpace(lastError), now.UTC().Format(time.RFC3339Nano), strings.TrimSpace(queueID))
+		WHERE queue_id = ?`, string(model.VerifyQueueStatusRetry), nextAt.UTC().Format(time.RFC3339Nano), strings.TrimSpace(lastError), now.UTC().Format(time.RFC3339Nano), strings.TrimSpace(queueID))
 	return err
 }
 
 func getVerifyQueueItem(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, queueID string) (graphmodel.VerifyQueueItem, error) {
-	var item graphmodel.VerifyQueueItem
+}, queueID string) (model.VerifyQueueItem, error) {
+	var item model.VerifyQueueItem
 	var objectType, status, scheduledAt string
 	if err := q.QueryRowContext(ctx, `SELECT queue_id, object_type, object_id, source_article_id, priority, scheduled_at, attempts, last_error, status FROM verify_queue WHERE queue_id = ?`, strings.TrimSpace(queueID)).Scan(&item.ID, &objectType, &item.ObjectID, &item.SourceArticleID, &item.Priority, &scheduledAt, &item.Attempts, &item.LastError, &status); err != nil {
-		return graphmodel.VerifyQueueItem{}, err
+		return model.VerifyQueueItem{}, err
 	}
-	item.ObjectType = graphmodel.VerifyQueueObjectType(objectType)
-	item.Status = graphmodel.VerifyQueueStatus(status)
+	item.ObjectType = model.VerifyQueueObjectType(objectType)
+	item.Status = model.VerifyQueueStatus(status)
 	item.ScheduledAt = parseSQLiteTime(scheduledAt).UTC().Format(time.RFC3339)
 	return item, nil
 }
 
-func (s *SQLiteStore) ListVerifyQueueItemsByStatus(ctx context.Context, status string, limit int) ([]graphmodel.VerifyQueueItem, error) {
+func (s *SQLiteStore) ListVerifyQueueItemsByStatus(ctx context.Context, status string, limit int) ([]model.VerifyQueueItem, error) {
 	status = strings.TrimSpace(status)
 	if status == "" {
 		return s.ListVerifyQueueItems(ctx, limit)
@@ -299,9 +299,9 @@ func (s *SQLiteStore) ListVerifyQueueItemsByStatus(ctx context.Context, status s
 	return scanVerifyQueueItems(rows)
 }
 
-func scanVerifyQueueItems(rows *sql.Rows) ([]graphmodel.VerifyQueueItem, error) {
+func scanVerifyQueueItems(rows *sql.Rows) ([]model.VerifyQueueItem, error) {
 	defer rows.Close()
-	items := make([]graphmodel.VerifyQueueItem, 0)
+	items := make([]model.VerifyQueueItem, 0)
 	for rows.Next() {
 		item, err := scanVerifyQueueItem(rows)
 		if err != nil {
@@ -312,32 +312,32 @@ func scanVerifyQueueItems(rows *sql.Rows) ([]graphmodel.VerifyQueueItem, error) 
 	return items, rows.Err()
 }
 
-func scanVerifyQueueItem(rows *sql.Rows) (graphmodel.VerifyQueueItem, error) {
-	var item graphmodel.VerifyQueueItem
+func scanVerifyQueueItem(rows *sql.Rows) (model.VerifyQueueItem, error) {
+	var item model.VerifyQueueItem
 	var objectType, status, scheduledAt string
 	if err := rows.Scan(&item.ID, &objectType, &item.ObjectID, &item.SourceArticleID, &item.Priority, &scheduledAt, &item.Attempts, &item.LastError, &status); err != nil {
-		return graphmodel.VerifyQueueItem{}, err
+		return model.VerifyQueueItem{}, err
 	}
-	item.ObjectType = graphmodel.VerifyQueueObjectType(objectType)
-	item.Status = graphmodel.VerifyQueueStatus(status)
+	item.ObjectType = model.VerifyQueueObjectType(objectType)
+	item.Status = model.VerifyQueueStatus(status)
 	item.ScheduledAt = parseSQLiteTime(scheduledAt).UTC().Format(time.RFC3339)
 	return item, nil
 }
 
-func (s *SQLiteStore) GetVerifyQueueSummary(ctx context.Context) (map[graphmodel.VerifyQueueStatus]int, error) {
+func (s *SQLiteStore) GetVerifyQueueSummary(ctx context.Context) (map[model.VerifyQueueStatus]int, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM verify_queue GROUP BY status`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[graphmodel.VerifyQueueStatus]int{}
+	out := map[model.VerifyQueueStatus]int{}
 	for rows.Next() {
 		var status string
 		var count int
 		if err := rows.Scan(&status, &count); err != nil {
 			return nil, err
 		}
-		out[graphmodel.VerifyQueueStatus(status)] = count
+		out[model.VerifyQueueStatus(status)] = count
 	}
 	return out, rows.Err()
 }
@@ -361,14 +361,14 @@ func (s *SQLiteStore) GetVerifyQueueSummaryDetailed(ctx context.Context, now tim
 		return VerifyQueueSummaryDetailed{}, err
 	}
 	defer typeRows.Close()
-	objectTypes := map[graphmodel.VerifyQueueObjectType]int{}
+	objectTypes := map[model.VerifyQueueObjectType]int{}
 	for typeRows.Next() {
 		var objectType string
 		var count int
 		if err := typeRows.Scan(&objectType, &count); err != nil {
 			return VerifyQueueSummaryDetailed{}, err
 		}
-		objectTypes[graphmodel.VerifyQueueObjectType(objectType)] = count
+		objectTypes[model.VerifyQueueObjectType(objectType)] = count
 	}
 	if err := typeRows.Err(); err != nil {
 		return VerifyQueueSummaryDetailed{}, err

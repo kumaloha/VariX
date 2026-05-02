@@ -1,13 +1,13 @@
 package contentstore
 
 import (
-	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 	"sort"
 	"strings"
 )
 
-func addSubjectHorizonDrivers(clusters map[string]*memory.SubjectHorizonDriver, graph graphmodel.ContentSubgraph, drivers []graphmodel.GraphNode, target graphmodel.GraphNode, sourceRef string) {
+func addSubjectHorizonDrivers(clusters map[string]*memory.SubjectHorizonDriver, graph model.ContentSubgraph, drivers []model.ContentNode, target model.ContentNode, sourceRef string) {
 	for _, driver := range drivers {
 		subject := firstTrimmed(driver.SubjectCanonical, driver.SubjectText)
 		if subject == "" {
@@ -29,13 +29,13 @@ func addSubjectHorizonDrivers(clusters map[string]*memory.SubjectHorizonDriver, 
 	}
 }
 
-func subjectHorizonRelationPath(graph graphmodel.ContentSubgraph, fromID, toID string) string {
+func subjectHorizonRelationPath(graph model.ContentSubgraph, fromID, toID string) string {
 	fromID = strings.TrimSpace(fromID)
 	toID = strings.TrimSpace(toID)
 	if fromID == "" || toID == "" || fromID == toID {
 		return ""
 	}
-	nodes := map[string]graphmodel.GraphNode{}
+	nodes := map[string]model.ContentNode{}
 	for _, node := range graph.Nodes {
 		nodes[node.ID] = node
 	}
@@ -48,7 +48,7 @@ func subjectHorizonRelationPath(graph graphmodel.ContentSubgraph, fromID, toID s
 	adj := map[string][]string{}
 	for _, edge := range graph.Edges {
 		switch edge.Type {
-		case graphmodel.EdgeTypeDrives, graphmodel.EdgeTypeExplains, graphmodel.EdgeTypeSupports:
+		case model.EdgeTypeDrives, model.EdgeTypeExplains, model.EdgeTypeSupports:
 		default:
 			continue
 		}
@@ -84,7 +84,7 @@ func subjectHorizonRelationPath(graph graphmodel.ContentSubgraph, fromID, toID s
 	return ""
 }
 
-func subjectHorizonPathLabel(nodes map[string]graphmodel.GraphNode, path []string) string {
+func subjectHorizonPathLabel(nodes map[string]model.ContentNode, path []string) string {
 	labels := make([]string, 0, len(path))
 	for _, id := range path {
 		node := nodes[id]

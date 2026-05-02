@@ -14,7 +14,6 @@ import (
 	"time"
 
 	c "github.com/kumaloha/VariX/varix/compile"
-	cv2 "github.com/kumaloha/VariX/varix/compilev2"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
@@ -49,9 +48,9 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 		return 1
 	}
 	defer store.Close()
-	client := cv2.NewClientFromConfig(projectRoot, nil)
+	client := c.NewClientFromConfig(projectRoot, nil)
 	if client == nil {
-		fmt.Fprintln(stderr, "compile v2 client config missing")
+		fmt.Fprintln(stderr, "compile client config missing")
 		return 1
 	}
 	ctx := context.Background()
@@ -67,7 +66,7 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 
 	scope := "author-validate:" + joinInt64s(sourceRunIDs)
 	runID, err := store.CreateCompilePreviewRun(ctx, contentstore.CompilePreviewRun{
-		Pipeline:               "v2-author-validate",
+		Pipeline:               "compile-author-validate",
 		SampleScope:            scope,
 		SampleCount:            len(sourceItems),
 		WorkerCount:            *workers,
@@ -123,7 +122,7 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 				atomic.AddInt64(&failedCount, 1)
 				return
 			}
-			var sourceResult cv2.FlowPreviewResult
+			var sourceResult c.FlowPreviewResult
 			if err := json.Unmarshal([]byte(sourceItem.PayloadJSON), &sourceResult); err != nil {
 				item.Status = "failed"
 				item.ErrorDetail = "parse source payload: " + err.Error()
@@ -162,7 +161,7 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 			}
 			item.Status = "finished"
 			item.PayloadJSON = string(payload)
-			item.MainlineMarkdown = cv2.BuildMainlineMarkdown(result)
+			item.MainlineMarkdown = c.BuildMainlineMarkdown(result)
 			item.ExtractNodes = len(result.Extract.Nodes)
 			item.RelationsNodes = len(result.Relations.Nodes)
 			item.RelationsEdges = len(result.Relations.Edges)
@@ -196,7 +195,7 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 	sort.Strings(failedSamples)
 	return writeJSON(stdout, stderr, compileBatchRunSummary{
 		RunID:         runID,
-		Pipeline:      "v2-author-validate",
+		Pipeline:      "compile-author-validate",
 		SampleScope:   scope,
 		SampleCount:   len(sourceItems),
 		WorkerCount:   *workers,
@@ -260,8 +259,8 @@ func compilePreviewItemsForRunIDs(ctx context.Context, store *contentstore.SQLit
 	return out, nil
 }
 
-func previewNodesByRoleForCLI(nodes []cv2.PreviewNode, role string) []cv2.PreviewNode {
-	out := make([]cv2.PreviewNode, 0)
+func previewNodesByRoleForCLI(nodes []c.PreviewNode, role string) []c.PreviewNode {
+	out := make([]c.PreviewNode, 0)
 	for _, node := range nodes {
 		if node.Role == role {
 			out = append(out, node)
@@ -270,8 +269,8 @@ func previewNodesByRoleForCLI(nodes []cv2.PreviewNode, role string) []cv2.Previe
 	return out
 }
 
-func previewTargetNodesForCLI(nodes []cv2.PreviewNode) []cv2.PreviewNode {
-	out := make([]cv2.PreviewNode, 0)
+func previewTargetNodesForCLI(nodes []c.PreviewNode) []c.PreviewNode {
+	out := make([]c.PreviewNode, 0)
 	for _, node := range nodes {
 		if node.IsTarget {
 			out = append(out, node)

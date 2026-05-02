@@ -9,9 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
-	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func (s *SQLiteStore) GetLatestMemoryOrganizationOutput(ctx context.Context, userID, sourcePlatform, sourceExternalID string) (memory.OrganizationOutput, error) {
@@ -82,14 +81,14 @@ func listUserMemoryBySourceTx(ctx context.Context, tx *sql.Tx, userID, sourcePla
 	return scanMemoryNodes(rows)
 }
 
-func getCompiledOutputTx(ctx context.Context, tx *sql.Tx, platform, externalID string) (compile.Record, error) {
+func getCompiledOutputTx(ctx context.Context, tx *sql.Tx, platform, externalID string) (model.Record, error) {
 	var payload string
 	if err := tx.QueryRowContext(ctx, `SELECT payload_json FROM compiled_outputs WHERE platform = ? AND external_id = ?`, platform, externalID).Scan(&payload); err != nil {
-		return compile.Record{}, err
+		return model.Record{}, err
 	}
-	var record compile.Record
+	var record model.Record
 	if err := json.Unmarshal([]byte(payload), &record); err != nil {
-		return compile.Record{}, err
+		return model.Record{}, err
 	}
 	return record, nil
 }
@@ -156,14 +155,14 @@ func isMissingPosteriorStateTableErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "no such table: memory_posterior_states")
 }
 
-func getMemoryContentGraphBySourceTx(ctx context.Context, tx *sql.Tx, userID, sourcePlatform, sourceExternalID string) (graphmodel.ContentSubgraph, error) {
+func getMemoryContentGraphBySourceTx(ctx context.Context, tx *sql.Tx, userID, sourcePlatform, sourceExternalID string) (model.ContentSubgraph, error) {
 	var payload string
 	if err := tx.QueryRowContext(ctx, `SELECT payload_json FROM memory_content_graphs WHERE user_id = ? AND source_platform = ? AND source_external_id = ?`, userID, sourcePlatform, sourceExternalID).Scan(&payload); err != nil {
-		return graphmodel.ContentSubgraph{}, err
+		return model.ContentSubgraph{}, err
 	}
-	var subgraph graphmodel.ContentSubgraph
+	var subgraph model.ContentSubgraph
 	if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
-		return graphmodel.ContentSubgraph{}, err
+		return model.ContentSubgraph{}, err
 	}
 	return subgraph, nil
 }

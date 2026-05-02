@@ -65,7 +65,7 @@ func Parse(raw string) (types.ParsedURL, error) {
 				Platform:     types.PlatformTwitter,
 				ContentType:  types.ContentTypePost,
 				PlatformID:   m[2],
-				AuthorID:     strings.TrimPrefix(m[1], "@"),
+				AuthorID:     strings.ToLower(strings.TrimPrefix(m[1], "@")),
 				CanonicalURL: raw,
 			}, nil
 		}

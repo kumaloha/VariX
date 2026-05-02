@@ -1,0 +1,21 @@
+[Unit]
+Description=VariX ingest poll loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=varix
+Group=varix
+EnvironmentFile=/etc/varix/varix.env
+WorkingDirectory=/opt/varix
+ExecStart=/opt/varix/bin/varix ingest poll --loop --interval 15m
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/varix /opt/varix
+
+[Install]
+WantedBy=multi-user.target

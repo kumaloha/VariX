@@ -35,6 +35,13 @@ func (s *Service) FetchURL(ctx context.Context, rawURL string) ([]types.RawConte
 	if err != nil {
 		return nil, err
 	}
+	return s.fetchParsedInput(ctx, parsed)
+}
+
+func (s *Service) fetchParsedInput(ctx context.Context, parsed types.ParsedURL) ([]types.RawContent, error) {
+	if parsed.Platform == types.PlatformRSS || parsed.ContentType == types.ContentTypeFeed {
+		return s.fetchFeedURL(ctx, parsed)
+	}
 	return s.fetchParsedURL(ctx, parsed)
 }
 
@@ -43,20 +50,19 @@ func (s *Service) FetchURLAndFollowAuthor(ctx context.Context, rawURL string) (F
 	if err != nil {
 		return FetchURLAndFollowAuthorResult{}, err
 	}
-	items, err := s.fetchParsedURL(ctx, parsed)
+	result := FetchURLAndFollowAuthorResult{}
+	if req, ok := authorFollowRequestFromParsedURL(parsed); ok {
+		author, err := s.FollowAuthor(ctx, req)
+		if err != nil {
+			return FetchURLAndFollowAuthorResult{}, err
+		}
+		result.Author = &author
+	}
+	items, err := s.fetchParsedInput(ctx, parsed)
 	if err != nil {
-		return FetchURLAndFollowAuthorResult{}, err
+		return result, err
 	}
-	result := FetchURLAndFollowAuthorResult{Items: items}
-	req, ok := authorFollowRequestFromParsedURL(parsed)
-	if !ok {
-		return result, nil
-	}
-	author, err := s.FollowAuthor(ctx, req)
-	if err != nil {
-		return FetchURLAndFollowAuthorResult{}, err
-	}
-	result.Author = &author
+	result.Items = items
 	return result, nil
 }
 
@@ -79,24 +85,73 @@ func (s *Service) fetchParsedURL(ctx context.Context, parsed types.ParsedURL) ([
 	return items, nil
 }
 
+func (s *Service) fetchFeedURL(ctx context.Context, parsed types.ParsedURL) ([]types.RawContent, error) {
+	items, err := s.dispatcher.DiscoverFollowedTarget(ctx, types.FollowTarget{
+		Kind:       types.KindRSS,
+		Platform:   string(types.PlatformRSS),
+		PlatformID: parsed.PlatformID,
+		Locator:    parsed.CanonicalURL,
+		URL:        parsed.CanonicalURL,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]types.RawContent, 0, len(items))
+	itemErrors := make([]string, 0)
+	for _, item := range items {
+		rawItems, err := s.dispatcher.FetchDiscoveryItem(ctx, item)
+		if err != nil {
+			itemErrors = append(itemErrors, err.Error())
+			continue
+		}
+		rawItems = s.hydrateReferences(ctx, rawItems)
+		rawItems = s.localize(ctx, rawItems)
+		rawItems = s.annotate(rawItems)
+		rawItems = s.preserveStoredCaptureQuality(ctx, rawItems)
+		rawItems = s.preserveStoredProvenance(ctx, rawItems)
+		if err := s.persistRawCaptures(ctx, rawItems); err != nil {
+			return nil, err
+		}
+		if err := s.markProcessed(ctx, rawItems); err != nil {
+			return nil, err
+		}
+		out = append(out, rawItems...)
+	}
+	if len(out) == 0 && len(itemErrors) > 0 {
+		return nil, fmt.Errorf("all feed items failed: %s", strings.Join(itemErrors, "; "))
+	}
+	return out, nil
+}
+
 func authorFollowRequestFromParsedURL(parsed types.ParsedURL) (types.AuthorFollowRequest, bool) {
 	switch {
 	case parsed.ContentType == types.ContentTypeProfile:
+		authorID := canonicalFollowAuthorPlatformID(parsed.Platform, parsed.PlatformID)
 		return types.AuthorFollowRequest{
 			Platform:   parsed.Platform,
-			PlatformID: parsed.PlatformID,
-			ProfileURL: parsed.CanonicalURL,
-		}, parsed.Platform != "" && parsed.PlatformID != ""
+			PlatformID: authorID,
+			ProfileURL: canonicalAuthorProfileURL(parsed.Platform, authorID, parsed.CanonicalURL),
+		}, parsed.Platform != "" && authorID != ""
 	case parsed.Platform == types.PlatformTwitter && parsed.ContentType == types.ContentTypePost && strings.TrimSpace(parsed.AuthorID) != "":
-		authorID := strings.TrimPrefix(strings.TrimSpace(parsed.AuthorID), "@")
+		authorID := canonicalFollowAuthorPlatformID(types.PlatformTwitter, parsed.AuthorID)
 		return types.AuthorFollowRequest{
 			Platform:   types.PlatformTwitter,
 			PlatformID: authorID,
-			ProfileURL: "https://twitter.com/" + authorID,
+			ProfileURL: canonicalAuthorProfileURL(types.PlatformTwitter, authorID, ""),
 		}, true
 	default:
 		return types.AuthorFollowRequest{}, false
 	}
+}
+
+func canonicalAuthorProfileURL(platform types.Platform, authorID string, fallback string) string {
+	if platform == types.PlatformTwitter && strings.TrimSpace(authorID) != "" {
+		return "https://twitter.com/" + authorID
+	}
+	if platform == types.PlatformWeibo && strings.TrimSpace(authorID) != "" {
+		return "https://weibo.com/" + authorID
+	}
+	return fallback
 }
 
 func (s *Service) Poll(ctx context.Context) (types.PollReport, []types.RawContent, []contentstore.ScanWarning, []PollWarning, error) {

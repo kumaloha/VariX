@@ -2,8 +2,8 @@ package contentstore
 
 import (
 	"context"
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 	"strings"
 )
 
@@ -40,7 +40,7 @@ func newRelationProjectionState(causalTheses []memory.CausalThesis, conclusions 
 	return state
 }
 
-func (s *SQLiteStore) compiledNodesForTheses(ctx context.Context, theses []memory.CausalThesis) (map[string]compile.GraphNode, error) {
+func (s *SQLiteStore) compiledNodesForTheses(ctx context.Context, theses []memory.CausalThesis) (map[string]model.GraphNode, error) {
 	sourceRefs := map[string]struct{}{}
 	for _, thesis := range theses {
 		for _, ref := range thesis.SourceRefs {
@@ -57,7 +57,7 @@ func (s *SQLiteStore) compiledNodesForTheses(ctx context.Context, theses []memor
 		}
 	}
 
-	out := make(map[string]compile.GraphNode)
+	out := make(map[string]model.GraphNode)
 	for ref := range sourceRefs {
 		parts := strings.SplitN(ref, ":", 2)
 		if len(parts) != 2 {

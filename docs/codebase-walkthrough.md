@@ -133,7 +133,7 @@ compile 的核心 contract。
 verify 已经不是纯单轮判断了。
 
 当前更准确地说：
-- facts：已进入 `verify_v2` 路径
+- facts：已进入 `fact_verifier` 路径
   - `claim -> challenge -> adjudication`
 - 其他类型：
   - 进入 pass/coverage 元数据框架
@@ -273,7 +273,7 @@ posterior phase-1 的持久化与 runner 核心。
 - `varix/cmd/cli/ingest_commands.go`
 - `varix/cmd/cli/compile_commands.go`
 - `varix/cmd/cli/memory_commands.go`
-- `varix/cmd/cli/main_test.go`
+- `tests/cmd/cli/main_test.go`
 
 ### `ingest_commands.go`
 包括：
@@ -302,7 +302,7 @@ posterior phase-1 的持久化与 runner 核心。
 - `memory posterior-run`
 - `memory organize-run`
 - `memory organized`
-- `global-v2-*`
+- `global-synthesis-*`
 
 也就是说，posterior 的 store 能力现在已经开始真正进入 CLI operator surface：
 - `memory posterior-run` 可以显式触发 source-scoped posterior evaluation
@@ -317,7 +317,7 @@ posterior phase-1 的持久化与 runner 核心。
 
 它不只是 CLI 单测，而是一个大型 integration harness 文件。
 最近已经被用来串：
-- fake app
+- fake ingest runtime
 - fake compile client
 - real sqlite
 - ingest → compile → memory 的 no-network 测试链路
@@ -345,7 +345,7 @@ posterior phase-1 的持久化与 runner 核心。
 5. `varix/storage/contentstore/sqlite_memory_posterior.go`
    - 当前最重要的新 frontier
 
-6. `varix/cmd/cli/main_test.go`
+6. `tests/cmd/cli/main_test.go`
    - 系统主路径 integration harness
 
 ---
@@ -361,7 +361,7 @@ posterior phase-1 的持久化与 runner 核心。
 6. `varix/storage/contentstore/sqlite_memory.go`
 7. `varix/storage/contentstore/sqlite_memory_organizer.go`
 8. `varix/storage/contentstore/sqlite_memory_posterior.go`
-9. `varix/cmd/cli/main_test.go`
+9. `tests/cmd/cli/main_test.go`
 
 ### 路线 B：只盯当前最重要战场
 如果你只想抓现在最关键的问题，建议直接读：
@@ -489,7 +489,7 @@ posterior phase-1 的持久化与 runner 核心。
 ┌─────────────────────────────┐
 │ organized memory output     │
 │ - source scoped             │
-│ - global v1/v2              │
+│ - global cluster/synthesis              │
 └──────────┬──────────────────┘
            │
            ▼
@@ -606,7 +606,7 @@ posterior phase-1 的持久化与 runner 核心。
 - `varix/compile/verifier_retrieval.go`
 
 当前这条内容已经在新结构下跑出：
-- `version = verify_v2`
+- `version = fact_verifier`
 - `rollout_stage = facts_only`
 
 这表示：
@@ -714,7 +714,7 @@ store/organizer seam 上进入：
 6. `varix/storage/contentstore/sqlite_memory.go`
 7. `varix/storage/contentstore/sqlite_memory_organizer.go`
 8. `varix/storage/contentstore/sqlite_memory_posterior.go`
-9. `varix/cmd/cli/main_test.go`
+9. `tests/cmd/cli/main_test.go`
 
 这样你会看到一条内容如何：
 - 被抓进来

@@ -2,58 +2,27 @@ package contentstore
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
+
+	varixllm "github.com/kumaloha/VariX/varix/llm"
 )
 
-type LLMCacheMode string
+type LLMCacheMode = varixllm.CacheMode
 
 const (
-	LLMCacheReadThrough LLMCacheMode = "read-through"
-	LLMCacheRefresh     LLMCacheMode = "refresh"
-	LLMCacheOff         LLMCacheMode = "off"
+	LLMCacheReadThrough LLMCacheMode = varixllm.CacheReadThrough
+	LLMCacheRefresh     LLMCacheMode = varixllm.CacheRefresh
+	LLMCacheOff         LLMCacheMode = varixllm.CacheOff
 )
 
-type LLMCacheEntry struct {
-	CacheKey      string `json:"cache_key"`
-	StageName     string `json:"stage_name"`
-	PromptHash    string `json:"prompt_hash"`
-	Model         string `json:"model"`
-	InputHash     string `json:"input_hash"`
-	SchemaVersion string `json:"schema_version,omitempty"`
-	RequestJSON   string `json:"request_json,omitempty"`
-	ResponseJSON  string `json:"response_json"`
-	TokenCount    int    `json:"token_count,omitempty"`
-	CostMicros    int64  `json:"cost_micros,omitempty"`
-	LatencyMS     int64  `json:"latency_ms,omitempty"`
-	HitCount      int    `json:"hit_count,omitempty"`
-	CreatedAt     string `json:"created_at,omitempty"`
-	UpdatedAt     string `json:"updated_at,omitempty"`
-}
+type LLMCacheEntry = varixllm.CacheEntry
+type LLMCacheStore = varixllm.CacheStore
 
 func BuildLLMCacheKey(stageName, promptHash, model, inputHash, schemaVersion string, params map[string]string) string {
-	parts := []string{
-		"stage=" + normalizeCachePart(stageName),
-		"prompt=" + normalizeCachePart(promptHash),
-		"model=" + normalizeCachePart(model),
-		"input=" + normalizeCachePart(inputHash),
-		"schema=" + normalizeCachePart(schemaVersion),
-	}
-	keys := make([]string, 0, len(params))
-	for key := range params {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		parts = append(parts, "param."+normalizeCachePart(key)+"="+normalizeCachePart(params[key]))
-	}
-	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
-	return hex.EncodeToString(sum[:])
+	return varixllm.BuildCacheKey(stageName, promptHash, model, inputHash, schemaVersion, params)
 }
 
 func (s *SQLiteStore) GetLLMCacheEntry(ctx context.Context, cacheKey string, mode LLMCacheMode) (LLMCacheEntry, bool, error) {
@@ -138,8 +107,4 @@ func normalizeLLMCacheMode(mode LLMCacheMode) LLMCacheMode {
 	default:
 		return LLMCacheReadThrough
 	}
-}
-
-func normalizeCachePart(value string) string {
-	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
 }

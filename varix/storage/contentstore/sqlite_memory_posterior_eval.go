@@ -5,17 +5,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func evaluatePosteriorState(
 	node memory.AcceptedNode,
 	current memory.PosteriorStateRecord,
-	graphNodesByID map[string]compile.GraphNode,
+	graphNodesByID map[string]model.GraphNode,
 	predecessors map[string][]string,
-	verification compile.Verification,
-	record compile.Record,
+	verification model.Verification,
+	record model.Record,
 	allUserNodes []memory.AcceptedNode,
 	now time.Time,
 ) memory.PosteriorStateRecord {
@@ -42,9 +42,9 @@ func evaluatePosteriorState(
 
 	next.BlockedByNodeIDs = nil
 	switch strings.TrimSpace(node.NodeKind) {
-	case string(compile.NodePrediction):
+	case string(model.NodePrediction):
 		evaluatePredictionPosterior(node, &next, graphNodesByID[node.NodeID], verification, record, now)
-	case string(compile.NodeConclusion):
+	case string(model.NodeConclusion):
 		evaluateConclusionPosterior(node, &next, graphNodesByID, predecessors, verification, record, allUserNodes, now)
 	default:
 		next.State = memory.PosteriorStatePending
@@ -66,20 +66,20 @@ func finalizePosteriorTransition(current, next memory.PosteriorStateRecord, now 
 	return next
 }
 
-func evaluatePredictionPosterior(node memory.AcceptedNode, state *memory.PosteriorStateRecord, graphNode compile.GraphNode, verification compile.Verification, record compile.Record, now time.Time) {
+func evaluatePredictionPosterior(node memory.AcceptedNode, state *memory.PosteriorStateRecord, graphNode model.GraphNode, verification model.Verification, record model.Record, now time.Time) {
 	checks := predictionStatusMap(verification)
 	for _, check := range verification.PredictionChecks {
 		if check.NodeID != node.NodeID {
 			continue
 		}
 		switch check.Status {
-		case compile.PredictionStatusResolvedTrue:
+		case model.PredictionStatusResolvedTrue:
 			state.State = memory.PosteriorStateVerified
 			state.DiagnosisCode = ""
 			state.Reason = strings.TrimSpace(check.Reason)
 			state.LastEvidenceAt = maxTime(record.CompiledAt.UTC(), check.AsOf.UTC())
 			return
-		case compile.PredictionStatusResolvedFalse:
+		case model.PredictionStatusResolvedFalse:
 			state.State = memory.PosteriorStateFalsified
 			state.DiagnosisCode = memory.PosteriorDiagnosisFactError
 			state.Reason = firstNonBlank(check.Reason, "prediction resolved false")
@@ -100,7 +100,7 @@ func evaluatePredictionPosterior(node memory.AcceptedNode, state *memory.Posteri
 		return
 	}
 
-	if status, ok := checks[node.NodeID]; ok && status == compile.PredictionStatusStaleUnresolved {
+	if status, ok := checks[node.NodeID]; ok && status == model.PredictionStatusStaleUnresolved {
 		state.State = memory.PosteriorStatePending
 		state.DiagnosisCode = ""
 		state.Reason = "prediction still unresolved after due time"
@@ -117,10 +117,10 @@ func evaluatePredictionPosterior(node memory.AcceptedNode, state *memory.Posteri
 func evaluateConclusionPosterior(
 	node memory.AcceptedNode,
 	state *memory.PosteriorStateRecord,
-	graphNodesByID map[string]compile.GraphNode,
+	graphNodesByID map[string]model.GraphNode,
 	predecessors map[string][]string,
-	verification compile.Verification,
-	record compile.Record,
+	verification model.Verification,
+	record model.Record,
 	allUserNodes []memory.AcceptedNode,
 	now time.Time,
 ) {
@@ -131,8 +131,8 @@ func evaluateConclusionPosterior(
 			continue
 		}
 		switch ancestor.Kind {
-		case compile.NodeFact, compile.NodeImplicitCondition:
-			if factStatuses[ancestorID] == compile.FactStatusClearlyFalse {
+		case model.NodeFact, model.NodeImplicitCondition:
+			if factStatuses[ancestorID] == model.FactStatusClearlyFalse {
 				state.State = memory.PosteriorStateFalsified
 				state.DiagnosisCode = memory.PosteriorDiagnosisFactError
 				state.Reason = firstNonBlank(ancestor.Text, "supporting evidence was later contradicted")
@@ -156,13 +156,13 @@ func evaluateConclusionPosterior(
 	state.LastEvidenceAt = time.Time{}
 }
 
-func blockedByConditions(nodeID string, graphNodesByID map[string]compile.GraphNode, predecessors map[string][]string, verification compile.Verification) ([]string, string) {
+func blockedByConditions(nodeID string, graphNodesByID map[string]model.GraphNode, predecessors map[string][]string, verification model.Verification) ([]string, string) {
 	explicitStatuses := explicitConditionStatusMap(verification)
 	blockedBy := make([]string, 0)
 	reasons := make([]string, 0)
 	for _, ancestorID := range collectAncestorNodeIDs(nodeID, predecessors) {
 		ancestor, ok := graphNodesByID[ancestorID]
-		if !ok || ancestor.Kind != compile.NodeExplicitCondition {
+		if !ok || ancestor.Kind != model.NodeExplicitCondition {
 			continue
 		}
 		status, ok := explicitStatuses[ancestorID]
@@ -172,7 +172,7 @@ func blockedByConditions(nodeID string, graphNodesByID map[string]compile.GraphN
 			continue
 		}
 		switch status {
-		case compile.ExplicitConditionStatusHigh, compile.ExplicitConditionStatusMedium:
+		case model.ExplicitConditionStatusHigh, model.ExplicitConditionStatusMedium:
 			continue
 		default:
 			blockedBy = append(blockedBy, ancestorID)
@@ -236,7 +236,7 @@ func collectAncestorNodeIDs(nodeID string, predecessors map[string][]string) []s
 	return out
 }
 
-func graphPredecessorIndex(edges []compile.GraphEdge) map[string][]string {
+func graphPredecessorIndex(edges []model.GraphEdge) map[string][]string {
 	out := make(map[string][]string)
 	for _, edge := range edges {
 		out[edge.To] = append(out[edge.To], edge.From)

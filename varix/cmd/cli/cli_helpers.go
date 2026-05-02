@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/bootstrap"
+	"github.com/kumaloha/VariX/varix/ingest"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
@@ -19,7 +19,7 @@ func setRawURLFromArg(fs *flag.FlagSet, rawURL *string) {
 	*rawURL = fs.Arg(0)
 }
 
-func resolveContentTarget(ctx context.Context, app *bootstrap.App, rawURL, platform, externalID string) (string, string, error) {
+func resolveContentTarget(ctx context.Context, app *ingest.Runtime, rawURL, platform, externalID string) (string, string, error) {
 	if strings.TrimSpace(rawURL) == "" {
 		return strings.TrimSpace(platform), strings.TrimSpace(externalID), nil
 	}
@@ -30,10 +30,13 @@ func resolveContentTarget(ctx context.Context, app *bootstrap.App, rawURL, platf
 	return string(parsed.Platform), parsed.PlatformID, nil
 }
 
-func openAppStore(projectRoot string) (*bootstrap.App, *contentstore.SQLiteStore, error) {
-	app, err := buildApp(projectRoot)
+func openRuntimeStore(projectRoot string) (*ingest.Runtime, *contentstore.SQLiteStore, error) {
+	app, err := newIngestRuntime(projectRoot)
 	if err != nil {
 		return nil, nil, err
+	}
+	if app.Store != nil {
+		return app, app.Store, nil
 	}
 	store, err := openSQLiteStore(app.Settings.ContentDBPath)
 	if err != nil {
@@ -43,7 +46,7 @@ func openAppStore(projectRoot string) (*bootstrap.App, *contentstore.SQLiteStore
 }
 
 func openStore(projectRoot string) (*contentstore.SQLiteStore, error) {
-	_, store, err := openAppStore(projectRoot)
+	_, store, err := openRuntimeStore(projectRoot)
 	return store, err
 }
 

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func (s *SQLiteStore) GetPosteriorState(ctx context.Context, memoryID int64) (memory.PosteriorStateRecord, error) {
@@ -78,7 +78,7 @@ func listPosteriorEligibleNodesTx(ctx context.Context, tx *sql.Tx, req memory.Po
 
 func isPosteriorEligibleNodeKind(kind string) bool {
 	switch strings.TrimSpace(kind) {
-	case string(compile.NodeConclusion), string(compile.NodePrediction):
+	case string(model.NodeConclusion), string(model.NodePrediction):
 		return true
 	default:
 		return false
@@ -357,7 +357,7 @@ func enqueuePosteriorRefreshesTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	scope sourceScopeKey,
-	record compile.Record,
+	record model.Record,
 	mutated []memory.PosteriorStateRecord,
 	now time.Time,
 ) ([]memory.PosteriorRefreshTrigger, error) {

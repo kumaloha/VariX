@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
-func formatContentGraphCards(items []graphmodel.ContentSubgraph) string {
+func formatContentGraphCards(items []model.ContentSubgraph) string {
 	var b strings.Builder
 	for _, item := range items {
 		primaryCount := 0

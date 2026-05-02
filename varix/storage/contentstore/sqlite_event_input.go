@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 type EventInputCandidate struct {
@@ -24,7 +24,7 @@ type EventInputCandidate struct {
 	NodeIDs           []string `json:"node_ids,omitempty"`
 }
 
-func (s *SQLiteStore) PersistMemoryContentGraph(ctx context.Context, userID string, subgraph graphmodel.ContentSubgraph, acceptedAt time.Time) error {
+func (s *SQLiteStore) PersistMemoryContentGraph(ctx context.Context, userID string, subgraph model.ContentSubgraph, acceptedAt time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -39,7 +39,7 @@ func (s *SQLiteStore) PersistMemoryContentGraph(ctx context.Context, userID stri
 	return s.refreshProjectionLayersForUser(ctx, userID, acceptedAt)
 }
 
-func (s *SQLiteStore) PersistMemoryContentGraphDeferred(ctx context.Context, userID string, subgraph graphmodel.ContentSubgraph, acceptedAt time.Time) error {
+func (s *SQLiteStore) PersistMemoryContentGraphDeferred(ctx context.Context, userID string, subgraph model.ContentSubgraph, acceptedAt time.Time) error {
 	userID, err := normalizeRequiredUserID(userID)
 	if err != nil {
 		return err
@@ -58,7 +58,7 @@ func (s *SQLiteStore) PersistMemoryContentGraphDeferred(ctx context.Context, use
 	return s.markContentGraphProjectionDirty(ctx, userID, subgraph, acceptedAt)
 }
 
-func persistMemoryContentGraphSubgraphTx(ctx context.Context, tx *sql.Tx, userID string, subgraph graphmodel.ContentSubgraph, acceptedAt time.Time) error {
+func persistMemoryContentGraphSubgraphTx(ctx context.Context, tx *sql.Tx, userID string, subgraph model.ContentSubgraph, acceptedAt time.Time) error {
 	if err := subgraph.Validate(); err != nil {
 		return err
 	}
@@ -90,16 +90,16 @@ func persistMemoryContentGraphSubgraphTx(ctx context.Context, tx *sql.Tx, userID
 	return replaceMemoryContentGraphSubjectsTx(ctx, tx, userID, subgraph, acceptedAt)
 }
 
-func (s *SQLiteStore) markContentGraphProjectionDirty(ctx context.Context, userID string, subgraph graphmodel.ContentSubgraph, at time.Time) error {
+func (s *SQLiteStore) markContentGraphProjectionDirty(ctx context.Context, userID string, subgraph model.ContentSubgraph, at time.Time) error {
 	return markContentGraphProjectionDirty(ctx, s.db, userID, subgraph, at)
 }
 
-func markContentGraphProjectionDirty(ctx context.Context, execer projectionDirtyExecer, userID string, subgraph graphmodel.ContentSubgraph, at time.Time) error {
+func markContentGraphProjectionDirty(ctx context.Context, execer projectionDirtyExecer, userID string, subgraph model.ContentSubgraph, at time.Time) error {
 	sourceRef := strings.TrimSpace(subgraph.SourcePlatform + ":" + subgraph.SourceExternalID)
 	baseMarks := []ProjectionDirtyMark{
 		{UserID: userID, Layer: "event", Reason: "content_graph_changed", SourceRef: sourceRef},
 		{UserID: userID, Layer: "paradigm", Reason: "content_graph_changed", SourceRef: sourceRef},
-		{UserID: userID, Layer: "global-v2", Reason: "content_graph_changed", SourceRef: sourceRef},
+		{UserID: userID, Layer: "global-synthesis", Reason: "content_graph_changed", SourceRef: sourceRef},
 	}
 	for _, mark := range baseMarks {
 		if err := markProjectionDirty(ctx, execer, mark, at); err != nil {
@@ -143,7 +143,7 @@ func (s *SQLiteStore) BuildEventInputCandidates(ctx context.Context, userID stri
 		if err := rows.Scan(&payload); err != nil {
 			return nil, err
 		}
-		var subgraph graphmodel.ContentSubgraph
+		var subgraph model.ContentSubgraph
 		if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
 			return nil, fmt.Errorf("decode memory_content_graph payload: %w", err)
 		}
@@ -197,7 +197,7 @@ func (s *SQLiteStore) BuildEventInputCandidates(ctx context.Context, userID stri
 	return out, nil
 }
 
-func mergeEventCandidateTimeWindow(candidate *EventInputCandidate, node graphmodel.GraphNode) {
+func mergeEventCandidateTimeWindow(candidate *EventInputCandidate, node model.ContentNode) {
 	start := firstEventNodeTime(node.TimeStart, node.TimeEnd, node.VerificationAsOf, node.LastVerifiedAt)
 	end := firstEventNodeTime(node.TimeEnd, node.TimeStart, node.VerificationAsOf, node.LastVerifiedAt)
 	if start != "" && (candidate.TimeStart == "" || eventTimeBefore(start, candidate.TimeStart)) {
@@ -275,18 +275,18 @@ func (s *SQLiteStore) resolveCanonicalSubject(ctx context.Context, subject strin
 	return resolved, nil
 }
 
-func eventCandidateScope(node graphmodel.GraphNode) string {
+func eventCandidateScope(node model.ContentNode) string {
 	switch node.GraphRole {
-	case graphmodel.GraphRoleDriver:
+	case model.GraphRoleDriver:
 		return "driver"
-	case graphmodel.GraphRoleTarget:
+	case model.GraphRoleTarget:
 		return "target"
 	default:
 		return ""
 	}
 }
 
-func deriveEventBucket(node graphmodel.GraphNode) string {
+func deriveEventBucket(node model.ContentNode) string {
 	timeBucket := strings.TrimSpace(node.TimeBucket)
 	if timeBucket != "" {
 		return timeBucket

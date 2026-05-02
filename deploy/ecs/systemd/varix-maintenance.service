@@ -1,0 +1,16 @@
+[Unit]
+Description=VariX maintenance sweep
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=varix
+Group=varix
+EnvironmentFile=/etc/varix/varix.env
+WorkingDirectory=/opt/varix
+ExecStart=/opt/varix/deploy/ecs/bin/varix-maintenance
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/varix /opt/varix

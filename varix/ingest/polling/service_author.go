@@ -42,15 +42,20 @@ func (s *Service) FollowAuthor(ctx context.Context, req types.AuthorFollowReques
 		if parsed.Platform == types.PlatformRSS || parsed.ContentType == types.ContentTypeFeed {
 			req.Platform = types.PlatformRSS
 			req.PlatformID = parsed.PlatformID
+			req = normalizeAuthorFollowRequest(req)
 			return s.followAuthorRSS(ctx, req, parsed.CanonicalURL)
 		}
 	}
+	req = normalizeAuthorFollowRequest(req)
 	if req.Platform == "" {
 		return types.AuthorFollowResult{}, fmt.Errorf("author follow requires platform or profile url")
 	}
 
 	if rssURL, ok := authorRSSURL(req); ok {
 		return s.followAuthorRSS(ctx, req, rssURL)
+	}
+	if shouldFollowAuthorNative(req) {
+		return s.followAuthorNative(ctx, req)
 	}
 	return s.followAuthorSearch(ctx, req)
 }
@@ -82,6 +87,40 @@ func (s *Service) followAuthorRSS(ctx context.Context, req types.AuthorFollowReq
 		PlatformID: req.PlatformID,
 		Locator:    rssURL,
 		URL:        rssURL,
+		AuthorName: req.AuthorName,
+	})
+	if err != nil {
+		return types.AuthorFollowResult{}, err
+	}
+	return types.AuthorFollowResult{
+		Subscription: sub,
+		Follows:      []types.FollowTarget{target},
+	}, nil
+}
+
+func (s *Service) followAuthorNative(ctx context.Context, req types.AuthorFollowRequest) (types.AuthorFollowResult, error) {
+	if !s.dispatcher.SupportsFollow(types.KindNative, req.Platform) {
+		return types.AuthorFollowResult{}, fmt.Errorf("follow strategy not supported: native/%s", req.Platform)
+	}
+	profileURL := canonicalAuthorProfileURL(req.Platform, req.PlatformID, req.ProfileURL)
+	sub, err := s.store.RegisterAuthorSubscription(ctx, types.AuthorSubscription{
+		Platform:   req.Platform,
+		AuthorName: req.AuthorName,
+		PlatformID: req.PlatformID,
+		ProfileURL: profileURL,
+		Strategy:   types.SubscriptionStrategyNative,
+		Status:     "active",
+		UpdatedAt:  s.now(),
+	}, nil)
+	if err != nil {
+		return types.AuthorFollowResult{}, err
+	}
+	target, err := s.Follow(ctx, types.FollowTarget{
+		Kind:       types.KindNative,
+		Platform:   string(req.Platform),
+		PlatformID: req.PlatformID,
+		Locator:    profileURL,
+		URL:        profileURL,
 		AuthorName: req.AuthorName,
 	})
 	if err != nil {
@@ -139,9 +178,17 @@ func (s *Service) followAuthorSearch(ctx context.Context, req types.AuthorFollow
 func normalizeAuthorFollowRequest(req types.AuthorFollowRequest) types.AuthorFollowRequest {
 	req.Platform = types.Platform(strings.TrimSpace(string(req.Platform)))
 	req.AuthorName = strings.Join(strings.Fields(req.AuthorName), " ")
-	req.PlatformID = strings.Trim(strings.TrimSpace(req.PlatformID), "@")
+	req.PlatformID = canonicalFollowAuthorPlatformID(req.Platform, req.PlatformID)
 	req.ProfileURL = strings.TrimSpace(req.ProfileURL)
 	return req
+}
+
+func canonicalFollowAuthorPlatformID(platform types.Platform, id string) string {
+	id = strings.Trim(strings.TrimSpace(id), "@")
+	if platform == types.PlatformTwitter {
+		return strings.ToLower(id)
+	}
+	return id
 }
 
 func authorRSSURL(req types.AuthorFollowRequest) (string, bool) {
@@ -149,6 +196,10 @@ func authorRSSURL(req types.AuthorFollowRequest) (string, bool) {
 		return "https://www.youtube.com/feeds/videos.xml?channel_id=" + url.QueryEscape(req.PlatformID), true
 	}
 	return "", false
+}
+
+func shouldFollowAuthorNative(req types.AuthorFollowRequest) bool {
+	return req.Platform == types.PlatformWeibo && strings.TrimSpace(req.PlatformID) != ""
 }
 
 func AuthorSearchQueries(req types.AuthorFollowRequest) []types.SubscriptionQuery {

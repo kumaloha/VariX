@@ -2,13 +2,12 @@ package main
 
 import (
 	"fmt"
-	c "github.com/kumaloha/VariX/varix/compile"
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 	"sort"
 	"strings"
 )
 
-func graphFirstNodeSection(subgraph graphmodel.ContentSubgraph, keep func(graphmodel.GraphNode) bool) []string {
+func graphFirstNodeSection(subgraph model.ContentSubgraph, keep func(model.ContentNode) bool) []string {
 	out := make([]string, 0)
 	seen := map[string]struct{}{}
 	for _, node := range subgraph.Nodes {
@@ -28,16 +27,16 @@ func graphFirstNodeSection(subgraph graphmodel.ContentSubgraph, keep func(graphm
 	return out
 }
 
-func graphFirstEvidenceSection(subgraph graphmodel.ContentSubgraph) []string {
-	out := graphFirstNodeSection(subgraph, func(node graphmodel.GraphNode) bool {
-		return node.GraphRole == graphmodel.GraphRoleEvidence
+func graphFirstEvidenceSection(subgraph model.ContentSubgraph) []string {
+	out := graphFirstNodeSection(subgraph, func(node model.ContentNode) bool {
+		return node.GraphRole == model.GraphRoleEvidence
 	})
 	if len(out) > 0 {
 		return out
 	}
 	byID := graphNodeIndex(subgraph)
 	for _, edge := range subgraph.Edges {
-		if edge.Type != graphmodel.EdgeTypeSupports {
+		if edge.Type != model.EdgeTypeSupports {
 			continue
 		}
 		if node, ok := byID[edge.From]; ok {
@@ -47,13 +46,13 @@ func graphFirstEvidenceSection(subgraph graphmodel.ContentSubgraph) []string {
 	return out
 }
 
-func graphFirstExplanationSection(subgraph graphmodel.ContentSubgraph) []string {
-	out := graphFirstNodeSection(subgraph, func(node graphmodel.GraphNode) bool {
-		return node.GraphRole == graphmodel.GraphRoleContext
+func graphFirstExplanationSection(subgraph model.ContentSubgraph) []string {
+	out := graphFirstNodeSection(subgraph, func(node model.ContentNode) bool {
+		return node.GraphRole == model.GraphRoleContext
 	})
 	byID := graphNodeIndex(subgraph)
 	for _, edge := range subgraph.Edges {
-		if edge.Type != graphmodel.EdgeTypeExplains {
+		if edge.Type != model.EdgeTypeExplains {
 			continue
 		}
 		if node, ok := byID[edge.From]; ok {
@@ -63,12 +62,12 @@ func graphFirstExplanationSection(subgraph graphmodel.ContentSubgraph) []string 
 	return out
 }
 
-func graphFirstLogicChains(subgraph graphmodel.ContentSubgraph) []string {
+func graphFirstLogicChains(subgraph model.ContentSubgraph) []string {
 	nodeByID := graphNodeIndex(subgraph)
 	primaryDriveAdj := map[string][]string{}
 	primaryDriveNodes := map[string]struct{}{}
 	for _, edge := range subgraph.Edges {
-		if edge.Type != graphmodel.EdgeTypeDrives {
+		if edge.Type != model.EdgeTypeDrives {
 			continue
 		}
 		if !edge.IsPrimary {
@@ -90,10 +89,10 @@ func graphFirstLogicChains(subgraph graphmodel.ContentSubgraph) []string {
 		if !node.IsPrimary {
 			continue
 		}
-		if node.GraphRole == graphmodel.GraphRoleDriver {
+		if node.GraphRole == model.GraphRoleDriver {
 			starts = append(starts, node.ID)
 		}
-		if node.GraphRole == graphmodel.GraphRoleTarget {
+		if node.GraphRole == model.GraphRoleTarget {
 			targets[node.ID] = struct{}{}
 		}
 	}
@@ -106,7 +105,7 @@ func graphFirstLogicChains(subgraph graphmodel.ContentSubgraph) []string {
 	return chains
 }
 
-func graphFirstCollectPaths(current string, adj map[string][]string, targets map[string]struct{}, nodeByID map[string]graphmodel.GraphNode, path []string, visiting map[string]bool, out *[]string, seen map[string]struct{}) {
+func graphFirstCollectPaths(current string, adj map[string][]string, targets map[string]struct{}, nodeByID map[string]model.ContentNode, path []string, visiting map[string]bool, out *[]string, seen map[string]struct{}) {
 	if visiting[current] {
 		return
 	}
@@ -137,15 +136,15 @@ func graphFirstCollectPaths(current string, adj map[string][]string, targets map
 	delete(visiting, current)
 }
 
-func graphNodeIndex(subgraph graphmodel.ContentSubgraph) map[string]graphmodel.GraphNode {
-	out := make(map[string]graphmodel.GraphNode, len(subgraph.Nodes))
+func graphNodeIndex(subgraph model.ContentSubgraph) map[string]model.ContentNode {
+	out := make(map[string]model.ContentNode, len(subgraph.Nodes))
 	for _, node := range subgraph.Nodes {
 		out[node.ID] = node
 	}
 	return out
 }
 
-func graphFirstNodeLabel(node graphmodel.GraphNode) string {
+func graphFirstNodeLabel(node model.ContentNode) string {
 	rawText := strings.TrimSpace(node.RawText)
 	sourceQuote := strings.TrimSpace(node.SourceQuote)
 	subjectText := strings.TrimSpace(node.SubjectText)
@@ -155,10 +154,10 @@ func graphFirstNodeLabel(node graphmodel.GraphNode) string {
 		return rawText
 	case sourceQuote != "":
 		return sourceQuote
-	case c.HasDistinctNonEmptyPair(subjectText, changeText):
+	case model.HasDistinctNonEmptyPair(subjectText, changeText):
 		return subjectText + " " + changeText
 	default:
-		return strings.TrimSpace(c.FirstNonEmpty(subjectText, changeText, node.ID))
+		return strings.TrimSpace(model.FirstNonEmpty(subjectText, changeText, node.ID))
 	}
 }
 
@@ -196,30 +195,30 @@ func graphFirstSectionRichness(values []string) int {
 	return count
 }
 
-func preferGraphFirstSection(legacy, graph []string) []string {
-	if graphFirstSectionRichness(graph) >= graphFirstSectionRichness(legacy) {
+func preferGraphFirstSection(recordBased, graph []string) []string {
+	if graphFirstSectionRichness(graph) >= graphFirstSectionRichness(recordBased) {
 		return graph
 	}
-	return legacy
+	return recordBased
 }
 
-func preferGraphFirstLogicChains(legacy, graph []string) []string {
-	if graphFirstChainRichness(graph) >= graphFirstChainRichness(legacy) {
+func preferGraphFirstLogicChains(recordBased, graph []string) []string {
+	if graphFirstChainRichness(graph) >= graphFirstChainRichness(recordBased) {
 		return graph
 	}
-	return legacy
+	return recordBased
 }
 
-func graphFirstVerificationSummary(subgraph graphmodel.ContentSubgraph) []string {
-	nodeCounts := map[graphmodel.VerificationStatus]int{}
-	edgeCounts := map[graphmodel.VerificationStatus]int{}
+func graphFirstVerificationSummary(subgraph model.ContentSubgraph) []string {
+	nodeCounts := map[model.VerificationStatus]int{}
+	edgeCounts := map[model.VerificationStatus]int{}
 	for _, node := range subgraph.Nodes {
 		nodeCounts[node.VerificationStatus]++
 	}
 	for _, edge := range subgraph.Edges {
 		status := edge.VerificationStatus
 		if status == "" {
-			status = graphmodel.VerificationPending
+			status = model.VerificationPending
 		}
 		edgeCounts[status]++
 	}
@@ -233,13 +232,13 @@ func graphFirstVerificationSummary(subgraph graphmodel.ContentSubgraph) []string
 	return out
 }
 
-func formatVerificationCounts(counts map[graphmodel.VerificationStatus]int) string {
+func formatVerificationCounts(counts map[model.VerificationStatus]int) string {
 	parts := make([]string, 0, 4)
-	for _, status := range []graphmodel.VerificationStatus{
-		graphmodel.VerificationPending,
-		graphmodel.VerificationProved,
-		graphmodel.VerificationDisproved,
-		graphmodel.VerificationUnverifiable,
+	for _, status := range []model.VerificationStatus{
+		model.VerificationPending,
+		model.VerificationProved,
+		model.VerificationDisproved,
+		model.VerificationUnverifiable,
 	} {
 		if counts[status] == 0 {
 			continue

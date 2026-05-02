@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.CandidateThesis {
@@ -27,7 +27,7 @@ func buildCandidateTheses(nodes []memory.AcceptedNode, now time.Time) []memory.C
 		nodeIDs = append(nodeIDs, ref)
 		sourceKey := thesisSourceRef(node)
 		sourceCounts[sourceKey]++
-		if node.NodeKind == string(compile.NodeConclusion) {
+		if node.NodeKind == string(model.NodeConclusion) {
 			sourceConclusionCounts[sourceKey]++
 		}
 	}
@@ -136,13 +136,13 @@ func sameSourceStructuralPairAllowed(leftKind, rightKind string) bool {
 		return true
 	}
 	switch {
-	case leftKind == string(compile.NodeExplicitCondition) && rightKind == string(compile.NodeConclusion):
+	case leftKind == string(model.NodeExplicitCondition) && rightKind == string(model.NodeConclusion):
 		return true
-	case rightKind == string(compile.NodeExplicitCondition) && leftKind == string(compile.NodeConclusion):
+	case rightKind == string(model.NodeExplicitCondition) && leftKind == string(model.NodeConclusion):
 		return true
-	case leftKind == string(compile.NodeImplicitCondition) && rightKind == string(compile.NodeConclusion):
+	case leftKind == string(model.NodeImplicitCondition) && rightKind == string(model.NodeConclusion):
 		return true
-	case rightKind == string(compile.NodeImplicitCondition) && leftKind == string(compile.NodeConclusion):
+	case rightKind == string(model.NodeImplicitCondition) && leftKind == string(model.NodeConclusion):
 		return true
 	default:
 		return false
@@ -284,11 +284,11 @@ func factConclusionTopicLabel(component []string, byID map[string]memory.Accepte
 			continue
 		}
 		switch node.NodeKind {
-		case string(compile.NodeFact):
+		case string(model.NodeFact):
 			if fact == "" {
 				fact = strings.TrimSpace(node.NodeText)
 			}
-		case string(compile.NodeConclusion):
+		case string(model.NodeConclusion):
 			if conclusion == "" {
 				conclusion = strings.TrimSpace(node.NodeText)
 			}

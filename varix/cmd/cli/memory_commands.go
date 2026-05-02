@@ -5,7 +5,7 @@ import (
 	"io"
 )
 
-const memoryCommandUsage = "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|subject-timeline|subject-horizon|subject-experience|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-v2-organize-run|global-v2-organized|global-card|global-v2-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|projection-sweep|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert> ..."
+const memoryCommandUsage = "usage: varix memory <accept|accept-batch|list|show-source|content-graphs|subject-timeline|subject-horizon|subject-experience|jobs|posterior-run|organize-run|organized|global-organize-run|global-organized|global-synthesis-run|global-synthesis|global-card|global-synthesis-card|global-compare|event-graphs|event-evidence|paradigms|paradigm-evidence|project-all|projection-sweep|backfill|cleanup-stale|canonical-entities|canonical-entity-upsert> ..."
 
 func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -41,14 +41,14 @@ func runMemoryCommand(args []string, projectRoot string, stdout, stderr io.Write
 		return runMemoryGlobalOrganizeRun(args[1:], projectRoot, stdout, stderr)
 	case "global-organized":
 		return runMemoryGlobalOrganized(args[1:], projectRoot, stdout, stderr)
-	case "global-v2-organize-run":
-		return runMemoryGlobalV2OrganizeRun(args[1:], projectRoot, stdout, stderr)
-	case "global-v2-organized":
-		return runMemoryGlobalV2Organized(args[1:], projectRoot, stdout, stderr)
+	case "global-synthesis-run":
+		return runMemoryGlobalSynthesisOrganizeRun(args[1:], projectRoot, stdout, stderr)
+	case "global-synthesis":
+		return runMemoryGlobalSynthesisOrganized(args[1:], projectRoot, stdout, stderr)
 	case "global-card":
 		return runMemoryGlobalCard(args[1:], projectRoot, stdout, stderr)
-	case "global-v2-card":
-		return runMemoryGlobalV2Card(args[1:], projectRoot, stdout, stderr)
+	case "global-synthesis-card":
+		return runMemoryGlobalSynthesisCard(args[1:], projectRoot, stdout, stderr)
 	case "global-compare":
 		return runMemoryGlobalCompare(args[1:], projectRoot, stdout, stderr)
 	case "event-graphs":

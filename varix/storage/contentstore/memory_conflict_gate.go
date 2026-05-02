@@ -3,8 +3,8 @@ package contentstore
 import (
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 	"strings"
 )
 
@@ -55,11 +55,11 @@ func thesisConflictReason(left, right memory.AcceptedNode) (string, bool) {
 		return reason, true
 	}
 	switch {
-	case left.NodeKind == string(compile.NodeImplicitCondition) && right.NodeKind == string(compile.NodeImplicitCondition):
+	case left.NodeKind == string(model.NodeImplicitCondition) && right.NodeKind == string(model.NodeImplicitCondition):
 		if reason, ok := mechanismConflictReason(left.NodeText, right.NodeText); ok {
 			return reason, true
 		}
-	case left.NodeKind == string(compile.NodeExplicitCondition) && right.NodeKind == string(compile.NodeExplicitCondition):
+	case left.NodeKind == string(model.NodeExplicitCondition) && right.NodeKind == string(model.NodeExplicitCondition):
 		if reason, ok := conditionConflictReason(left.NodeText, right.NodeText); ok {
 			return reason, true
 		}
@@ -124,7 +124,7 @@ func conflictSideWhy(target memory.AcceptedNode, nodesByID map[string]memory.Acc
 			continue
 		}
 		switch node.NodeKind {
-		case string(compile.NodeFact), string(compile.NodeExplicitCondition), string(compile.NodeImplicitCondition):
+		case string(model.NodeFact), string(model.NodeExplicitCondition), string(model.NodeImplicitCondition):
 			if text := strings.TrimSpace(node.NodeText); text != "" {
 				out = append(out, text)
 			}

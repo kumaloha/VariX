@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 type ParadigmEvidenceLink struct {
@@ -66,20 +66,20 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 		if err := rows.Scan(&payload); err != nil {
 			return nil, err
 		}
-		var subgraph graphmodel.ContentSubgraph
+		var subgraph model.ContentSubgraph
 		if err := json.Unmarshal([]byte(payload), &subgraph); err != nil {
 			return nil, fmt.Errorf("decode memory_content_graph payload: %w", err)
 		}
-		drivers := make([]graphmodel.GraphNode, 0)
-		targets := make([]graphmodel.GraphNode, 0)
+		drivers := make([]model.ContentNode, 0)
+		targets := make([]model.ContentNode, 0)
 		for _, node := range subgraph.Nodes {
 			if !node.IsPrimary {
 				continue
 			}
 			switch node.GraphRole {
-			case graphmodel.GraphRoleDriver:
+			case model.GraphRoleDriver:
 				drivers = append(drivers, node)
-			case graphmodel.GraphRoleTarget:
+			case model.GraphRoleTarget:
 				targets = append(targets, node)
 			}
 		}
@@ -110,9 +110,9 @@ func (s *SQLiteStore) RunParadigmProjection(ctx context.Context, userID string, 
 				st.changes = append(st.changes, strings.TrimSpace(driver.ChangeText), strings.TrimSpace(target.ChangeText))
 				st.traceability[subgraph.ID] = uniqueStrings(append(st.traceability[subgraph.ID], driver.ID, target.ID))
 				switch target.VerificationStatus {
-				case graphmodel.VerificationProved:
+				case model.VerificationProved:
 					st.success++
-				case graphmodel.VerificationDisproved:
+				case model.VerificationDisproved:
 					st.failure++
 				}
 			}

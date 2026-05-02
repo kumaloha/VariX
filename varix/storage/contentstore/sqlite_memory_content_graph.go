@@ -6,20 +6,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
-func persistMemoryContentGraphTx(ctx context.Context, tx *sql.Tx, userID string, record compile.Record, acceptedAt time.Time) (graphmodel.ContentSubgraph, error) {
+func persistMemoryContentGraphTx(ctx context.Context, tx *sql.Tx, userID string, record model.Record, acceptedAt time.Time) (model.ContentSubgraph, error) {
 	subgraph, err := getContentSubgraph(ctx, tx, record.Source, record.ExternalID)
 	if err == sql.ErrNoRows {
-		subgraph, err = graphmodel.FromCompileRecord(record)
+		subgraph, err = model.FromCompileRecord(record)
 	}
 	if err != nil {
-		return graphmodel.ContentSubgraph{}, err
+		return model.ContentSubgraph{}, err
 	}
 	if err := persistMemoryContentGraphSubgraphTx(ctx, tx, userID, subgraph, acceptedAt); err != nil {
-		return graphmodel.ContentSubgraph{}, err
+		return model.ContentSubgraph{}, err
 	}
 	return subgraph, nil
 }
@@ -29,7 +28,7 @@ func (s *SQLiteStore) PersistMemoryContentGraphFromCompiledOutput(ctx context.Co
 	if err != nil {
 		return err
 	}
-	subgraph, err := graphmodel.FromCompileRecord(record)
+	subgraph, err := model.FromCompileRecord(record)
 	if err != nil {
 		return err
 	}

@@ -3,8 +3,8 @@ package contentstore
 import (
 	"strings"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func deriveContradictionProposition(conflicting []string, byID map[string]memory.AcceptedNode) (string, bool) {
@@ -44,15 +44,15 @@ func chooseRepresentativeNode(component []string, byID map[string]memory.Accepte
 }
 func representativeRank(kind string) int {
 	switch kind {
-	case string(compile.NodeConclusion):
+	case string(model.NodeConclusion):
 		return 0
-	case string(compile.NodeFact):
+	case string(model.NodeFact):
 		return 1
-	case string(compile.NodeImplicitCondition):
+	case string(model.NodeImplicitCondition):
 		return 2
-	case string(compile.NodeExplicitCondition):
+	case string(model.NodeExplicitCondition):
 		return 3
-	case string(compile.NodePrediction):
+	case string(model.NodePrediction):
 		return 4
 	default:
 		return 99

@@ -8,9 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
-	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 var ErrMemoryOrganizationOutputStale = errors.New("memory organization output is stale")
@@ -24,17 +23,17 @@ type posteriorStateRow struct {
 }
 
 type organizationJobSourceData struct {
-	record                        compile.Record
-	verification                  compile.Verification
+	record                        model.Record
+	verification                  model.Verification
 	nodes                         []memory.AcceptedNode
 	posteriorByMemoryID           map[int64]posteriorStateRow
-	graphFirstSubgraph            graphmodel.ContentSubgraph
+	graphFirstSubgraph            model.ContentSubgraph
 	hasGraphFirstSubgraph         bool
-	graphNodesByID                map[string]compile.GraphNode
-	graphFirstNodesByID           map[string]graphmodel.GraphNode
-	factStatusByNode              map[string]compile.FactStatus
-	explicitConditionStatusByNode map[string]compile.ExplicitConditionStatus
-	predictionStatusByNode        map[string]compile.PredictionStatus
+	graphNodesByID                map[string]model.GraphNode
+	graphFirstNodesByID           map[string]model.ContentNode
+	factStatusByNode              map[string]model.FactStatus
+	explicitConditionStatusByNode map[string]model.ExplicitConditionStatus
+	predictionStatusByNode        map[string]model.PredictionStatus
 }
 
 type organizationNodeSets struct {

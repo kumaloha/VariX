@@ -13,8 +13,8 @@ import (
 )
 
 type pageSession struct {
-	Cookie     string
-	XSRFToken  string
+	Cookie       string
+	XSRFToken    string
 	BootstrapURL string
 }
 

@@ -4,26 +4,26 @@ import (
 	"context"
 	"strings"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
-func (s *SQLiteStore) ListMemoryContentGraphs(ctx context.Context, userID string) ([]graphmodel.ContentSubgraph, error) {
+func (s *SQLiteStore) ListMemoryContentGraphs(ctx context.Context, userID string) ([]model.ContentSubgraph, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT payload_json FROM memory_content_graphs WHERE user_id = ? ORDER BY source_platform ASC, source_external_id ASC`, strings.TrimSpace(userID))
 	if err != nil {
 		return nil, err
 	}
-	return decodePayloadRows[graphmodel.ContentSubgraph](rows, "memory content graph")
+	return decodePayloadRows[model.ContentSubgraph](rows, "memory content graph")
 }
 
-func (s *SQLiteStore) ListMemoryContentGraphsBySource(ctx context.Context, userID, sourcePlatform, sourceExternalID string) ([]graphmodel.ContentSubgraph, error) {
+func (s *SQLiteStore) ListMemoryContentGraphsBySource(ctx context.Context, userID, sourcePlatform, sourceExternalID string) ([]model.ContentSubgraph, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT payload_json FROM memory_content_graphs WHERE user_id = ? AND source_platform = ? AND source_external_id = ? ORDER BY source_platform ASC, source_external_id ASC`, strings.TrimSpace(userID), strings.TrimSpace(sourcePlatform), strings.TrimSpace(sourceExternalID))
 	if err != nil {
 		return nil, err
 	}
-	return decodePayloadRows[graphmodel.ContentSubgraph](rows, "memory content graph")
+	return decodePayloadRows[model.ContentSubgraph](rows, "memory content graph")
 }
 
-func (s *SQLiteStore) ListMemoryContentGraphsBySubject(ctx context.Context, userID, subject string) ([]graphmodel.ContentSubgraph, error) {
+func (s *SQLiteStore) ListMemoryContentGraphsBySubject(ctx context.Context, userID, subject string) ([]model.ContentSubgraph, error) {
 	subject, err := s.resolveCanonicalListSubject(ctx, subject)
 	if err != nil {
 		return nil, err
@@ -39,10 +39,10 @@ func (s *SQLiteStore) ListMemoryContentGraphsBySubject(ctx context.Context, user
 	if err != nil {
 		return nil, err
 	}
-	return decodePayloadRows[graphmodel.ContentSubgraph](rows, "memory content graph")
+	return decodePayloadRows[model.ContentSubgraph](rows, "memory content graph")
 }
 
-func (s *SQLiteStore) ListMemoryContentGraphsBySourceAndSubject(ctx context.Context, userID, sourcePlatform, sourceExternalID, subject string) ([]graphmodel.ContentSubgraph, error) {
+func (s *SQLiteStore) ListMemoryContentGraphsBySourceAndSubject(ctx context.Context, userID, sourcePlatform, sourceExternalID, subject string) ([]model.ContentSubgraph, error) {
 	subject, err := s.resolveCanonicalListSubject(ctx, subject)
 	if err != nil {
 		return nil, err
@@ -59,5 +59,5 @@ func (s *SQLiteStore) ListMemoryContentGraphsBySourceAndSubject(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
-	return decodePayloadRows[graphmodel.ContentSubgraph](rows, "memory content graph")
+	return decodePayloadRows[model.ContentSubgraph](rows, "memory content graph")
 }

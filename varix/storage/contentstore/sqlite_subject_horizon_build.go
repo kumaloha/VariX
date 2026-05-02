@@ -2,20 +2,20 @@ package contentstore
 
 import (
 	"context"
-	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 	"sort"
 	"time"
 )
 
-func (s *SQLiteStore) buildSubjectHorizonMemoryFromGraphs(ctx context.Context, userID, subject, canonicalSubject string, spec subjectHorizonSpec, now time.Time, graphs []graphmodel.ContentSubgraph, cache map[string]string, resolveSubject projectionSubjectResolver) (memory.SubjectHorizonMemory, error) {
+func (s *SQLiteStore) buildSubjectHorizonMemoryFromGraphs(ctx context.Context, userID, subject, canonicalSubject string, spec subjectHorizonSpec, now time.Time, graphs []model.ContentSubgraph, cache map[string]string, resolveSubject projectionSubjectResolver) (memory.SubjectHorizonMemory, error) {
 	windowStart := spec.WindowStart(now).UTC()
 	windowEnd := now.UTC()
 	if cache == nil {
 		cache = map[string]string{}
 	}
 	if resolveSubject == nil {
-		resolveSubject = func(ctx context.Context, node graphmodel.GraphNode) (string, error) {
+		resolveSubject = func(ctx context.Context, node model.ContentNode) (string, error) {
 			return s.resolveCanonicalGraphNodeSubject(ctx, node, cache)
 		}
 	}

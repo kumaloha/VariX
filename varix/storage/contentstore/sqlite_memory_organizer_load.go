@@ -6,9 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
-	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func loadOrganizationJobSourceData(ctx context.Context, tx *sql.Tx, job memory.OrganizationJob) (organizationJobSourceData, error) {
@@ -29,7 +28,7 @@ func loadOrganizationJobSourceData(ctx context.Context, tx *sql.Tx, job memory.O
 		return organizationJobSourceData{}, err
 	}
 	verification := effectiveVerification(record, verifyRecord)
-	var graphFirstSubgraph graphmodel.ContentSubgraph
+	var graphFirstSubgraph model.ContentSubgraph
 	hasGraphFirstSubgraph := false
 	if graphFirst, err := getMemoryContentGraphBySourceTx(ctx, tx, job.UserID, job.SourcePlatform, job.SourceExternalID); err == nil {
 		graphFirstSubgraph = graphFirst
@@ -43,8 +42,8 @@ func loadOrganizationJobSourceData(ctx context.Context, tx *sql.Tx, job memory.O
 		posteriorByMemoryID:           posteriorByMemoryID,
 		graphFirstSubgraph:            graphFirstSubgraph,
 		hasGraphFirstSubgraph:         hasGraphFirstSubgraph,
-		graphNodesByID:                map[string]compile.GraphNode{},
-		graphFirstNodesByID:           map[string]graphmodel.GraphNode{},
+		graphNodesByID:                map[string]model.GraphNode{},
+		graphFirstNodesByID:           map[string]model.ContentNode{},
 		factStatusByNode:              factStatusMap(verification),
 		explicitConditionStatusByNode: explicitConditionStatusMap(verification),
 		predictionStatusByNode:        predictionStatusMap(verification),
@@ -93,7 +92,7 @@ func applyPosteriorToAcceptedNode(node memory.AcceptedNode, posteriorByMemoryID 
 	return node
 }
 
-func applyGraphFirstNodeProjection(node memory.AcceptedNode, graphFirstNodesByID map[string]graphmodel.GraphNode) (memory.AcceptedNode, bool) {
+func applyGraphFirstNodeProjection(node memory.AcceptedNode, graphFirstNodesByID map[string]model.ContentNode) (memory.AcceptedNode, bool) {
 	graphFirst, ok := graphFirstNodesByID[node.NodeID]
 	if !ok {
 		return node, false
@@ -103,8 +102,8 @@ func applyGraphFirstNodeProjection(node memory.AcceptedNode, graphFirstNodesByID
 		node.NodeText = rawText
 		graphFirstApplied = true
 	}
-	if graphFirst.Kind == graphmodel.NodeKindPrediction {
-		node.NodeKind = string(compile.NodePrediction)
+	if graphFirst.Kind == model.NodeKindPrediction {
+		node.NodeKind = string(model.NodePrediction)
 	}
 	graphFirstStart, graphFirstEnd := graphFirstValidityWindow(graphFirst)
 	if !graphFirstStart.IsZero() {
@@ -116,7 +115,7 @@ func applyGraphFirstNodeProjection(node memory.AcceptedNode, graphFirstNodesByID
 	return node, graphFirstApplied
 }
 
-func applyCompileNodeProjection(node memory.AcceptedNode, graphNodesByID map[string]compile.GraphNode, graphFirstApplied bool) memory.AcceptedNode {
+func applyCompileNodeProjection(node memory.AcceptedNode, graphNodesByID map[string]model.GraphNode, graphFirstApplied bool) memory.AcceptedNode {
 	derived, ok := graphNodesByID[node.NodeID]
 	if !ok {
 		return node

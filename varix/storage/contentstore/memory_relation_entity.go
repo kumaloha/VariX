@@ -2,13 +2,13 @@ package contentstore
 
 import (
 	"fmt"
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 	"strings"
 	"time"
 )
 
-func relationBoundaryLabels(thesis memory.CausalThesis, compiledNodes map[string]compile.GraphNode) (driverLabel, targetLabel string, ok bool) {
+func relationBoundaryLabels(thesis memory.CausalThesis, compiledNodes map[string]model.GraphNode) (driverLabel, targetLabel string, ok bool) {
 	if len(thesis.CorePathNodeIDs) == 0 {
 		return "", "", false
 	}
@@ -19,7 +19,7 @@ func relationBoundaryLabels(thesis memory.CausalThesis, compiledNodes map[string
 	return driverLabel, targetLabel, driverLabel != "" && targetLabel != ""
 }
 
-func relationNodeLabel(globalNodeID string, compiledNodes map[string]compile.GraphNode) string {
+func relationNodeLabel(globalNodeID string, compiledNodes map[string]model.GraphNode) string {
 	if node, ok := compiledNodes[globalNodeID]; ok {
 		return normalizeCanonicalDisplay(node.Text)
 	}

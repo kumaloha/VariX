@@ -3,19 +3,19 @@ package contentstore
 import (
 	"context"
 	"fmt"
-	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 	"strings"
 	"time"
 )
 
-type projectionSubjectResolver func(context.Context, graphmodel.GraphNode) (string, error)
+type projectionSubjectResolver func(context.Context, model.ContentNode) (string, error)
 
 func (s *SQLiteStore) GetSubjectHorizonMemory(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool) (memory.SubjectHorizonMemory, error) {
 	return s.getSubjectHorizonMemory(ctx, userID, subject, horizon, now, refresh, nil, false, nil)
 }
 
-func (s *SQLiteStore) getSubjectHorizonMemory(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool, graphInputs []graphmodel.ContentSubgraph, hasGraphInputs bool, resolveSubject projectionSubjectResolver) (memory.SubjectHorizonMemory, error) {
+func (s *SQLiteStore) getSubjectHorizonMemory(ctx context.Context, userID, subject, horizon string, now time.Time, refresh bool, graphInputs []model.ContentSubgraph, hasGraphInputs bool, resolveSubject projectionSubjectResolver) (memory.SubjectHorizonMemory, error) {
 	userID, err := normalizeRequiredUserID(userID)
 	if err != nil {
 		return memory.SubjectHorizonMemory{}, err

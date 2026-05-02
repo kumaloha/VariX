@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRequest) (memory.AcceptResult, error) {
@@ -42,7 +42,7 @@ func (s *SQLiteStore) AcceptMemoryNodes(ctx context.Context, req memory.AcceptRe
 		return memory.AcceptResult{}, fmt.Errorf("no node ids provided")
 	}
 
-	graphNodes := map[string]compile.GraphNode{}
+	graphNodes := map[string]model.GraphNode{}
 	for _, node := range record.Output.Graph.Nodes {
 		graphNodes[node.ID] = node
 	}

@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/compile"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
-func (s *SQLiteStore) UpsertVerificationResult(ctx context.Context, record compile.VerificationRecord) error {
+func (s *SQLiteStore) UpsertVerificationResult(ctx context.Context, record model.VerificationRecord) error {
 	if record.Source == "" || record.ExternalID == "" || record.Model == "" {
 		return fmt.Errorf("invalid verification result")
 	}
@@ -44,26 +44,26 @@ func (s *SQLiteStore) UpsertVerificationResult(ctx context.Context, record compi
 	return err
 }
 
-func (s *SQLiteStore) GetVerificationResult(ctx context.Context, platform, externalID string) (compile.VerificationRecord, error) {
+func (s *SQLiteStore) GetVerificationResult(ctx context.Context, platform, externalID string) (model.VerificationRecord, error) {
 	return getVerificationResult(ctx, s.db, platform, externalID)
 }
 
 func getVerificationResult(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, platform, externalID string) (compile.VerificationRecord, error) {
+}, platform, externalID string) (model.VerificationRecord, error) {
 	var payload string
 	if err := q.QueryRowContext(ctx, `SELECT payload_json FROM verification_results WHERE platform = ? AND external_id = ?`, platform, externalID).Scan(&payload); err != nil {
-		return compile.VerificationRecord{}, err
+		return model.VerificationRecord{}, err
 	}
-	var record compile.VerificationRecord
+	var record model.VerificationRecord
 	if err := json.Unmarshal([]byte(payload), &record); err != nil {
-		return compile.VerificationRecord{}, err
+		return model.VerificationRecord{}, err
 	}
 	return record, nil
 }
 
 func getVerificationResultTx(ctx context.Context, tx interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, platform, externalID string) (compile.VerificationRecord, error) {
+}, platform, externalID string) (model.VerificationRecord, error) {
 	return getVerificationResult(ctx, tx, platform, externalID)
 }

@@ -1,8 +1,7 @@
 package main
 
 import (
-	c "github.com/kumaloha/VariX/varix/compile"
-	"github.com/kumaloha/VariX/varix/graphmodel"
+	"github.com/kumaloha/VariX/varix/model"
 	"strings"
 )
 
@@ -12,7 +11,7 @@ type compileCardProjection struct {
 	Confidence          string
 	Drivers             []string
 	Targets             []string
-	Branches            []c.Branch
+	Branches            []model.Branch
 	Evidence            []string
 	Explanations        []string
 	LogicChains         []string
@@ -20,7 +19,7 @@ type compileCardProjection struct {
 	AuthorValidation    []string
 }
 
-func buildCompileCardProjection(record c.Record, subgraph *graphmodel.ContentSubgraph) compileCardProjection {
+func buildCompileCardProjection(record model.Record, subgraph *model.ContentSubgraph) compileCardProjection {
 	projection := compileCardProjection{
 		Summary:          record.Output.Summary,
 		Topics:           cloneStringSlice(record.Output.Topics),
@@ -30,19 +29,19 @@ func buildCompileCardProjection(record c.Record, subgraph *graphmodel.ContentSub
 		Branches:         cloneBranches(record.Output.Branches),
 		Evidence:         cloneStringSlice(record.Output.EvidenceNodes),
 		Explanations:     cloneStringSlice(record.Output.ExplanationNodes),
-		LogicChains:      legacyLogicChains(record),
+		LogicChains:      compileRecordLogicChains(record),
 		AuthorValidation: authorValidationSummaryLines(record.Output.AuthorValidation),
 	}
 	if subgraph == nil {
 		return projection
 	}
-	if drivers := graphFirstNodeSection(*subgraph, func(node graphmodel.GraphNode) bool {
-		return node.IsPrimary && node.GraphRole == graphmodel.GraphRoleDriver
+	if drivers := graphFirstNodeSection(*subgraph, func(node model.ContentNode) bool {
+		return node.IsPrimary && node.GraphRole == model.GraphRoleDriver
 	}); len(drivers) > 0 {
 		projection.Drivers = preferGraphFirstSection(projection.Drivers, drivers)
 	}
-	if targets := graphFirstNodeSection(*subgraph, func(node graphmodel.GraphNode) bool {
-		return node.IsPrimary && node.GraphRole == graphmodel.GraphRoleTarget
+	if targets := graphFirstNodeSection(*subgraph, func(node model.ContentNode) bool {
+		return node.IsPrimary && node.GraphRole == model.GraphRoleTarget
 	}); len(targets) > 0 {
 		projection.Targets = preferGraphFirstSection(projection.Targets, targets)
 	}
@@ -61,8 +60,8 @@ func buildCompileCardProjection(record c.Record, subgraph *graphmodel.ContentSub
 	return projection
 }
 
-func cloneBranches(values []c.Branch) []c.Branch {
-	out := make([]c.Branch, 0, len(values))
+func cloneBranches(values []model.Branch) []model.Branch {
+	out := make([]model.Branch, 0, len(values))
 	for _, branch := range values {
 		branch.Anchors = cloneStringSlice(branch.Anchors)
 		branch.BranchDrivers = cloneStringSlice(branch.BranchDrivers)
@@ -74,8 +73,8 @@ func cloneBranches(values []c.Branch) []c.Branch {
 	return out
 }
 
-func cloneTransmissionPaths(values []c.TransmissionPath) []c.TransmissionPath {
-	out := make([]c.TransmissionPath, 0, len(values))
+func cloneTransmissionPaths(values []model.TransmissionPath) []model.TransmissionPath {
+	out := make([]model.TransmissionPath, 0, len(values))
 	for _, path := range values {
 		path.Steps = cloneStringSlice(path.Steps)
 		out = append(out, path)
@@ -83,7 +82,7 @@ func cloneTransmissionPaths(values []c.TransmissionPath) []c.TransmissionPath {
 	return out
 }
 
-func legacyLogicChains(record c.Record) []string {
+func compileRecordLogicChains(record model.Record) []string {
 	if len(record.Output.TransmissionPaths) == 0 {
 		return nil
 	}

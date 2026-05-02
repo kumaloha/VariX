@@ -2,7 +2,7 @@ package memory
 
 import "time"
 
-// Organization and global-v1 memory types remain together because they share acceptance lifecycle state and coexistence regression coverage.
+// Organization and cluster-first global memory types remain together because they share acceptance lifecycle state and coexistence regression coverage.
 
 type AcceptedNode struct {
 	MemoryID           int64                  `json:"memory_id"`

@@ -1,0 +1,28 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: varix/go.mod
+      - name: Test repository overlay suite
+        run: ./tests/go-test.sh -count=1 ./...
+      - name: Vet varix
+        run: go vet ./...
+        working-directory: varix
+      - name: Vet eval
+        run: go vet ./...
+        working-directory: eval
+      - name: Build varix
+        run: go build ./...
+        working-directory: varix
+      - name: Build eval
+        run: go build ./...
+        working-directory: eval

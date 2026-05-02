@@ -46,8 +46,8 @@
 ### Task 4: Facet-Oriented Subject Memory API
 
 **Files:**
-- Create: `varix/api/server.go`
-- Create: `varix/api/server_test.go`
+- Create: `varix/server/server.go`
+- Create: `tests/server/server_test.go`
 - Modify: `varix/cmd/cli/main.go`
 - Modify: `varix/cmd/cli/command_groups.go`
 - Create: `varix/cmd/cli/serve_commands.go`

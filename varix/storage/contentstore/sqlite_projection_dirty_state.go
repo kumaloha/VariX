@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 type projectionDirtyUserState struct {
@@ -14,25 +14,25 @@ type projectionDirtyUserState struct {
 	eventRefreshed    bool
 	paradigmRefreshed bool
 	subjectHorizons   map[string]memory.SubjectHorizonMemory
-	subjectGraphs     map[string][]graphmodel.ContentSubgraph
+	subjectGraphs     map[string][]model.ContentSubgraph
 	subjectGraphLoads map[string]*projectionDirtyContentGraphLoad
 	canonicalSubjects map[string]string
 }
 
 type projectionDirtyContentGraphLoad struct {
 	done   chan struct{}
-	graphs []graphmodel.ContentSubgraph
+	graphs []model.ContentSubgraph
 	err    error
 }
 
-func (state *projectionDirtyUserState) memoryContentGraphsBySubject(ctx context.Context, userID, subject string, load func(context.Context, string, string) ([]graphmodel.ContentSubgraph, error)) ([]graphmodel.ContentSubgraph, error) {
+func (state *projectionDirtyUserState) memoryContentGraphsBySubject(ctx context.Context, userID, subject string, load func(context.Context, string, string) ([]model.ContentSubgraph, error)) ([]model.ContentSubgraph, error) {
 	key := strings.TrimSpace(userID) + "\x00" + normalizeDirtyDimension(subject)
-	return state.memoryContentGraphsForKey(ctx, key, func(ctx context.Context) ([]graphmodel.ContentSubgraph, error) {
+	return state.memoryContentGraphsForKey(ctx, key, func(ctx context.Context) ([]model.ContentSubgraph, error) {
 		return load(ctx, userID, subject)
 	})
 }
 
-func (state *projectionDirtyUserState) memoryContentGraphsForKey(ctx context.Context, key string, load func(context.Context) ([]graphmodel.ContentSubgraph, error)) ([]graphmodel.ContentSubgraph, error) {
+func (state *projectionDirtyUserState) memoryContentGraphsForKey(ctx context.Context, key string, load func(context.Context) ([]model.ContentSubgraph, error)) ([]model.ContentSubgraph, error) {
 	if state == nil {
 		return load(ctx)
 	}
@@ -70,7 +70,7 @@ func (state *projectionDirtyUserState) memoryContentGraphsForKey(ctx context.Con
 	inFlight.err = err
 	if err == nil {
 		if state.subjectGraphs == nil {
-			state.subjectGraphs = map[string][]graphmodel.ContentSubgraph{}
+			state.subjectGraphs = map[string][]model.ContentSubgraph{}
 		}
 		state.subjectGraphs[key] = graphs
 	}
@@ -80,7 +80,7 @@ func (state *projectionDirtyUserState) memoryContentGraphsForKey(ctx context.Con
 	return graphs, err
 }
 
-func (state *projectionDirtyUserState) canonicalGraphNodeSubject(ctx context.Context, node graphmodel.GraphNode, resolve func(context.Context, graphmodel.GraphNode, map[string]string) (string, error)) (string, error) {
+func (state *projectionDirtyUserState) canonicalGraphNodeSubject(ctx context.Context, node model.ContentNode, resolve func(context.Context, model.ContentNode, map[string]string) (string, error)) (string, error) {
 	if state == nil {
 		return resolve(ctx, node, nil)
 	}

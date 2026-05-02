@@ -44,7 +44,7 @@ Current organizer contract:
 - hierarchy links carry `source` + `hint` metadata for frontend rendering
 - verifier and validity signals can suppress structural influence without
   deleting accepted memory truth
-- v1 cluster outputs remain available while the new v2 thesis-first pipeline
+- cluster-first outputs remain available while the current synthesis pipeline
   rolls out in parallel
 
 Useful memory commands:
@@ -54,8 +54,8 @@ Useful memory commands:
 - `memory paradigm-evidence --user <user>` to inspect persisted paradigm evidence links
 - `memory paradigm-evidence --paradigm-id <id> --user <user>` to inspect links for one paradigm (prints a no-match message when empty)
 - `memory paradigm-evidence --card --user <user>` to render a readable paradigm-evidence view
-- `memory global-v2-organize-run --user <user>` now refreshes event/paradigm projections before building the global view
-- `memory project-all --user <user>` to manually reproject event, paradigm, and global-v2 layers from current graph-first content memory
+- `memory global-synthesis-run --user <user>` now refreshes event/paradigm projections before building the global view
+- `memory project-all --user <user>` to manually reproject event, paradigm, and global-synthesis layers from current graph-first content memory
 - `memory content-graphs --user <user>` to inspect graph-first content memory
   snapshots persisted per source
 - `memory content-graphs --platform <platform> --id <external_id> --user <user>`
@@ -70,7 +70,7 @@ Useful memory commands:
   to rebuild one graph-first content snapshot from the latest compiled output
 - `memory backfill --layer content --user <user> --platform <platform> --id <external_id>`
   to backfill one content graph from compiled output
-- `memory backfill --layer event|paradigm|global-v2|all --user <user>`
+- `memory backfill --layer event|paradigm|global-synthesis|all --user <user>`
   to rebuild graph-first aggregate layers from persisted content graphs
 - `memory cleanup-stale --user <user> --older-than 24h`
   to delete stale queued/running memory organization jobs older than the threshold
@@ -119,22 +119,22 @@ Useful memory commands:
 - `memory paradigms --run --user <user>` to force a fresh paradigm projection
 - `memory global-organize-run|global-organized|global-card` for the existing
   cluster-first global memory view
-- `memory global-v2-organize-run|global-v2-organized` for raw thesis-first v2
+- `memory global-synthesis-run|global-synthesis` for raw synthesis
   JSON output
-- `memory global-v2-card` for a human-readable v2 first-layer card surface
-- `memory global-v2-card --run` to recompute the latest v2 output and render
+- `memory global-synthesis-card` for a human-readable synthesis first-layer card surface
+- `memory global-synthesis-card --run` to recompute the latest synthesis output and render
   cards in one step
-- `memory global-v2-card --item-type conclusion|conflict` to review only one
+- `memory global-synthesis-card --item-type conclusion|conflict` to review only one
   class of first-layer items
-- `memory global-v2-card --limit N` to sample the first N v2 cards in large
+- `memory global-synthesis-card --limit N` to sample the first N synthesis cards in large
   review sets
-- `memory global-compare` to compare the persisted v1 cluster-first and v2
-  thesis-first views side by side
+- `memory global-compare` to compare the persisted cluster-first and synthesis
+  views side by side
 - `memory global-compare --run` to recompute both sides before comparing
 - `memory global-compare --item-type conclusion|conflict --limit N` to narrow
-  the v2 side and shorten large compare outputs
+  the synthesis side and shorten large compare outputs
 - `memory project-all --user <user>` now emits rebuild metrics for event graphs,
-  paradigms, and global-v2 output
+  paradigms, and global-synthesis output
 - `verify queue --summary` now emits queue status counts, object types, due count,
   `total_count`, oldest scheduled item, and `pending_age_buckets`
 
@@ -143,10 +143,19 @@ Useful verify commands:
 - `verify queue --status queued|running|retry|done --limit N` to narrow the queue view by status
 - `verify queue --summary` to inspect status counts, object-type counts, `due_count`, and `oldest_scheduled_at` at a glance
 - `verify sweep --limit N` to process due queue items using current graph state
+- `verify show --platform <platform> --id <external_id>` now falls back to current graph-first verification state when no legacy `verification_results` row exists
+- `verify run --platform <platform> --id <external_id>` now updates legacy verification results and syncs the graph-first content/event/paradigm chain
 
 See `docs/memory-organization.md` for the organizer output contract.
 
+## Development
 
-- `verify show --platform <platform> --id <external_id>` now falls back to current graph-first verification state when no legacy `verification_results` row exists
+Go tests live under the repository-level `tests/` tree, mirroring the package
+layout under `varix/`. Run them through the overlay helper so same-package tests
+are mounted back into the Go module. Plain `go test ./...` from `varix/` only
+sees package-local tests checked into the module, so CI and local verification
+must use this entrypoint:
 
-- `verify run --platform <platform> --id <external_id>` now updates legacy verification results and syncs the graph-first content/event/paradigm chain
+```bash
+./tests/go-test.sh -count=1 ./...
+```

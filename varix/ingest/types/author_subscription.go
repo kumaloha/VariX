@@ -7,6 +7,7 @@ type SubscriptionStrategy string
 const (
 	SubscriptionStrategyRSS    SubscriptionStrategy = "rss"
 	SubscriptionStrategySearch SubscriptionStrategy = "search"
+	SubscriptionStrategyNative SubscriptionStrategy = "native"
 )
 
 type AuthorSubscription struct {

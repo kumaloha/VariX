@@ -1,0 +1,11 @@
+[Unit]
+Description=Run VariX maintenance sweep periodically
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=30m
+RandomizedDelaySec=5m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

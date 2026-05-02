@@ -44,7 +44,7 @@ func runMemoryProjectAll(args []string, projectRoot string, stdout, stderr io.Wr
 	}
 	paradigmDurationMS := time.Since(paradigmStart).Milliseconds()
 	globalStart := time.Now()
-	global, err := store.RunGlobalMemoryOrganizationV2(context.Background(), trimmedUserID, now)
+	global, err := store.RunGlobalMemorySynthesis(context.Background(), trimmedUserID, now)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -56,15 +56,15 @@ func runMemoryProjectAll(args []string, projectRoot string, stdout, stderr io.Wr
 		return 1
 	}
 	payload, err := json.MarshalIndent(map[string]any{
-		"ok":             true,
-		"content_graphs": len(contentGraphs),
-		"event_graphs":   len(events),
-		"paradigms":      len(paradigms),
-		"global_v2":      global.OutputID,
+		"ok":               true,
+		"content_graphs":   len(contentGraphs),
+		"event_graphs":     len(events),
+		"paradigms":        len(paradigms),
+		"global_synthesis": global.OutputID,
 		"metrics": map[string]any{
-			"event_graph_rebuild_ms": eventDurationMS,
-			"paradigm_recompute_ms":  paradigmDurationMS,
-			"global_v2_rebuild_ms":   globalDurationMS,
+			"event_graph_rebuild_ms":      eventDurationMS,
+			"paradigm_recompute_ms":       paradigmDurationMS,
+			"global_synthesis_rebuild_ms": globalDurationMS,
 		},
 	}, "", "  ")
 	if err != nil {

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	c "github.com/kumaloha/VariX/varix/compile"
-	cv2 "github.com/kumaloha/VariX/varix/compilev2"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
@@ -32,7 +31,6 @@ type compileBatchRunSummary struct {
 func runCompileBatchRun(args []string, projectRoot string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("compile batch-run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	pipeline := fs.String("pipeline", "v2", "compile pipeline: v2")
 	limit := fs.Int("limit", 0, "max raw captures to process; 0 means all")
 	workers := fs.Int("workers", 5, "parallel workers")
 	platform := fs.String("platform", "", "optional source platform filter")
@@ -43,13 +41,9 @@ func runCompileBatchRun(args []string, projectRoot string, stdout, stderr io.Wri
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	cacheMode, err := parseCompileLLMCacheMode(*llmCache)
+	cacheMode, err := parseLLMCacheMode(*llmCache)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	if strings.TrimSpace(*pipeline) != "v2" {
-		fmt.Fprintln(stderr, "compile batch-run currently supports only --pipeline v2")
 		return 2
 	}
 	if strings.TrimSpace(*externalID) != "" && strings.TrimSpace(*platform) == "" {
@@ -70,9 +64,9 @@ func runCompileBatchRun(args []string, projectRoot string, stdout, stderr io.Wri
 	}
 	defer store.Close()
 
-	client := cv2.NewClientFromConfig(projectRoot, nil)
+	client := c.NewClientFromConfig(projectRoot, nil)
 	if client == nil {
-		fmt.Fprintln(stderr, "compile v2 client config missing")
+		fmt.Fprintln(stderr, "compile client config missing")
 		return 1
 	}
 	client.EnableLLMCache(store, cacheMode)
@@ -111,7 +105,7 @@ func runCompileBatchRun(args []string, projectRoot string, stdout, stderr io.Wri
 	}
 	startedAt := currentUTC()
 	runID, err := store.CreateCompilePreviewRun(ctx, contentstore.CompilePreviewRun{
-		Pipeline:    "v2",
+		Pipeline:    "compile",
 		SampleScope: scope,
 		SampleCount: len(refs),
 		WorkerCount: *workers,
@@ -169,7 +163,7 @@ func runCompileBatchRun(args []string, projectRoot string, stdout, stderr io.Wri
 
 			itemCtx, cancel := context.WithTimeout(context.Background(), *itemTimeout)
 			defer cancel()
-			result, err := client.PreviewFlow(itemCtx, c.BuildBundle(raw), cv2.FlowPreviewOptions{
+			result, err := client.PreviewFlow(itemCtx, c.BuildBundle(raw), c.FlowPreviewOptions{
 				StopAfter: strings.TrimSpace(*stopAfter),
 			})
 			item.FinishedAt = currentUTC().Format(time.RFC3339)
@@ -196,7 +190,7 @@ func runCompileBatchRun(args []string, projectRoot string, stdout, stderr io.Wri
 			}
 			item.Status = "finished"
 			item.PayloadJSON = string(payload)
-			item.MainlineMarkdown = cv2.BuildMainlineMarkdown(result)
+			item.MainlineMarkdown = c.BuildMainlineMarkdown(result)
 			item.ExtractNodes = len(result.Extract.Nodes)
 			item.RelationsNodes = len(result.Relations.Nodes)
 			item.RelationsEdges = len(result.Relations.Edges)
@@ -230,7 +224,7 @@ func runCompileBatchRun(args []string, projectRoot string, stdout, stderr io.Wri
 	sort.Strings(failedSamples)
 	return writeJSON(stdout, stderr, compileBatchRunSummary{
 		RunID:         runID,
-		Pipeline:      "v2",
+		Pipeline:      "compile",
 		SampleScope:   scope,
 		SampleCount:   len(refs),
 		WorkerCount:   *workers,

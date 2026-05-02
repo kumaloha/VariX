@@ -8,52 +8,34 @@ import (
 	"strings"
 
 	c "github.com/kumaloha/VariX/varix/compile"
-	cv2 "github.com/kumaloha/VariX/varix/compilev2"
+	"github.com/kumaloha/VariX/varix/model"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
+	verification "github.com/kumaloha/VariX/varix/verify"
 )
 
 type compileClient interface {
-	Compile(ctx context.Context, bundle c.Bundle) (c.Record, error)
-	Verify(ctx context.Context, bundle c.Bundle, output c.Output) (c.Verification, error)
-	VerifyDetailed(ctx context.Context, bundle c.Bundle, output c.Output) (c.Verification, error)
+	Compile(ctx context.Context, bundle model.Bundle) (model.Record, error)
 }
 
-var buildCompileClient = func(projectRoot string) compileClient {
+type verifyClient interface {
+	VerifyDetailed(ctx context.Context, bundle model.Bundle, output model.Output) (model.Verification, error)
+}
+
+var buildCompileClientCurrent = func(projectRoot string) compileClient {
 	return c.NewClientFromConfig(projectRoot, nil)
 }
 
-var buildCompileClientNoVerify = func(projectRoot string) compileClient {
-	return c.NewClientFromConfigNoVerify(projectRoot, nil)
-}
-
-var buildCompileClientV2 = func(projectRoot string) compileClient {
-	return cv2.NewClientFromConfig(projectRoot, nil)
+var buildVerifyClient = func(projectRoot string) verifyClient {
+	return verification.NewClientFromConfig(projectRoot, nil)
 }
 
 var openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
 	return contentstore.NewSQLiteStore(path)
 }
 
-const compileCommandUsage = "usage: varix compile <run|batch-run|validate-run|show|summary|compare|card|gold-score> ..."
+const compileCommandUsage = "usage: varix compile <run|batch-run|validate-run|show|summary|compare|card> ..."
 
-func selectCompileClient(projectRoot, pipeline string, noVerify bool) (compileClient, error) {
-	switch strings.TrimSpace(pipeline) {
-	case "", "legacy":
-		if noVerify {
-			return buildCompileClientNoVerify(projectRoot), nil
-		}
-		return buildCompileClient(projectRoot), nil
-	case "v2":
-		if noVerify {
-			return nil, fmt.Errorf("--no-verify is not supported with --pipeline v2")
-		}
-		return buildCompileClientV2(projectRoot), nil
-	default:
-		return nil, fmt.Errorf("unsupported compile pipeline")
-	}
-}
-
-func parseCompileLLMCacheMode(value string) (contentstore.LLMCacheMode, error) {
+func parseLLMCacheMode(value string) (contentstore.LLMCacheMode, error) {
 	switch strings.TrimSpace(value) {
 	case "", string(contentstore.LLMCacheReadThrough):
 		return contentstore.LLMCacheReadThrough, nil
@@ -97,8 +79,6 @@ func runCompileCommand(args []string, projectRoot string, stdout, stderr io.Writ
 		return runCompileCompare(args[1:], projectRoot, stdout, stderr)
 	case "card":
 		return runCompileCard(args[1:], projectRoot, stdout, stderr)
-	case "gold-score":
-		return runCompileGoldScore(args[1:], projectRoot, stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, compileCommandUsage)
 		return 2

@@ -18,7 +18,7 @@ Phase 1 is intentionally small:
 - keeps facts in the existing prior verify flow
 - stores posterior lifecycle state as mutable sidecar data
 - updates **source-scoped** memory reads and organization output
-- keeps global v1/v2 organization behavior unchanged in this pass
+- keeps global cluster/synthesis organization behavior unchanged in this pass
 
 Non-goals for this phase:
 
@@ -75,7 +75,7 @@ Code-review guidance:
 3. Keep `GetLatestMemoryOrganizationOutput` a low-level “latest stored output”
    primitive if possible; put stale-read enforcement in a higher-level helper or
    user-facing read path.
-4. Do not broaden phase 1 into `global-organize-run` or `global-v2-organize-run`.
+4. Do not broaden phase 1 into `global-organize-run` or `global-synthesis-run`.
 
 ---
 
@@ -261,7 +261,7 @@ When reviewing the implementation, confirm:
 4. `blocked` and `falsified` stay distinct in both storage and output
 5. diagnosis codes are present for falsified rows
 6. source-scoped `organized` rejects stale output after posterior mutation
-7. global v1/v2 commands remain out of scope for phase 1
+7. global cluster/synthesis commands remain out of scope for phase 1
 8. tests prove behavioral change, not only new fields
 
 ---

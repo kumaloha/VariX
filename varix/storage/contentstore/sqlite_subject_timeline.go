@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumaloha/VariX/varix/graphmodel"
 	"github.com/kumaloha/VariX/varix/memory"
+	"github.com/kumaloha/VariX/varix/model"
 )
 
 func (s *SQLiteStore) BuildSubjectTimeline(ctx context.Context, userID, subject string, now time.Time) (memory.SubjectTimeline, error) {
@@ -74,7 +74,7 @@ func (s *SQLiteStore) BuildSubjectTimeline(ctx context.Context, userID, subject 
 	}, nil
 }
 
-func subjectTimelineEntry(graph graphmodel.ContentSubgraph, node graphmodel.GraphNode) memory.SubjectChangeEntry {
+func subjectTimelineEntry(graph model.ContentSubgraph, node model.ContentNode) memory.SubjectChangeEntry {
 	return memory.SubjectChangeEntry{
 		SourcePlatform:     strings.TrimSpace(graph.SourcePlatform),
 		SourceExternalID:   strings.TrimSpace(graph.SourceExternalID),
@@ -102,19 +102,19 @@ func subjectTimelineEntry(graph graphmodel.ContentSubgraph, node graphmodel.Grap
 	}
 }
 
-func isSubjectTimelineNode(node graphmodel.GraphNode) bool {
+func isSubjectTimelineNode(node model.ContentNode) bool {
 	if !node.IsPrimary {
 		return false
 	}
 	switch node.GraphRole {
-	case graphmodel.GraphRoleDriver, graphmodel.GraphRoleTarget:
+	case model.GraphRoleDriver, model.GraphRoleTarget:
 		return true
 	default:
 		return false
 	}
 }
 
-func subjectMatchesTimelineQuery(node graphmodel.GraphNode, resolvedNodeSubject, canonicalSubject string) bool {
+func subjectMatchesTimelineQuery(node model.ContentNode, resolvedNodeSubject, canonicalSubject string) bool {
 	canonicalSubject = strings.TrimSpace(canonicalSubject)
 	return strings.TrimSpace(resolvedNodeSubject) == canonicalSubject ||
 		strings.TrimSpace(node.SubjectText) == canonicalSubject ||
