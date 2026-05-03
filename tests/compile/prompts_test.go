@@ -125,6 +125,7 @@ func TestMainlineUpstreamUserPromptsIncludeArticleContext(t *testing.T) {
 				"SpinePolicy":    "risk_list policy sentinel",
 				"Nodes":          "n1 | node | role= | ontology= | quote=q",
 				"BranchHeads":    "n1 | node",
+				"SemanticUnits":  "(none)",
 				"CandidateEdges": "- (none)",
 			},
 		},

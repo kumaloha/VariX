@@ -7,8 +7,10 @@ import (
 )
 
 func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bundle, state graphState) (Output, error) {
+	state = applyDeclarationCoverageGate(bundle, state)
+	state = dedupeGraphStateForRender(state)
 	if projected, ok := projectRolesFromSpines(state); ok {
-		state = projected
+		state = dedupeGraphStateForRender(projected)
 	}
 	drivers := filterNodesByRole(state.Nodes, roleDriver)
 	targets := filterTargetNodes(state.Nodes)
@@ -16,7 +18,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 		targets = fallbackTargetNodesFromOffGraph(state.OffGraph)
 	}
 	paths := extractSpinePaths(state)
-	if len(paths) == 0 {
+	if len(paths) == 0 && shouldFallbackToRolePaths(state.Spines) {
 		paths = extractPaths(state, drivers, targets)
 	}
 	paths, satiricalCoveredNodes := applySatiricalRenderProjection(state, paths)
@@ -26,7 +28,8 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 	targets = mergePathTargets(targets, paths)
 	drivers = filterRenderDrivers(drivers, paths)
 	targets = filterRenderTargets(targets, paths, state.ArticleForm, satiricalCoveredNodes)
-	translated, err := translateAll(ctx, rt, model, uniqueTexts(drivers, targets, paths, state.OffGraph))
+	declarationNodes := declarationTranslationNodes(state)
+	translated, err := translateAll(ctx, rt, model, uniqueTexts(drivers, targets, paths, declarationNodes, state.OffGraph))
 	if err != nil {
 		return Output{}, err
 	}
@@ -48,18 +51,23 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 	for _, p := range paths {
 		transmission = append(transmission, renderPathToTransmission(p, cn))
 	}
-	branches := renderBranchesFromSpines(state.Spines, paths, cn)
+	declarations := appendSourceDeclarations(bundle, renderDeclarationsFromSpines(bundle, state, cn))
+	branches := attachDeclarationsToBranches(renderBranchesFromSpines(state.Spines, paths, cn), state.Spines, declarations)
 	evidence, explanation, supplementary := renderOffGraph(state.OffGraph, cn)
 	detailItems := renderOffGraphDetails(state.OffGraph, cn)
 	detailItems = append(detailItems, renderTransmissionPathDetails(paths, cn)...)
+	detailItems = append(detailItems, renderSemanticUnitDetails(state.SemanticUnits)...)
 	evidence = dedupeStrings(append(evidence, renderSpineIllustrations(state, cn)...))
-	summary, err := summarizeChinese(ctx, rt, model, state.ArticleForm, driversOut, targetsOut, transmission, bundle)
+	summary, err := summarizeChinese(ctx, rt, model, state.ArticleForm, driversOut, targetsOut, transmission, declarations, state.SemanticUnits, bundle)
 	if err != nil {
 		summary = fallbackSummary(driversOut, targetsOut)
 	}
 	if strings.TrimSpace(summary) == "" {
 		summary = fallbackSummary(driversOut, targetsOut)
 	}
+	summary = prioritizeDeclarationSummary(summary, state.Spines, declarations)
+	summary = prioritizeSemanticSummary(summary, state.SemanticUnits, state.ArticleForm)
+	summary = compactSummaryForDisplay(summary, state.ArticleForm, declarations, state.SemanticUnits)
 	graph := ReasoningGraph{}
 	observedAt := bundle.PostedAt
 	if observedAt.IsZero() {
@@ -103,6 +111,8 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 		Summary:            summary,
 		Drivers:            driversOut,
 		Targets:            targetsOut,
+		Declarations:       declarations,
+		SemanticUnits:      append([]SemanticUnit(nil), state.SemanticUnits...),
 		TransmissionPaths:  transmission,
 		Branches:           branches,
 		EvidenceNodes:      evidence,
@@ -188,6 +198,7 @@ func lowStructureSourceText(bundle Bundle, state graphState, cn func(string, str
 func isLowStructureRenderedOutput(out Output) bool {
 	return len(out.Drivers) == 0 &&
 		len(out.Targets) == 0 &&
+		len(out.Declarations) == 0 &&
 		len(out.TransmissionPaths) == 0 &&
 		len(out.Branches) == 0
 }
@@ -211,9 +222,6 @@ func renderPathToTransmission(path renderedPath, cn func(string, string) string)
 	}
 	for _, step := range path.steps {
 		steps = appendUniqueNonEmptyStep(steps, cn(step.ID, step.Text))
-	}
-	if len(steps) == 0 {
-		steps = append(steps, cn(path.driver.ID, path.driver.Text))
 	}
 	return TransmissionPath{
 		Driver: cn(path.driver.ID, path.driver.Text),

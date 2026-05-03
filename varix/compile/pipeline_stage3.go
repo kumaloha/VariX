@@ -53,6 +53,9 @@ func projectRolesFromSpines(state graphState) (graphState, bool) {
 	targetIDs := map[string]struct{}{}
 	spineNodeIDs := map[string]struct{}{}
 	for _, spine := range state.Spines {
+		if isDeclarationSpinePolicy(spine.Policy) {
+			continue
+		}
 		nodes := validSpineNodeIDs(spine, valid)
 		if len(nodes) == 0 {
 			continue
@@ -215,6 +218,7 @@ type mainlineSpinePatch struct {
 	Policy      string   `json:"policy"`
 	Thesis      string   `json:"thesis"`
 	NodeIDs     []string `json:"node_ids"`
+	UnitIDs     []string `json:"unit_ids"`
 	EdgeIndexes []int    `json:"edge_indexes"`
 	Scope       string   `json:"scope"`
 	Why         string   `json:"why"`
@@ -294,6 +298,16 @@ func policyForArticleForm(articleForm string) spinePolicy {
 			PreserveInvestmentImplications: true,
 			MergeSameFamilyBranches:        true,
 		}
+	case "management_qa", "shareholder_meeting", "earnings_call", "capital_allocation_discussion":
+		return spinePolicy{
+			ArticleForm:                 form,
+			PrimaryMode:                 "required",
+			MinSpines:                   1,
+			MaxSpines:                   4,
+			MaxLocal:                    1,
+			MergeSameFamilyBranches:     true,
+			AllowSingleNodeFamilySpines: true,
+		}
 	default:
 		return spinePolicy{
 			ArticleForm:             form,
@@ -321,6 +335,8 @@ func renderSpinePolicyPrompt(articleForm string) string {
 		return "macro_framework: keep one framework primary plus summary-level mechanism branches; do not turn section order or historical examples into causal order; preserve mechanism families and demote mere examples."
 	case "market_update":
 		return "market_update: keep one lead market spine plus parallel asset/factor branches; do not force stocks, bonds, consumer confidence, and policy uncertainty into one chain unless the article directly links them."
+	case "management_qa", "shareholder_meeting", "earnings_call", "capital_allocation_discussion":
+		return "management_qa/shareholder_meeting/earnings_call: prioritize management declarations over incidental business causal chains. Use policy=capital_allocation_rule when management states how cash/capital will be deployed, including speaker, condition, action, scale, constraint, and non-action nodes. Use policy=management_declaration for other explicit management commitments, guidance, operating plans, or boundaries. Do not force a management declaration into a driver -> target causal chain; it may be a declaration spine with one central statement plus supporting condition/action/evidence nodes."
 	default:
 		return "single_thesis/default: keep the shortest sufficient primary causal spine, with only major derived branch spines."
 	}
@@ -334,7 +350,7 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle Bu
 	if err != nil {
 		return graphState{}, err
 	}
-	userPrompt, err := renderStage3MainlineUserPrompt(bundle.TextContext(), state.ArticleForm, serializeRelationNodes(state.Nodes), serializeBranchHeads(state), serializeMainlineCandidateEdges(bundle.TextContext(), state.Nodes))
+	userPrompt, err := renderStage3MainlineUserPrompt(bundle.TextContext(), state.ArticleForm, serializeRelationNodes(state.Nodes), serializeBranchHeads(state), serializeSemanticUnitsForMainline(state.SemanticUnits), serializeMainlineCandidateEdges(bundle.TextContext(), state.Nodes))
 	if err != nil {
 		return graphState{}, err
 	}

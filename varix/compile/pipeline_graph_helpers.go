@@ -140,11 +140,55 @@ func nodeByID(nodes []graphNode, id string) (graphNode, bool) {
 	return graphNode{}, false
 }
 
+func dedupeGraphStateForRender(state graphState) graphState {
+	if len(state.Nodes) == 0 {
+		return state
+	}
+	seen := map[string]int{}
+	nodes := make([]graphNode, 0, len(state.Nodes))
+	for _, node := range state.Nodes {
+		id := strings.TrimSpace(node.ID)
+		if id == "" {
+			nodes = append(nodes, node)
+			continue
+		}
+		node.ID = id
+		if idx, ok := seen[id]; ok {
+			nodes[idx] = mergeDuplicateGraphNodeForRender(nodes[idx], node)
+			continue
+		}
+		seen[id] = len(nodes)
+		nodes = append(nodes, node)
+	}
+	state.Nodes = nodes
+	return pruneDanglingEdges(state)
+}
+
+func mergeDuplicateGraphNodeForRender(base, next graphNode) graphNode {
+	if strings.TrimSpace(base.Text) == "" {
+		base.Text = next.Text
+	}
+	if strings.TrimSpace(base.SourceQuote) == "" {
+		base.SourceQuote = next.SourceQuote
+	}
+	if strings.TrimSpace(string(base.Role)) == "" {
+		base.Role = next.Role
+	}
+	if strings.TrimSpace(base.Ontology) == "" {
+		base.Ontology = next.Ontology
+	}
+	if strings.TrimSpace(base.DiscourseRole) == "" {
+		base.DiscourseRole = next.DiscourseRole
+	}
+	base.IsTarget = base.IsTarget || next.IsTarget
+	return base
+}
+
 func normalizeText(text string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
 }
 
-func uniqueTexts(nodes []graphNode, targets []graphNode, paths []renderedPath, off []offGraphItem) []map[string]string {
+func uniqueTexts(nodes []graphNode, targets []graphNode, paths []renderedPath, declarationNodes []graphNode, off []offGraphItem) []map[string]string {
 	seen := map[string]struct{}{}
 	out := make([]map[string]string, 0)
 	add := func(id, text string) {
@@ -169,6 +213,9 @@ func uniqueTexts(nodes []graphNode, targets []graphNode, paths []renderedPath, o
 		for _, s := range p.steps {
 			add(s.ID, s.Text)
 		}
+	}
+	for _, n := range declarationNodes {
+		add(n.ID, n.Text)
 	}
 	for _, o := range off {
 		add(o.ID, o.Text)

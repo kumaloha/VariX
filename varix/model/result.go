@@ -247,5 +247,6 @@ type Branch struct {
 	BranchDrivers     []string           `json:"branch_drivers,omitempty"`
 	Drivers           []string           `json:"drivers,omitempty"`
 	Targets           []string           `json:"targets,omitempty"`
+	Declarations      []Declaration      `json:"declarations,omitempty"`
 	TransmissionPaths []TransmissionPath `json:"transmission_paths,omitempty"`
 }

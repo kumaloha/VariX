@@ -188,13 +188,26 @@ func renderStage3MainlineSystemPrompt() (string, error) {
 	return defaultPromptLoader.render("mainline_system.tmpl", nil)
 }
 
-func renderStage3MainlineUserPrompt(article string, articleForm string, nodes string, branchHeads string, candidateEdges string) (string, error) {
+func renderSemanticCoverageSystemPrompt() (string, error) {
+	return defaultPromptLoader.render("semantic_coverage_system.tmpl", nil)
+}
+
+func renderSemanticCoverageUserPrompt(article string, articleForm string, nodes string) (string, error) {
+	return defaultPromptLoader.render("semantic_coverage_user.tmpl", map[string]any{
+		"Article":     article,
+		"ArticleForm": articleForm,
+		"Nodes":       nodes,
+	})
+}
+
+func renderStage3MainlineUserPrompt(article string, articleForm string, nodes string, branchHeads string, semanticUnits string, candidateEdges string) (string, error) {
 	return defaultPromptLoader.render("mainline_user.tmpl", map[string]any{
 		"Article":        article,
 		"ArticleForm":    articleForm,
 		"SpinePolicy":    renderSpinePolicyPrompt(articleForm),
 		"Nodes":          nodes,
 		"BranchHeads":    branchHeads,
+		"SemanticUnits":  semanticUnits,
 		"CandidateEdges": candidateEdges,
 	})
 }

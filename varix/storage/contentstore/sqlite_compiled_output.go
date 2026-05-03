@@ -96,6 +96,8 @@ func marshalStoredCompileRecord(record model.Record) ([]byte, error) {
 		Summary            string                   `json:"summary,omitempty"`
 		Drivers            []string                 `json:"drivers,omitempty"`
 		Targets            []string                 `json:"targets,omitempty"`
+		Declarations       []model.Declaration      `json:"declarations,omitempty"`
+		SemanticUnits      []model.SemanticUnit     `json:"semantic_units,omitempty"`
 		TransmissionPaths  []model.TransmissionPath `json:"transmission_paths,omitempty"`
 		Branches           []model.Branch           `json:"branches,omitempty"`
 		EvidenceNodes      []string                 `json:"evidence_nodes,omitempty"`
@@ -128,6 +130,8 @@ func marshalStoredCompileRecord(record model.Record) ([]byte, error) {
 			Summary:            record.Output.Summary,
 			Drivers:            record.Output.Drivers,
 			Targets:            record.Output.Targets,
+			Declarations:       record.Output.Declarations,
+			SemanticUnits:      record.Output.SemanticUnits,
 			TransmissionPaths:  record.Output.TransmissionPaths,
 			Branches:           record.Output.Branches,
 			EvidenceNodes:      record.Output.EvidenceNodes,

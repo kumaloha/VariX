@@ -111,8 +111,19 @@ func TestPreviewGraphRoundTripsGraphStateForValidate(t *testing.T) {
 		AuxEdges:    []auxEdge{{From: "n2", To: "n3", Kind: "supports", SourceQuote: "aux quote"}},
 		OffGraph:    []offGraphItem{{ID: "off1", Text: "evidence", Role: "evidence", AttachesTo: "n1", SourceQuote: "off quote"}},
 		BranchHeads: []string{"n1"},
-		Spines:      []PreviewSpine{{ID: "s1", Level: "primary", Thesis: "spine", NodeIDs: []string{"n1", "n2"}}},
-		Rounds:      1,
+		SemanticUnits: []SemanticUnit{{
+			ID:          "u1",
+			Speaker:     "Greg Abel",
+			SpeakerRole: "primary",
+			Subject:     "Apple",
+			Force:       "answer",
+			Claim:       "Apple is assessed as a consumer-value investment.",
+			SourceQuote: "not because we view it as a technology stock",
+			Salience:    0.9,
+			Confidence:  "high",
+		}},
+		Spines: []PreviewSpine{{ID: "s1", Level: "primary", Thesis: "spine", NodeIDs: []string{"n1", "n2"}, UnitIDs: []string{"u1"}}},
+		Rounds: 1,
 	}
 	preview := toPreviewGraph(state)
 	roundTrip := fromPreviewGraph(preview, state.Spines, state.ArticleForm)
@@ -130,6 +141,9 @@ func TestPreviewGraphRoundTripsGraphStateForValidate(t *testing.T) {
 	}
 	if len(roundTrip.Spines) != 1 || roundTrip.Spines[0].ID != "s1" {
 		t.Fatalf("round trip spines = %#v", roundTrip.Spines)
+	}
+	if len(roundTrip.SemanticUnits) != 1 || roundTrip.SemanticUnits[0].ID != "u1" || roundTrip.Spines[0].UnitIDs[0] != "u1" {
+		t.Fatalf("round trip semantic units = %#v spines = %#v", roundTrip.SemanticUnits, roundTrip.Spines)
 	}
 	if roundTrip.ArticleForm != "evidence_backed_forecast" || roundTrip.Rounds != 1 {
 		t.Fatalf("round trip metadata = form %q rounds %d", roundTrip.ArticleForm, roundTrip.Rounds)

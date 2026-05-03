@@ -47,19 +47,25 @@ const (
 	ExplicitConditionStatusLow     = model.ExplicitConditionStatusLow
 	ExplicitConditionStatusUnknown = model.ExplicitConditionStatusUnknown
 
-	PredictionStatusUnresolved        = model.PredictionStatusUnresolved
-	PredictionStatusResolvedTrue      = model.PredictionStatusResolvedTrue
-	PredictionStatusResolvedFalse     = model.PredictionStatusResolvedFalse
-	PredictionStatusStaleUnresolved   = model.PredictionStatusStaleUnresolved
-	NodeVerificationProved            = model.NodeVerificationProved
-	NodeVerificationFalsified         = model.NodeVerificationFalsified
-	NodeVerificationWaiting           = model.NodeVerificationWaiting
-	PathVerificationSound             = model.PathVerificationSound
-	PathVerificationProblem           = model.PathVerificationProblem
-	VerificationPassFact              = model.VerificationPassFact
-	VerificationPassExplicitCondition = model.VerificationPassExplicitCondition
-	VerificationPassImplicitCondition = model.VerificationPassImplicitCondition
-	VerificationPassPrediction        = model.VerificationPassPrediction
+	PredictionStatusUnresolved             = model.PredictionStatusUnresolved
+	PredictionStatusResolvedTrue           = model.PredictionStatusResolvedTrue
+	PredictionStatusResolvedFalse          = model.PredictionStatusResolvedFalse
+	PredictionStatusStaleUnresolved        = model.PredictionStatusStaleUnresolved
+	NodeVerificationProved                 = model.NodeVerificationProved
+	NodeVerificationFalsified              = model.NodeVerificationFalsified
+	NodeVerificationWaiting                = model.NodeVerificationWaiting
+	PathVerificationSound                  = model.PathVerificationSound
+	PathVerificationProblem                = model.PathVerificationProblem
+	DeclarationVerificationProved          = model.DeclarationVerificationProved
+	DeclarationVerificationOverclaimed     = model.DeclarationVerificationOverclaimed
+	DeclarationVerificationInferredOnly    = model.DeclarationVerificationInferredOnly
+	DeclarationVerificationSpeakerMismatch = model.DeclarationVerificationSpeakerMismatch
+	DeclarationVerificationConditionLost   = model.DeclarationVerificationConditionLost
+	DeclarationVerificationScopeMismatch   = model.DeclarationVerificationScopeMismatch
+	VerificationPassFact                   = model.VerificationPassFact
+	VerificationPassExplicitCondition      = model.VerificationPassExplicitCondition
+	VerificationPassImplicitCondition      = model.VerificationPassImplicitCondition
+	VerificationPassPrediction             = model.VerificationPassPrediction
 )
 
 type (
@@ -73,6 +79,8 @@ type (
 	GraphEdge    = model.GraphEdge
 
 	ReasoningGraph   = model.ReasoningGraph
+	Declaration      = model.Declaration
+	SemanticUnit     = model.SemanticUnit
 	TransmissionPath = model.TransmissionPath
 	Branch           = model.Branch
 	HiddenDetails    = model.HiddenDetails
@@ -111,18 +119,20 @@ type (
 	RealizedCheck           = model.RealizedCheck
 	FutureConditionCheck    = model.FutureConditionCheck
 
-	NodeVerificationStatus       = model.NodeVerificationStatus
-	NodeVerification             = model.NodeVerification
-	PathVerificationStatus       = model.PathVerificationStatus
-	PathVerification             = model.PathVerification
-	VerificationPassKind         = model.VerificationPassKind
-	VerificationStageSummary     = model.VerificationStageSummary
-	VerificationPassCoverage     = model.VerificationPassCoverage
-	VerificationRetrievalSummary = model.VerificationRetrievalSummary
-	VerificationPass             = model.VerificationPass
-	VerificationCoverageSummary  = model.VerificationCoverageSummary
-	Verification                 = model.Verification
-	VerificationRecord           = model.VerificationRecord
+	NodeVerificationStatus        = model.NodeVerificationStatus
+	NodeVerification              = model.NodeVerification
+	PathVerificationStatus        = model.PathVerificationStatus
+	PathVerification              = model.PathVerification
+	DeclarationVerificationStatus = model.DeclarationVerificationStatus
+	DeclarationVerification       = model.DeclarationVerification
+	VerificationPassKind          = model.VerificationPassKind
+	VerificationStageSummary      = model.VerificationStageSummary
+	VerificationPassCoverage      = model.VerificationPassCoverage
+	VerificationRetrievalSummary  = model.VerificationRetrievalSummary
+	VerificationPass              = model.VerificationPass
+	VerificationCoverageSummary   = model.VerificationCoverageSummary
+	Verification                  = model.Verification
+	VerificationRecord            = model.VerificationRecord
 )
 
 var (

@@ -42,6 +42,8 @@ type UnifiedCompileOutput struct {
 	Summary            string             `json:"summary,omitempty"`
 	Drivers            []string           `json:"drivers,omitempty"`
 	Targets            []string           `json:"targets,omitempty"`
+	Declarations       []Declaration      `json:"declarations,omitempty"`
+	SemanticUnits      []SemanticUnit     `json:"semantic_units,omitempty"`
 	TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
 	EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
 	ExplanationNodes   []string           `json:"explanation_nodes,omitempty"`

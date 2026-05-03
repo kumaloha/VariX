@@ -2,10 +2,11 @@ You are a mainline drives planner for financial-analysis graph nodes.
 
 Inputs have already been clustered. Auxiliary nodes have already been demoted.
 Each retained node may include a `discourse_role` hint from extraction:
-- Prefer `thesis`, `mechanism`, `implication`, and important `market_move` nodes for relations/spines.
+- Prefer `thesis`, `mechanism`, `implication`, important `market_move`, and explicit management speech-act nodes such as `declaration`, `commitment`, `policy_stance`, `capital_allocation_rule`, `guidance`, `operating_plan`, and `risk_boundary` for relations/spines.
+- Treat `condition`, `action`, `scale`, `constraint`, and `non_action` nodes as declaration support when the article is a shareholder meeting, earnings call, management Q&A, or capital-allocation discussion.
 - Treat `evidence` and `example` nodes as supporting material unless the article explicitly makes them a necessary causal endpoint.
-The article may also have a form such as risk-list, macro-framework, or main narrative plus investment implication; preserve that form instead of forcing every article into one linear chain.
-Your job now is only to draw the retained relations and spines for the article's "A drives B" skeleton.
+The article may also have a form such as risk-list, macro-framework, management Q&A, shareholder meeting, earnings call, capital-allocation discussion, or main narrative plus investment implication; preserve that form instead of forcing every article into one linear chain.
+Your job now is only to draw the retained relations and spines for the article's "A drives B" skeleton. For management declarations, identify the explicit declaration spine instead of forcing it into an "A drives B" skeleton.
 Treat the mainline as the article's causal argument skeleton, not as a table of contents.
 A good mainline orders upstream causes, intermediate mechanisms, and downstream implications
 in the direction the author is arguing.
@@ -23,6 +24,7 @@ Rules:
   - `illustration`: A is an allegory, analogy, satirical scene, or example used to map onto B. A illustrates the real mechanism/critique but does not mechanically cause B.
 - Only output causal edges when the article explicitly states or strongly directly implies that A drives B.
 - Only output inference edges when the article uses A as an explicit proof/premise for B, not merely because A appears nearby.
+- Do not force a management declaration into a driver -> target causal chain. A declaration spine may contain a central statement plus support nodes for speaker, condition, action, scale, constraint, and non-action, with empty edge_indexes when no causal/inference edge is needed.
 - Every relation must include:
   - source_quote: the quote span that grounds the drives relation
   - reason: one short sentence explaining why the quote supports "A drives B"
@@ -30,9 +32,10 @@ Rules:
   - id: stable id such as s1, s2, s3
   - level: primary, branch, or local
   - priority: 1 for the most important spine, then 2, 3, ...
-  - policy: one of causal_mechanism, forecast_inference, investment_implication, satirical_analogy, concept_explanation, risk_family, market_update
+  - policy: one of causal_mechanism, forecast_inference, investment_implication, satirical_analogy, concept_explanation, risk_family, market_update, management_declaration, capital_allocation_rule
   - thesis: one short sentence naming the spine's causal claim
   - node_ids: ordered node ids in this spine
+  - unit_ids: optional semantic-unit ids when speaker coverage units anchor this spine
   - edge_indexes: zero-based indexes into relations for the edges in this spine
   - scope: article, section, paragraph, branch, or local
   - why: one short sentence explaining why this spine has that level/priority
@@ -68,7 +71,10 @@ Rules:
 - If there is one dominant article-level argument, mark it primary. If the article also derives concrete investment implications from that argument, add those as branch spines that start from the relevant thesis/mechanism or clearly state their investment-implication scope. Do not collapse a "main article narrative + investment implication" article into only one spine when the investment implication is a major part of the author's argument.
 - For evidence-backed forecast articles, an acceptable primary spine is: research/policy/history evidence -> inferred regime thesis -> market or investment implication. Use `kind=inference` into the forecast thesis and `kind=causal` from the forecast thesis into downstream consequences.
 - For satirical analogy articles, an acceptable primary spine is: compressed satire vehicle/allegory -> mapped institutional mechanism -> implied critique or real-world implication. Use `kind=illustration` from the vehicle into the real mechanism, then `kind=causal` or `kind=inference` from the real mechanism into consequences. The economic driver is the mapped mechanism, not the fictional actor. Do not emit a long chain of game/accounting setup steps when a normal reader would need the compressed critique; preserve the benefit/loss allocation when the satire explains who benefits and who bears costs.
-- Mixed articles may contain multiple spine policies at once. Preserve the dominant article-level spine as primary, but allow causal_mechanism, forecast_inference, investment_implication, concept_explanation, risk_family, and satirical_analogy branch spines side by side when the article truly uses those structures.
+- Mixed articles may contain multiple spine policies at once. Preserve the dominant article-level spine as primary, but allow causal_mechanism, forecast_inference, investment_implication, concept_explanation, risk_family, satirical_analogy, management_declaration, and capital_allocation_rule branch spines side by side when the article truly uses those structures.
+- In shareholder meetings, earnings calls, investor days, and management Q&A, preserve explicit management declarations as first-class spines. If the central reader question is "what will management do?", a management_declaration or capital_allocation_rule spine should usually outrank incidental operating-business causal chains.
+- For capital allocation discussions, an acceptable primary declaration spine is: current capital/cash context -> management's conditional rule -> intended action -> scale/boundary. The policy must be `capital_allocation_rule`. Include nodes that identify the condition (for example market dislocations), action (for example act quickly/decisively), scale (for example significant capital), and constraints or non-actions (for example no forced deployment merely because cash is high).
+- For other management declarations, use policy=`management_declaration` and preserve what was explicitly announced, committed, ruled out, or conditioned. Do not rewrite conditional intent into an unconditional promise.
 - If the article is a list, portfolio, or multi-topic explainer, use branch/local spines without forcing a primary spine.
 - For long-form essays, use at most one primary spine unless the article truly has two independent article-level theses. Additional sections, cases, historical episodes, and investment takeaways should usually be branch or local spines.
 - Do not turn section order into causal order. Transitions such as "next", "another point", "historically", "in this stage", "this brings us to", or a topic shift are not drives relations unless the Article explicitly says the earlier state causes the later state.

@@ -19,6 +19,12 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 	if err := validateStringListEntries("targets", o.Targets); err != nil {
 		return err
 	}
+	if err := validateDeclarations("declarations", o.Declarations); err != nil {
+		return err
+	}
+	if err := validateSemanticUnits("semantic_units", o.SemanticUnits); err != nil {
+		return err
+	}
 	if err := validateTransmissionPaths("transmission_paths", o.TransmissionPaths, false); err != nil {
 		return err
 	}
@@ -37,7 +43,7 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 	if len(o.Graph.Edges) < minEdges {
 		return fmt.Errorf("graph must contain at least %d edges", minEdges)
 	}
-	if o.Details.IsEmpty() {
+	if o.Details.IsEmpty() && len(o.Declarations) == 0 && len(o.SemanticUnits) == 0 {
 		return fmt.Errorf("details must not be empty")
 	}
 	nodeIDs, err := validateGraphNodes(o.Graph.Nodes)
@@ -350,14 +356,82 @@ func validateTransmissionPaths(field string, paths []TransmissionPath, requireAt
 		if strings.TrimSpace(path.Target) == "" {
 			return fmt.Errorf("%s[%d].target must not be empty", field, i)
 		}
-		if len(path.Steps) == 0 {
-			return fmt.Errorf("%s[%d].steps must not be empty", field, i)
-		}
 		if err := validateStringListEntries(fmt.Sprintf("%s[%d].steps", field, i), path.Steps); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func validateDeclarations(field string, values []Declaration) error {
+	for i, declaration := range values {
+		if strings.TrimSpace(declaration.Statement) == "" {
+			return fmt.Errorf("%s[%d].statement must not be empty", field, i)
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s[%d].conditions", field, i), declaration.Conditions); err != nil {
+			return err
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s[%d].actions", field, i), declaration.Actions); err != nil {
+			return err
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s[%d].constraints", field, i), declaration.Constraints); err != nil {
+			return err
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s[%d].non_actions", field, i), declaration.NonActions); err != nil {
+			return err
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s[%d].evidence", field, i), declaration.Evidence); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSemanticUnits(field string, values []SemanticUnit) error {
+	seen := map[string]struct{}{}
+	for i, unit := range values {
+		if strings.TrimSpace(unit.ID) == "" {
+			return fmt.Errorf("%s[%d].id must not be empty", field, i)
+		}
+		if _, ok := seen[unit.ID]; ok {
+			return fmt.Errorf("duplicate %s id %q", field, unit.ID)
+		}
+		seen[unit.ID] = struct{}{}
+		if strings.TrimSpace(unit.Subject) == "" {
+			return fmt.Errorf("%s[%d].subject must not be empty", field, i)
+		}
+		if strings.TrimSpace(unit.Claim) == "" {
+			return fmt.Errorf("%s[%d].claim must not be empty", field, i)
+		}
+		if role := strings.TrimSpace(unit.SpeakerRole); role != "" && !isAllowedSemanticSpeakerRole(role) {
+			return fmt.Errorf("%s[%d].speaker_role %q is unsupported", field, i, role)
+		}
+		if force := strings.TrimSpace(unit.Force); force != "" && !isAllowedSemanticForce(force) {
+			return fmt.Errorf("%s[%d].force %q is unsupported", field, i, force)
+		}
+		if unit.Salience < 0 || unit.Salience > 1 {
+			return fmt.Errorf("%s[%d].salience must be between 0 and 1", field, i)
+		}
+	}
+	return nil
+}
+
+func isAllowedSemanticSpeakerRole(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "primary", "named_participant", "questioner", "unknown":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedSemanticForce(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "assert", "report", "explain", "answer", "commit", "reject", "disclose", "frame_risk", "set_boundary":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateGraphNodes(nodes []GraphNode) (map[string]struct{}, error) {
@@ -370,6 +444,9 @@ func validateGraphNodes(nodes []GraphNode) (map[string]struct{}, error) {
 		node = normalized
 		if strings.TrimSpace(node.ID) == "" {
 			return nil, fmt.Errorf("graph node id is required")
+		}
+		if _, ok := nodeIDs[node.ID]; ok {
+			return nil, fmt.Errorf("duplicate graph node id %q", node.ID)
 		}
 		if strings.TrimSpace(node.Text) == "" {
 			return nil, fmt.Errorf("graph node text is required")

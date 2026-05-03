@@ -26,6 +26,9 @@ func extractSpinePaths(state graphState) []renderedPath {
 	out := make([]renderedPath, 0)
 	seen := map[string]struct{}{}
 	for _, spine := range state.Spines {
+		if isDeclarationSpinePolicy(spine.Policy) {
+			continue
+		}
 		nodeIDs := validSpineNodeIDs(spine, valid)
 		if len(nodeIDs) < 2 {
 			continue

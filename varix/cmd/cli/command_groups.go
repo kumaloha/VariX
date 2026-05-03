@@ -13,6 +13,7 @@ var ingestCommands = []string{
 
 var compileCommands = []string{
 	"run",
+	"rerender",
 	"sweep",
 	"batch-run",
 	"show",

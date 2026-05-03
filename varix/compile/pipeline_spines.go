@@ -70,6 +70,19 @@ func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdg
 		if len(nodeIDs) == 0 {
 			continue
 		}
+		unitIDs := make([]string, 0, len(item.UnitIDs))
+		seenUnits := map[string]struct{}{}
+		for _, id := range item.UnitIDs {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if _, ok := seenUnits[id]; ok {
+				continue
+			}
+			seenUnits[id] = struct{}{}
+			unitIDs = append(unitIDs, id)
+		}
 		id := strings.TrimSpace(item.ID)
 		if id == "" {
 			id = fmt.Sprintf("s%d", len(out)+1)
@@ -86,6 +99,7 @@ func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdg
 			Policy:   normalizePreviewSpinePolicy(item.Policy),
 			Thesis:   strings.TrimSpace(item.Thesis),
 			NodeIDs:  nodeIDs,
+			UnitIDs:  unitIDs,
 			Edges:    spineEdges,
 			Scope:    normalizePreviewSpineScope(item.Scope, level),
 		})
@@ -142,7 +156,7 @@ func normalizePreviewSpineScope(value, level string) string {
 }
 func normalizePreviewSpinePolicy(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "causal_mechanism", "forecast_inference", "investment_implication", "satirical_analogy", "concept_explanation", "risk_family", "market_update":
+	case "causal_mechanism", "forecast_inference", "investment_implication", "satirical_analogy", "concept_explanation", "risk_family", "market_update", "management_declaration", "capital_allocation_rule", "policy_guidance", "policy_stance", "commitment", "operating_plan", "risk_boundary", "non_action_boundary":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""

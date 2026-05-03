@@ -102,6 +102,27 @@ type PathVerification struct {
 	MissingLinks []string               `json:"missing_links,omitempty"`
 }
 
+type DeclarationVerificationStatus string
+
+const (
+	DeclarationVerificationProved          DeclarationVerificationStatus = "proved"
+	DeclarationVerificationOverclaimed     DeclarationVerificationStatus = "overclaimed"
+	DeclarationVerificationInferredOnly    DeclarationVerificationStatus = "inferred_only"
+	DeclarationVerificationSpeakerMismatch DeclarationVerificationStatus = "speaker_mismatch"
+	DeclarationVerificationConditionLost   DeclarationVerificationStatus = "condition_lost"
+	DeclarationVerificationScopeMismatch   DeclarationVerificationStatus = "scope_mismatch"
+)
+
+type DeclarationVerification struct {
+	DeclarationID     string                        `json:"declaration_id,omitempty"`
+	Statement         string                        `json:"statement,omitempty"`
+	Speaker           string                        `json:"speaker,omitempty"`
+	Status            DeclarationVerificationStatus `json:"status"`
+	Reason            string                        `json:"reason,omitempty"`
+	Evidence          []string                      `json:"evidence,omitempty"`
+	MissingConditions []string                      `json:"missing_conditions,omitempty"`
+}
+
 type VerificationPassKind string
 
 const (
@@ -155,20 +176,21 @@ type VerificationCoverageSummary struct {
 }
 
 type Verification struct {
-	VerifiedAt              time.Time                    `json:"verified_at,omitempty"`
-	Model                   string                       `json:"model,omitempty"`
-	Version                 string                       `json:"version,omitempty"`
-	RolloutStage            string                       `json:"rollout_stage,omitempty"`
-	NodeVerifications       []NodeVerification           `json:"node_verifications,omitempty"`
-	PathVerifications       []PathVerification           `json:"path_verifications,omitempty"`
-	RealizedChecks          []RealizedCheck              `json:"realized_checks,omitempty"`
-	FutureConditionChecks   []FutureConditionCheck       `json:"future_condition_checks,omitempty"`
-	FactChecks              []FactCheck                  `json:"fact_checks,omitempty"`
-	ExplicitConditionChecks []ExplicitConditionCheck     `json:"explicit_condition_checks,omitempty"`
-	ImplicitConditionChecks []ImplicitConditionCheck     `json:"implicit_condition_checks,omitempty"`
-	PredictionChecks        []PredictionCheck            `json:"prediction_checks,omitempty"`
-	Passes                  []VerificationPass           `json:"passes,omitempty"`
-	CoverageSummary         *VerificationCoverageSummary `json:"coverage_summary,omitempty"`
+	VerifiedAt               time.Time                    `json:"verified_at,omitempty"`
+	Model                    string                       `json:"model,omitempty"`
+	Version                  string                       `json:"version,omitempty"`
+	RolloutStage             string                       `json:"rollout_stage,omitempty"`
+	NodeVerifications        []NodeVerification           `json:"node_verifications,omitempty"`
+	PathVerifications        []PathVerification           `json:"path_verifications,omitempty"`
+	DeclarationVerifications []DeclarationVerification    `json:"declaration_verifications,omitempty"`
+	RealizedChecks           []RealizedCheck              `json:"realized_checks,omitempty"`
+	FutureConditionChecks    []FutureConditionCheck       `json:"future_condition_checks,omitempty"`
+	FactChecks               []FactCheck                  `json:"fact_checks,omitempty"`
+	ExplicitConditionChecks  []ExplicitConditionCheck     `json:"explicit_condition_checks,omitempty"`
+	ImplicitConditionChecks  []ImplicitConditionCheck     `json:"implicit_condition_checks,omitempty"`
+	PredictionChecks         []PredictionCheck            `json:"prediction_checks,omitempty"`
+	Passes                   []VerificationPass           `json:"passes,omitempty"`
+	CoverageSummary          *VerificationCoverageSummary `json:"coverage_summary,omitempty"`
 }
 
 func (v Verification) IsZero() bool {
@@ -178,6 +200,7 @@ func (v Verification) IsZero() bool {
 		v.RolloutStage == "" &&
 		len(v.NodeVerifications) == 0 &&
 		len(v.PathVerifications) == 0 &&
+		len(v.DeclarationVerifications) == 0 &&
 		len(v.RealizedChecks) == 0 &&
 		len(v.FutureConditionChecks) == 0 &&
 		len(v.FactChecks) == 0 &&

@@ -143,10 +143,7 @@ func collectAuthorInferenceCandidates(out Output) []authorInferenceCandidate {
 			return
 		}
 		seen[key] = struct{}{}
-		item := provenance[key]
-		if item == nil && strings.TrimSpace(branch) == "" {
-			item = provenance[authorInferenceProvenanceKey("", from, steps, to)]
-		}
+		item := authorInferenceProvenanceForPath(provenance, strings.TrimSpace(branch), from, steps, to)
 		id := fmt.Sprintf("inference-%03d", len(candidates)+1)
 		candidates = append(candidates, authorInferenceCandidate{
 			InferenceID: id,
@@ -167,6 +164,28 @@ func collectAuthorInferenceCandidates(out Output) []authorInferenceCandidate {
 		}
 	}
 	return candidates
+}
+
+func authorInferenceProvenanceForPath(provenance map[string]map[string]any, branch, from string, steps []string, to string) map[string]any {
+	branches := []string{strings.TrimSpace(branch)}
+	if strings.TrimSpace(branch) != "" {
+		branches = append(branches, "")
+	}
+	stepVariants := [][]string{cloneStrings(steps)}
+	if len(steps) == 1 && normalizeText(steps[0]) == normalizeText(from) {
+		stepVariants = append(stepVariants, nil)
+	}
+	if len(steps) == 0 {
+		stepVariants = append(stepVariants, []string{from})
+	}
+	for _, candidateBranch := range branches {
+		for _, candidateSteps := range stepVariants {
+			if item := provenance[authorInferenceProvenanceKey(candidateBranch, from, candidateSteps, to)]; item != nil {
+				return item
+			}
+		}
+	}
+	return nil
 }
 
 func authorInferenceProvenanceByKey(items []map[string]any) map[string]map[string]any {

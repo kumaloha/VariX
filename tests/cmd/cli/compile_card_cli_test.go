@@ -43,18 +43,56 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 			RootExternalID: "1",
 			Model:          varixllm.Qwen36PlusModel,
 			Output: c.Output{
-				Summary:           "一句话总结",
-				Drivers:           []string{"驱动A"},
-				Targets:           []string{"目标B"},
+				Summary: "一句话总结",
+				Drivers: []string{"驱动A"},
+				Targets: []string{"目标B"},
+				Declarations: []c.Declaration{{
+					ID:          "decl-1",
+					Speaker:     "Greg Abel",
+					Kind:        "capital_allocation_rule",
+					Topic:       "capital_allocation",
+					Statement:   "伯克希尔会等待市场错配",
+					Conditions:  []string{"市场出现错配"},
+					Actions:     []string{"快速且果断行动"},
+					Scale:       "投入大量资本",
+					Constraints: []string{"不会仅因现金规模大而被迫投资"},
+					Evidence:    []string{"现金和短债约3800亿美元"},
+					SourceQuote: "there will be dislocations in markets ... act decisively both quickly and with significant capital",
+					Confidence:  "high",
+				}},
+				SemanticUnits: []c.SemanticUnit{{
+					ID:               "u-portfolio",
+					Speaker:          "Greg Abel",
+					SpeakerRole:      "primary",
+					Subject:          "existing portfolio / circle of competence",
+					Force:            "answer",
+					Claim:            "现有组合由 Warren Buffett 建立，但集中在 Greg Abel 也理解业务和经济前景的公司；Apple 说明能力圈不是行业标签，而是看产品价值、消费者依赖和风险。",
+					PromptContext:    "股东询问 Greg Abel 如何管理 Warren Buffett 建立的组合。",
+					ImportanceReason: "这是主讲人对投资科技股/能力圈问题的直接回答。",
+					SourceQuote:      "not because we view it as a technology stock",
+					Salience:         0.93,
+					Confidence:       "high",
+				}},
 				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
 				Branches: []c.Branch{{
-					ID:                "s1",
-					Level:             "primary",
-					Thesis:            "分支论点",
-					Anchors:           []string{"总前提"},
-					BranchDrivers:     []string{"分支机制"},
-					Drivers:           []string{"驱动A"},
-					Targets:           []string{"目标B"},
+					ID:            "s1",
+					Level:         "primary",
+					Policy:        "capital_allocation_rule",
+					Thesis:        "分支论点",
+					Anchors:       []string{"总前提"},
+					BranchDrivers: []string{"分支机制"},
+					Drivers:       []string{"驱动A"},
+					Targets:       []string{"目标B"},
+					Declarations: []c.Declaration{{
+						ID:         "decl-1",
+						Speaker:    "Greg Abel",
+						Kind:       "capital_allocation_rule",
+						Topic:      "capital_allocation",
+						Statement:  "伯克希尔会等待市场错配",
+						Conditions: []string{"市场出现错配"},
+						Actions:    []string{"快速且果断行动"},
+						Scale:      "投入大量资本",
+					}},
 					TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
 				}},
 				EvidenceNodes:    []string{"证据A"},
@@ -104,7 +142,7 @@ func TestRunCompileCardPrintsHumanReadableCard(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Branches", "分支论点", "Anchor: 总前提", "Branch driver: 分支机制", "驱动A -> 中间步骤 -> 目标B", "Logic chain", "Author validation", "Verdict: mixed", "Claims: supported 1, contradicted 0, unverified 1, interpretive 0", "Claim 目标B: unverified — 说明: 缺少外部证据", "Path 驱动A -> 目标B: unsupported_jump — 说明: 中间条件不成立", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Topics", "topic-a", "Management declarations", "Greg Abel", "capital_allocation", "伯克希尔会等待市场错配", "Read: 这回答的是“Greg Abel 会怎么用手里的钱”", "平时以不会仅因现金规模大而被迫投资为边界", "触发条件是市场出现错配", "条件满足后快速且果断行动，规模是投入大量资本", "Condition: 市场出现错配", "Action: 快速且果断行动", "Scale: 投入大量资本", "Boundary: 不会仅因现金规模大而被迫投资", "Evidence: 现金和短债约3800亿美元", "Speaker claims", "existing portfolio / circle of competence", "Question: 股东询问 Greg Abel 如何管理 Warren Buffett 建立的组合。", "Answer: 现有组合由 Warren Buffett 建立", "Apple 说明能力圈不是行业标签", "Branches", "Anchor: 总前提", "Branch driver: 分支机制", "Declaration: 伯克希尔会等待市场错配", "驱动A -> 中间步骤 -> 目标B", "Logic chain", "Author validation", "Verdict: mixed", "Claims: supported 1, contradicted 0, unverified 1, interpretive 0", "Claim 目标B: unverified — 说明: 缺少外部证据", "Path 驱动A -> 目标B: unsupported_jump — 说明: 中间条件不成立", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}

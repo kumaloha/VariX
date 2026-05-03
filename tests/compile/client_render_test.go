@@ -3,6 +3,7 @@ package compile
 import (
 	"context"
 	"github.com/kumaloha/forge/llm"
+	"strings"
 	"testing"
 	"time"
 )
@@ -66,6 +67,564 @@ func TestStage5RenderProjectsDriverTargetPathsFromSpines(t *testing.T) {
 	}
 	if len(out.TransmissionPaths) != 1 {
 		t.Fatalf("TransmissionPaths = %#v, want one spine path", out.TransmissionPaths)
+	}
+}
+
+func TestStage5RenderSurfacesSemanticUnitsInSummary(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"股东提出能力圈问题"},{"id":"n2","text":"Greg Abel 回答 Apple 投资逻辑"}]}`},
+		{Text: `{"summary":"伯克希尔会等待市场错配，再快速、大额部署资本。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compile-model", Bundle{
+		UnitID:     "youtube:semantic-render",
+		Source:     "youtube",
+		ExternalID: "semantic-render",
+		Content:    "Greg Abel answered Apple is not held because it is a technology stock.",
+	}, graphState{
+		ArticleForm: "shareholder_meeting",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "股东提出能力圈问题", Role: roleDriver},
+			{ID: "n2", Text: "Greg Abel 回答 Apple 投资逻辑", IsTarget: true},
+		},
+		Edges: []graphEdge{{From: "n1", To: "n2"}},
+		SemanticUnits: []SemanticUnit{{
+			ID:               "semantic-apple",
+			Speaker:          "Greg Abel",
+			SpeakerRole:      "primary",
+			Subject:          "existing portfolio / circle of competence",
+			Force:            "answer",
+			Claim:            "现有组合由 Warren Buffett 建立，但集中在 Greg Abel 也理解业务和经济前景的公司；Apple 说明能力圈不是行业标签，而是看产品价值、消费者依赖和风险。",
+			PromptContext:    "股东询问 Greg Abel 如何管理 Warren Buffett 建立的组合。",
+			ImportanceReason: "这是主讲人对投资科技股/能力圈问题的直接回答。",
+			SourceQuote:      "not because we view it as a technology stock",
+			Salience:         0.93,
+			Confidence:       "high",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if out.Summary != "Greg Abel阐明组合管理纪律" || len([]rune(out.Summary)) > 30 {
+		t.Fatalf("Summary = %q, want compact semantic summary", out.Summary)
+	}
+	if len(out.SemanticUnits) != 1 {
+		t.Fatalf("SemanticUnits = %#v, want rendered unit", out.SemanticUnits)
+	}
+}
+
+func TestStage5SummaryRequestIncludesSemanticUnits(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"管理层问题"},{"id":"n2","text":"管理层回答"}]}`},
+		{Text: `{"summary":"管理层回答资本配置和AI边界。"}`},
+	}}
+	_, err := stage5Render(context.Background(), rt, "compile-model", Bundle{
+		UnitID:     "youtube:summary-semantic",
+		Source:     "youtube",
+		ExternalID: "summary-semantic",
+		Content:    "management Q&A",
+	}, graphState{
+		ArticleForm: "shareholder_meeting",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "管理层问题", Role: roleDriver},
+			{ID: "n2", Text: "管理层回答", IsTarget: true},
+		},
+		Edges: []graphEdge{{From: "n1", To: "n2"}},
+		SemanticUnits: []SemanticUnit{{
+			ID:          "semantic-ai-boundary",
+			Speaker:     "Greg Abel",
+			SpeakerRole: "primary",
+			Subject:     "AI governance",
+			Force:       "set_boundary",
+			Claim:       "AI 不用于核心定价决策。",
+			Salience:    0.9,
+			Confidence:  "high",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if len(rt.requests) < 2 || !providerRequestContains(rt.requests[1], "semantic_units") {
+		t.Fatalf("summary request did not include semantic units: %#v", rt.requests)
+	}
+}
+
+func TestSummarySemanticUnitsPrioritizeReaderInterest(t *testing.T) {
+	units := topSemanticUnitsForSummary([]SemanticUnit{
+		{
+			ID:         "semantic-market",
+			Subject:    "保险市场软化与资本涌入",
+			Force:      "frame_risk",
+			Claim:      "保险市场趋于软化。",
+			Salience:   0.99,
+			Confidence: "high",
+		},
+		{
+			ID:         "semantic-capital",
+			Subject:    "capital allocation",
+			Force:      "commit",
+			Claim:      "只有在机会足够好时才快速、大额部署资本。",
+			Salience:   0.93,
+			Confidence: "high",
+		},
+		{
+			ID:         "semantic-portfolio",
+			Subject:    "existing portfolio / circle of competence",
+			Force:      "answer",
+			Claim:      "Greg Abel 解释会如何管理 Warren Buffett 建立的组合。",
+			Salience:   0.92,
+			Confidence: "high",
+		},
+		{
+			ID:         "semantic-buyback",
+			Subject:    "股票回购触发条件",
+			Force:      "set_boundary",
+			Claim:      "只有股价低于保守估算内在价值时才回购。",
+			Salience:   0.91,
+			Confidence: "high",
+		},
+	}, "shareholder_meeting")
+	if len(units) < 4 {
+		t.Fatalf("topSemanticUnitsForSummary returned %d units, want 4", len(units))
+	}
+	got := []string{units[0].ID, units[1].ID, units[2].ID}
+	want := []string{"semantic-capital", "semantic-portfolio", "semantic-buyback"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("summary unit order = %v, want reader-interest order %v", got, want)
+	}
+}
+
+func TestReaderInterestSummaryAppendsHumanQuestionBeforeBackground(t *testing.T) {
+	summary := prioritizeSemanticSummary("伯克希尔把现金头寸视为资本配置选择权，只有机会足够好时才快速、大额部署资本。", []SemanticUnit{
+		{
+			ID:       "semantic-market",
+			Subject:  "保险市场软化与资本涌入",
+			Force:    "frame_risk",
+			Claim:    "保险市场趋于软化，获取合理风险溢价面临更大挑战。",
+			Salience: 0.99,
+		},
+		{
+			ID:       "semantic-portfolio",
+			Subject:  "existing portfolio / circle of competence",
+			Force:    "answer",
+			Claim:    "Greg Abel 的回答是：现有组合由 Warren Buffett 建立，但集中在他也理解业务和经济前景的公司，所以他对组合很舒服；之后会持续评估业务演化和新风险。Apple 是例子，说明伯克希尔判断能力圈不按“科技股”标签，而是看产品价值、消费者依赖、耐久性和风险。",
+			Salience: 0.93,
+		},
+		{
+			ID:       "semantic-buyback",
+			Subject:  "股票回购触发条件",
+			Force:    "set_boundary",
+			Claim:    "伯克希尔只有在股价低于保守估算内在价值时才回购。",
+			Salience: 0.91,
+		},
+	}, "shareholder_meeting")
+	if !strings.Contains(summary, "现有组合由 Warren Buffett 建立") {
+		t.Fatalf("Summary = %q, want portfolio/circle answer included", summary)
+	}
+	if strings.Contains(summary, "Apple 是例子") {
+		t.Fatalf("Summary = %q, want summary-level claim rather than full speaker-card detail", summary)
+	}
+	if strings.Contains(summary, "保险市场趋于软化") {
+		t.Fatalf("Summary = %q, should not spend reader-interest summary slot on background market risk", summary)
+	}
+}
+
+func TestCompactSummaryKeepsMeetingSummaryUnderThirtyCharacters(t *testing.T) {
+	got := compactSummaryForDisplay(
+		"伯克希尔的现金头寸为其在各业务板块间灵活配置资本提供了选择权；Greg Abel 表示现有组合由 Warren Buffett 建立，但集中在他也理解业务和经济前景的公司。",
+		"shareholder_meeting",
+		[]Declaration{{
+			Speaker: "Greg Abel",
+			Kind:    "capital_allocation_rule",
+			Topic:   "capital_allocation",
+		}},
+		[]SemanticUnit{{
+			Speaker: "Greg Abel",
+			Subject: "existing portfolio / circle of competence",
+			Force:   "answer",
+			Claim:   "Greg Abel 解释如何管理 Warren Buffett 建立的组合。",
+		}},
+	)
+	if len([]rune(got)) > 30 {
+		t.Fatalf("compact summary = %q (%d runes), want <= 30", got, len([]rune(got)))
+	}
+	if got != "Abel延续巴菲特式资本纪律" {
+		t.Fatalf("compact summary = %q", got)
+	}
+}
+
+func TestTitleFromUnitsDerivesContinuityWithoutBuffettSpecialCase(t *testing.T) {
+	got := compactSummaryForDisplay(
+		strings.Repeat("长摘要", 20),
+		"shareholder_meeting",
+		[]Declaration{{
+			Speaker: "李明",
+			Kind:    "capital_allocation_rule",
+			Topic:   "capital_allocation",
+		}},
+		[]SemanticUnit{{
+			Speaker: "李明",
+			Subject: "existing portfolio / circle of competence",
+			Force:   "answer",
+			Claim:   "现有组合由王强建立，但李明也理解这些公司的业务和经济前景。",
+		}},
+	)
+	if got != "李明延续王强式资本纪律" {
+		t.Fatalf("compact summary = %q", got)
+	}
+}
+
+func TestCompactSummaryJoinsThreeReaderTopicsNaturally(t *testing.T) {
+	got := compactSummaryForDisplay(
+		strings.Repeat("长摘要", 20),
+		"shareholder_meeting",
+		[]Declaration{{Speaker: "Greg Abel", Kind: "capital_allocation_rule", Topic: "capital_allocation"}},
+		[]SemanticUnit{
+			{Speaker: "Greg Abel", Subject: "existing portfolio / circle of competence", Force: "answer", Claim: "组合管理。"},
+			{Speaker: "Greg Abel", Subject: "股票回购触发条件", Force: "set_boundary", Claim: "回购纪律。"},
+		},
+	)
+	if got != "Greg Abel阐明资本配置、组合管理与回购纪律" {
+		t.Fatalf("compact summary = %q", got)
+	}
+	if len([]rune(got)) > 30 {
+		t.Fatalf("compact summary = %q (%d runes), want <= 30", got, len([]rune(got)))
+	}
+}
+
+func providerRequestContains(req llm.ProviderRequest, needle string) bool {
+	if strings.Contains(req.User, needle) || strings.Contains(req.System, needle) {
+		return true
+	}
+	for _, part := range req.UserParts {
+		if strings.Contains(part.Text, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestStage5RenderBuildsCapitalAllocationDeclarationFromSpine(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n_cash","text":"伯克希尔持有约3800亿美元现金和短债"},{"id":"n_rule","text":"伯克希尔会等待市场错配"},{"id":"n_action","text":"出现机会时会快速且果断行动"},{"id":"n_scale","text":"会投入大量资本"},{"id":"n_boundary","text":"不会仅因现金规模大而被迫投资"}]}`},
+		{Text: `{"summary":"伯克希尔会保留大量现金和短债，等待市场错配后快速、果断、大额部署资本。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compile-model", Bundle{
+		UnitID:     "youtube:berkshire-declaration",
+		Source:     "youtube",
+		ExternalID: "berkshire-declaration",
+		Content:    "Greg Abel said Berkshire has large cash reserves and will act quickly with significant capital when dislocations appear.",
+	}, graphState{
+		ArticleForm: "management_qa",
+		Nodes: []graphNode{
+			{ID: "n_cash", Text: "Berkshire holds about $380B in cash and Treasury bills", DiscourseRole: "evidence", SourceQuote: "our cash in US Treasury bills net is 380 billion"},
+			{ID: "n_rule", Text: "Berkshire will wait for market dislocations", DiscourseRole: "capital_allocation_rule", SourceQuote: "there will be dislocations in markets"},
+			{ID: "n_action", Text: "Berkshire will act quickly and decisively when opportunities appear", DiscourseRole: "action", SourceQuote: "we'll act decisively both quickly"},
+			{ID: "n_scale", Text: "Berkshire can deploy significant capital", DiscourseRole: "scale", SourceQuote: "with significant capital"},
+			{ID: "n_boundary", Text: "Berkshire will not force deployment just because cash is large", DiscourseRole: "constraint", SourceQuote: "we don't have to swing at every pitch"},
+		},
+		Edges: []graphEdge{
+			{From: "n_cash", To: "n_rule"},
+			{From: "n_rule", To: "n_action"},
+			{From: "n_action", To: "n_scale"},
+			{From: "n_rule", To: "n_boundary"},
+		},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Policy:   "capital_allocation_rule",
+			Thesis:   "Greg Abel explains how Berkshire will deploy cash",
+			NodeIDs:  []string{"n_cash", "n_rule", "n_action", "n_scale", "n_boundary"},
+			Edges: []PreviewEdge{
+				{From: "n_cash", To: "n_rule"},
+				{From: "n_rule", To: "n_action"},
+				{From: "n_action", To: "n_scale"},
+				{From: "n_rule", To: "n_boundary"},
+			},
+			Scope: "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if err := out.Validate(); err != nil {
+		t.Fatalf("rendered output Validate() error = %v", err)
+	}
+	if len(out.Declarations) != 1 {
+		t.Fatalf("Declarations = %#v, want one declaration", out.Declarations)
+	}
+	got := out.Declarations[0]
+	if got.Kind != "capital_allocation_rule" {
+		t.Fatalf("Declaration.Kind = %q, want capital_allocation_rule", got.Kind)
+	}
+	if got.Topic != "capital_allocation" {
+		t.Fatalf("Declaration.Topic = %q, want capital_allocation", got.Topic)
+	}
+	if got.Statement != "伯克希尔会等待市场错配" {
+		t.Fatalf("Declaration.Statement = %q", got.Statement)
+	}
+	if !containsString(got.Actions, "出现机会时会快速且果断行动") {
+		t.Fatalf("Declaration.Actions = %#v, want action", got.Actions)
+	}
+	if got.Scale != "会投入大量资本" {
+		t.Fatalf("Declaration.Scale = %q", got.Scale)
+	}
+	if !containsString(got.Constraints, "不会仅因现金规模大而被迫投资") {
+		t.Fatalf("Declaration.Constraints = %#v, want non-forced deployment boundary", got.Constraints)
+	}
+	if !containsString(got.Evidence, "伯克希尔持有约3800亿美元现金和短债") {
+		t.Fatalf("Declaration.Evidence = %#v, want cash reserve support", got.Evidence)
+	}
+	if len(out.Branches) != 1 || len(out.Branches[0].Declarations) != 1 {
+		t.Fatalf("Branches = %#v, want branch declaration", out.Branches)
+	}
+	if len(out.TransmissionPaths) != 0 {
+		t.Fatalf("TransmissionPaths = %#v, declaration spine should not be rendered as causal path", out.TransmissionPaths)
+	}
+}
+
+func TestStage5RenderDerivesCapitalAllocationDeclarationSlotsFromQuote(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n_cash","text":"伯克希尔现金和短债净额为3800亿美元"},{"id":"n_rule","text":"伯克希尔的资本配置理念强调耐心与纪律，仅在具备显著投资价值时果断出手"}]}`},
+		{Text: `{"summary":"伯克希尔会保持资本配置耐心，只在市场错配时大额出手。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compile-model", Bundle{
+		UnitID:     "youtube:berkshire-quote-slots",
+		Source:     "youtube",
+		ExternalID: "berkshire-quote-slots",
+		Content:    "Greg Abel discussed capital allocation.",
+	}, graphState{
+		ArticleForm: "management_qa",
+		Nodes: []graphNode{
+			{ID: "n_cash", Text: "Berkshire's cash and Treasury bills net to $380B", DiscourseRole: "evidence", SourceQuote: "our cash in U US Treasury bills net is 380 billion"},
+			{ID: "n_rule", Text: "Berkshire's capital allocation emphasizes patience and discipline", DiscourseRole: "capital_allocation_rule", SourceQuote: "patience and the discipline around capital allocation... there will be dislocations in markets... act decisively both quickly and with significant capital"},
+		},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Policy:   "capital_allocation_rule",
+			Thesis:   "Berkshire explains its cash deployment rule",
+			NodeIDs:  []string{"n_cash", "n_rule"},
+			Scope:    "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if len(out.Declarations) != 1 {
+		t.Fatalf("Declarations = %#v, want one declaration", out.Declarations)
+	}
+	got := out.Declarations[0]
+	if !containsString(got.Conditions, "市场出现错配") {
+		t.Fatalf("Conditions = %#v, want market dislocation condition", got.Conditions)
+	}
+	if !containsString(got.Conditions, "机会具备显著投资价值") {
+		t.Fatalf("Conditions = %#v, want value proposition condition", got.Conditions)
+	}
+	if !containsString(got.Actions, "快速且果断行动") {
+		t.Fatalf("Actions = %#v, want decisive action", got.Actions)
+	}
+	if got.Scale != "投入大量资本" {
+		t.Fatalf("Scale = %q, want significant capital", got.Scale)
+	}
+	if !containsString(got.Constraints, "保持资本配置耐心与纪律") {
+		t.Fatalf("Constraints = %#v, want patience/discipline boundary", got.Constraints)
+	}
+	if out.Summary != "Greg Abel阐明资本配置纪律" {
+		t.Fatalf("Summary = %q, want declaration-priority summary", out.Summary)
+	}
+}
+
+func TestStage5RenderRescuesCapitalAllocationDeclarationFromManagementTranscript(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"GEICO上调保费"},{"id":"n2","text":"客户留存承压"}]}`},
+		{Text: `{"summary":"GEICO上调保费使客户留存承压。"}`},
+	}}
+	transcript := `Greg Abel: our greatest strengths at Berkshire is patience and being disciplined when it comes to allocating our capital.
+There will be opportunities that come over time. We want to know it meets our principles.
+You will feel there is a strong value proposition with an opportunity. If it presents itself, we'll be prepared to act decisively both quickly and with significant capital.
+If you look at our cash and US Treasury bills, net is 380 billion.`
+	out, err := stage5Render(context.Background(), rt, "compile-model", Bundle{
+		UnitID:     "youtube:berkshire-source-rescue",
+		Source:     "youtube",
+		ExternalID: "berkshire-source-rescue",
+		Content:    transcript,
+	}, graphState{
+		ArticleForm: "management_qa",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "GEICO increased premiums"},
+			{ID: "n2", Text: "customer retention is under pressure", IsTarget: true},
+		},
+		Edges: []graphEdge{{From: "n1", To: "n2"}},
+		Spines: []PreviewSpine{{
+			ID:      "s1",
+			Policy:  "causal_mechanism",
+			Thesis:  "GEICO premiums pressure retention",
+			NodeIDs: []string{"n1", "n2"},
+			Edges:   []PreviewEdge{{From: "n1", To: "n2"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if len(out.Declarations) != 1 {
+		t.Fatalf("Declarations = %#v, want rescued capital allocation declaration", out.Declarations)
+	}
+	got := out.Declarations[0]
+	if got.Kind != "capital_allocation_rule" || got.Topic != "capital_allocation" {
+		t.Fatalf("Declaration = %#v, want capital allocation rule", got)
+	}
+	if !containsString(got.Conditions, "机会具备显著投资价值") {
+		t.Fatalf("Conditions = %#v, want value proposition condition", got.Conditions)
+	}
+	if !containsString(got.Actions, "快速且果断行动") {
+		t.Fatalf("Actions = %#v, want decisive action", got.Actions)
+	}
+	if got.Scale != "投入大量资本" {
+		t.Fatalf("Scale = %q, want significant capital", got.Scale)
+	}
+	if !containsString(got.Constraints, "保持资本配置耐心与纪律") {
+		t.Fatalf("Constraints = %#v, want patience/discipline boundary", got.Constraints)
+	}
+	if strings.Contains(got.SourceQuote, ":34:") || strings.Count(got.SourceQuote, "patience and being disciplined") > 1 {
+		t.Fatalf("SourceQuote = %q, want compact de-duplicated quote fragments", got.SourceQuote)
+	}
+	if out.Summary != "Greg Abel阐明资本配置纪律" {
+		t.Fatalf("Summary = %q, want rescued declaration summary", out.Summary)
+	}
+}
+
+func TestStage5RenderMergesSourceCapitalAllocationSlotsIntoExistingDeclaration(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n_rule","text":"伯克希尔充裕的现金储备支持其在各业务板块间灵活配置资本"}]}`},
+		{Text: `{"summary":"伯克希尔有大量现金用于资本配置。"}`},
+	}}
+	transcript := `Greg Abel: our greatest strengths at Berkshire is patience and being disciplined when it comes to allocating our capital.
+We are not anxious to deploy capital into subpar opportunities. We want to know it meets our principles.
+If there is a strong value proposition and it presents itself, we'll act decisively both quickly and with significant capital.
+Our cash and US Treasury bills net is 380 billion.`
+	out, err := stage5Render(context.Background(), rt, "compile-model", Bundle{
+		UnitID:     "youtube:berkshire-existing-declaration",
+		Source:     "youtube",
+		ExternalID: "berkshire-existing-declaration",
+		Content:    transcript,
+	}, graphState{
+		ArticleForm: "management_qa",
+		Nodes: []graphNode{
+			{ID: "n_rule", Text: "Berkshire's cash creates optionality to deploy capital across groups", DiscourseRole: "capital_allocation_rule", SourceQuote: "creates the opportunity to deploy it across these different groups / we'll act decisively both quickly and with significant capital"},
+		},
+		Spines: []PreviewSpine{{
+			ID:      "s1",
+			Policy:  "capital_allocation_rule",
+			Thesis:  "Berkshire can deploy cash across groups",
+			NodeIDs: []string{"n_rule"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if len(out.Declarations) != 1 {
+		t.Fatalf("Declarations = %#v, want one merged declaration", out.Declarations)
+	}
+	got := out.Declarations[0]
+	if got.ID != "s1" {
+		t.Fatalf("Declaration.ID = %q, want existing spine id", got.ID)
+	}
+	if !containsString(got.Conditions, "机会具备显著投资价值") {
+		t.Fatalf("Conditions = %#v, want source-rescued condition", got.Conditions)
+	}
+	if !containsString(got.Constraints, "保持资本配置耐心与纪律") {
+		t.Fatalf("Constraints = %#v, want source-rescued discipline boundary", got.Constraints)
+	}
+	if !containsString(got.Evidence, "伯克希尔现金及美国短债净额约为3800亿美元") {
+		t.Fatalf("Evidence = %#v, want source-rescued cash evidence", got.Evidence)
+	}
+	if out.Summary != "Greg Abel阐明资本配置纪律" {
+		t.Fatalf("Summary = %q, want merged declaration summary", out.Summary)
+	}
+}
+
+func TestDeclarationCoverageGateAddsMissingCapitalAllocationSlotsBeforeRender(t *testing.T) {
+	transcript := `Greg Abel: our greatest strengths at Berkshire is patience and being disciplined when it comes to allocating our capital.
+We are not anxious to deploy capital into subpar opportunities. We want to know it meets our principles.
+If there is a strong value proposition and it presents itself, we'll act decisively both quickly and with significant capital.
+Our cash and US Treasury bills net is 380 billion.`
+	state := graphState{
+		ArticleForm: "management_qa",
+		Nodes: []graphNode{
+			{ID: "n_rule", Text: "Berkshire's cash creates optionality to deploy capital across groups", DiscourseRole: "capital_allocation_rule", SourceQuote: "creates the opportunity to deploy it across these different groups"},
+		},
+		Spines: []PreviewSpine{{
+			ID:      "s1",
+			Policy:  "capital_allocation_rule",
+			Thesis:  "Berkshire can deploy cash across groups",
+			NodeIDs: []string{"n_rule"},
+		}},
+	}
+	got := applyDeclarationCoverageGate(Bundle{
+		UnitID:     "youtube:berkshire-coverage-gate",
+		Source:     "youtube",
+		ExternalID: "berkshire-coverage-gate",
+		Content:    transcript,
+	}, state)
+	roles := map[string]graphNode{}
+	for _, node := range got.Nodes {
+		roles[normalizeDiscourseRole(node.DiscourseRole)] = node
+	}
+	for _, role := range []string{"condition", "action", "scale", "constraint", "evidence"} {
+		if strings.TrimSpace(roles[role].Text) == "" {
+			t.Fatalf("coverage gate nodes = %#v, want role %q", got.Nodes, role)
+		}
+	}
+	if len(got.Spines) != 1 {
+		t.Fatalf("Spines = %#v, want existing spine only", got.Spines)
+	}
+	for _, node := range roles {
+		if !containsString(got.Spines[0].NodeIDs, node.ID) {
+			t.Fatalf("Spine node IDs = %#v, want coverage node %q attached", got.Spines[0].NodeIDs, node.ID)
+		}
+	}
+}
+
+func TestStage5RenderDedupesDuplicateStateNodesBeforeOutput(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"油价冲击"},{"id":"n2","text":"商品价格上涨"}]}`},
+		{Text: `{"summary":"油价冲击推高商品价格。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compile-model", Bundle{
+		UnitID:     "youtube:duplicate-render",
+		Source:     "youtube",
+		ExternalID: "duplicate-render",
+		Content:    "Oil shock raises goods prices.",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "Oil shock", Role: roleDriver},
+			{ID: "n2", Text: "Goods prices rise", IsTarget: true},
+			{ID: "n2", Text: "Goods prices rise", IsTarget: true},
+		},
+		Edges: []graphEdge{
+			{From: "n1", To: "n2"},
+			{From: "n1", To: "n2"},
+		},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Thesis:   "油价冲击推高商品价格",
+			NodeIDs:  []string{"n1", "n2"},
+			Edges:    []PreviewEdge{{From: "n1", To: "n2"}},
+			Scope:    "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if err := out.Validate(); err != nil {
+		t.Fatalf("rendered output Validate() error = %v", err)
+	}
+	if len(out.Graph.Nodes) != 2 {
+		t.Fatalf("graph nodes = %#v, want duplicate node collapsed", out.Graph.Nodes)
 	}
 }
 
@@ -1015,7 +1574,7 @@ func TestStage5RenderRecoversTargetFromOffGraphWhenMainlineHasOnlyDriver(t *test
 	}
 }
 
-func TestStage5RenderDirectPathHasNonEmptySteps(t *testing.T) {
+func TestStage5RenderDirectPathOmitsSyntheticDriverStep(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{
 		{Text: `{"translations":[{"id":"n1","text":"驱动A"},{"id":"n2","text":"目标B"}]}`},
 		{Text: `{"summary":"驱动A推动目标B。"}`},
@@ -1039,11 +1598,8 @@ func TestStage5RenderDirectPathHasNonEmptySteps(t *testing.T) {
 	if len(out.TransmissionPaths) != 1 {
 		t.Fatalf("TransmissionPaths = %#v, want one direct path", out.TransmissionPaths)
 	}
-	if len(out.TransmissionPaths[0].Steps) == 0 {
-		t.Fatalf("TransmissionPaths[0].Steps = %#v, want non-empty direct-path fallback", out.TransmissionPaths[0].Steps)
-	}
-	if out.TransmissionPaths[0].Steps[0] != "驱动A" {
-		t.Fatalf("TransmissionPaths[0].Steps[0] = %q, want driver text fallback", out.TransmissionPaths[0].Steps[0])
+	if len(out.TransmissionPaths[0].Steps) != 0 {
+		t.Fatalf("TransmissionPaths[0].Steps = %#v, want direct path to omit synthetic driver step", out.TransmissionPaths[0].Steps)
 	}
 	if err := out.Validate(); err != nil {
 		t.Fatalf("Output.Validate() error = %v", err)

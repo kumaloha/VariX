@@ -6,7 +6,7 @@ import (
 
 func normalizeArticleForm(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "single_thesis", "main_narrative_plus_investment_implication", "evidence_backed_forecast", "risk_list", "macro_framework", "market_update", "institutional_satire", "satirical_financial_commentary":
+	case "single_thesis", "main_narrative_plus_investment_implication", "evidence_backed_forecast", "risk_list", "macro_framework", "market_update", "institutional_satire", "satirical_financial_commentary", "management_qa", "shareholder_meeting", "earnings_call", "capital_allocation_discussion":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""
@@ -20,6 +20,9 @@ func refineArticleFormFromExtract(bundle Bundle, state graphState) string {
 	}
 	if satireArticleScore(bundle.TextContext(), state.Nodes) >= 5 {
 		return "satirical_financial_commentary"
+	}
+	if managementDeclarationArticleScore(bundle.TextContext(), state.Nodes) >= 4 {
+		return "management_qa"
 	}
 	if !isLongFormMacroSource(bundle) {
 		return form
@@ -97,6 +100,34 @@ func isLongFormMacroSource(bundle Bundle) bool {
 	}
 }
 
+func managementDeclarationArticleScore(article string, nodes []graphNode) int {
+	textParts := []string{article}
+	declarationRoles := 0
+	for _, node := range nodes {
+		textParts = append(textParts, node.Text, node.SourceQuote)
+		switch normalizeDiscourseRole(node.DiscourseRole) {
+		case "declaration", "commitment", "policy_stance", "capital_allocation_rule", "guidance", "operating_plan", "risk_boundary":
+			declarationRoles++
+		}
+	}
+	score := 0
+	if declarationRoles > 0 {
+		score += 3
+	}
+	text := strings.ToLower(strings.Join(textParts, " "))
+	for _, family := range [][]string{
+		{"shareholder meeting", "annual meeting", "earnings call", "investor day", "q&a", "问答", "股东会", "年会", "财报会"},
+		{"greg abel", "warren buffett", "ceo", "management", "管理层", "首席执行官"},
+		{"cash", "treasury bills", "capital allocation", "deploy capital", "dislocation", "现金", "短债", "资本配置", "部署资本", "错配"},
+		{"we will", "we'll", "we plan", "we expect", "我们会", "我们将", "计划", "承诺"},
+	} {
+		if containsAnyText(text, family) {
+			score++
+		}
+	}
+	return score
+}
+
 func longFormMacroFrameworkScore(article string, nodes []graphNode) int {
 	textParts := []string{article}
 	for _, node := range nodes {
@@ -128,7 +159,7 @@ func longFormMacroFrameworkFamilies() [][]string {
 
 func normalizeDiscourseRole(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "thesis", "mechanism", "evidence", "example", "implication", "caveat", "market_move", "analogy", "satire_target", "implied_thesis":
+	case "thesis", "mechanism", "evidence", "example", "implication", "caveat", "market_move", "analogy", "satire_target", "implied_thesis", "declaration", "commitment", "policy_stance", "capital_allocation_rule", "guidance", "operating_plan", "risk_boundary", "condition", "action", "scale", "constraint", "non_action":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""

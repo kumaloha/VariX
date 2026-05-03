@@ -12,6 +12,9 @@ Spine policy:
 Branch heads:
 {{.BranchHeads}}
 
+Speaker semantic units:
+{{.SemanticUnits}}
+
 Retained nodes:
 {{.Nodes}}
 
@@ -19,6 +22,7 @@ Candidate drives edges:
 {{.CandidateEdges}}
 
 Use candidate edges as recall hints, not as mandatory output. Keep only article-grounded mainline relations.
+Use speaker semantic units as salience coverage hints for management/Q&A content. If a unit captures a major speaker answer, rule, boundary, or operating plan, keep it represented in an appropriate management_declaration, capital_allocation_rule, concept_explanation, or causal_mechanism spine; copy its id into `unit_ids` when it anchors that spine. Do not treat questioner wording as the speaker claim.
 For every retained edge, its source_quote must directly ground that exact from -> to relation. Use the Article as the primary edge signal, especially when the causal or inferential relation is expressed across adjacent clauses or sentences.
 Favor recall for major adjacent/cross-sentence bridges when the Article span clearly states the economic transmission or forecast inference; omit only edges whose relation is not actually grounded.
 Set relation kind to `inference` when a research clue, historical precedent, policy signal, legal feasibility point, or quantitative indicator is used to infer a future regime/outcome rather than mechanically cause it.

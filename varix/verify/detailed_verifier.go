@@ -25,17 +25,43 @@ func runDetailedVerifier(ctx context.Context, rt verifierCall, model string, pro
 	if err != nil {
 		return Verification{}, err
 	}
+	declarationVerifications := verifyDeclarationsDetailed(output.Declarations)
 
 	verification := Verification{
-		Version:           "node_path_verifier",
-		RolloutStage:      "node_and_path_dual",
-		NodeVerifications: nodeVerifications,
-		PathVerifications: pathVerifications,
-		VerifiedAt:        verifierNow(),
-		Model:             strings.TrimSpace(model),
+		Version:                  "node_path_declaration_verifier",
+		RolloutStage:             "node_path_declaration",
+		NodeVerifications:        nodeVerifications,
+		PathVerifications:        pathVerifications,
+		DeclarationVerifications: declarationVerifications,
+		VerifiedAt:               verifierNow(),
+		Model:                    strings.TrimSpace(model),
 	}
 	applyCompatibilityVerificationViews(&verification, output.Graph.Nodes)
 	return verification, nil
+}
+
+func verifyDeclarationsDetailed(declarations []Declaration) []DeclarationVerification {
+	if len(declarations) == 0 {
+		return nil
+	}
+	out := make([]DeclarationVerification, 0, len(declarations))
+	for _, declaration := range declarations {
+		status := DeclarationVerificationProved
+		reason := "declaration includes explicit source quote and is verified as a management speech act."
+		if strings.TrimSpace(declaration.SourceQuote) == "" {
+			status = DeclarationVerificationInferredOnly
+			reason = "declaration has no explicit source quote, so it is retained as inferred-only until source-backed validation runs."
+		}
+		out = append(out, DeclarationVerification{
+			DeclarationID: declaration.ID,
+			Statement:     declaration.Statement,
+			Speaker:       declaration.Speaker,
+			Status:        status,
+			Reason:        reason,
+			Evidence:      CloneStrings(declaration.Evidence),
+		})
+	}
+	return out
 }
 
 func verifyNodesDetailed(ctx context.Context, rt verifierCall, model string, prompts *promptRegistry, bundle Bundle, nodes []GraphNode) ([]NodeVerification, error) {

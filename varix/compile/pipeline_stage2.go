@@ -294,6 +294,8 @@ func preserveSupportingDiscourseRole(articleForm, role string) bool {
 	switch normalizeArticleForm(articleForm) {
 	case "evidence_backed_forecast":
 		return normalizedRole == "evidence"
+	case "management_qa", "shareholder_meeting", "earnings_call", "capital_allocation_discussion":
+		return normalizedRole == "evidence" || normalizedRole == "condition" || normalizedRole == "action" || normalizedRole == "scale" || normalizedRole == "constraint" || normalizedRole == "non_action"
 	case "risk_list":
 		return normalizedRole == "caveat"
 	default:
@@ -316,7 +318,7 @@ func firstMainlineDiscourseNodeID(nodes []graphNode) string {
 
 func isMainlineDiscourseRole(role string) bool {
 	switch normalizeDiscourseRole(role) {
-	case "thesis", "mechanism", "implication", "market_move", "satire_target", "implied_thesis":
+	case "thesis", "mechanism", "implication", "market_move", "satire_target", "implied_thesis", "declaration", "commitment", "policy_stance", "capital_allocation_rule", "guidance", "operating_plan", "risk_boundary":
 		return true
 	default:
 		return false
@@ -325,7 +327,7 @@ func isMainlineDiscourseRole(role string) bool {
 
 func isSupportingDiscourseRole(role string) bool {
 	switch normalizeDiscourseRole(role) {
-	case "evidence", "example", "caveat":
+	case "evidence", "example", "caveat", "condition", "action", "scale", "constraint", "non_action":
 		return true
 	default:
 		return false

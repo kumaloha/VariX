@@ -11,6 +11,8 @@ type compileCardProjection struct {
 	Confidence          string
 	Drivers             []string
 	Targets             []string
+	Declarations        []model.Declaration
+	SemanticUnits       []model.SemanticUnit
 	Branches            []model.Branch
 	Evidence            []string
 	Explanations        []string
@@ -26,6 +28,8 @@ func buildCompileCardProjection(record model.Record, subgraph *model.ContentSubg
 		Confidence:       record.Output.Confidence,
 		Drivers:          cloneStringSlice(record.Output.Drivers),
 		Targets:          cloneStringSlice(record.Output.Targets),
+		Declarations:     cloneDeclarations(record.Output.Declarations),
+		SemanticUnits:    cloneSemanticUnits(record.Output.SemanticUnits),
 		Branches:         cloneBranches(record.Output.Branches),
 		Evidence:         cloneStringSlice(record.Output.EvidenceNodes),
 		Explanations:     cloneStringSlice(record.Output.ExplanationNodes),
@@ -60,6 +64,14 @@ func buildCompileCardProjection(record model.Record, subgraph *model.ContentSubg
 	return projection
 }
 
+func cloneSemanticUnits(values []model.SemanticUnit) []model.SemanticUnit {
+	out := make([]model.SemanticUnit, 0, len(values))
+	for _, unit := range values {
+		out = append(out, unit)
+	}
+	return out
+}
+
 func cloneBranches(values []model.Branch) []model.Branch {
 	out := make([]model.Branch, 0, len(values))
 	for _, branch := range values {
@@ -67,8 +79,22 @@ func cloneBranches(values []model.Branch) []model.Branch {
 		branch.BranchDrivers = cloneStringSlice(branch.BranchDrivers)
 		branch.Drivers = cloneStringSlice(branch.Drivers)
 		branch.Targets = cloneStringSlice(branch.Targets)
+		branch.Declarations = cloneDeclarations(branch.Declarations)
 		branch.TransmissionPaths = cloneTransmissionPaths(branch.TransmissionPaths)
 		out = append(out, branch)
+	}
+	return out
+}
+
+func cloneDeclarations(values []model.Declaration) []model.Declaration {
+	out := make([]model.Declaration, 0, len(values))
+	for _, declaration := range values {
+		declaration.Conditions = cloneStringSlice(declaration.Conditions)
+		declaration.Actions = cloneStringSlice(declaration.Actions)
+		declaration.Constraints = cloneStringSlice(declaration.Constraints)
+		declaration.NonActions = cloneStringSlice(declaration.NonActions)
+		declaration.Evidence = cloneStringSlice(declaration.Evidence)
+		out = append(out, declaration)
 	}
 	return out
 }

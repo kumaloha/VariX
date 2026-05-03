@@ -35,12 +35,13 @@ type FlowPreviewResult struct {
 }
 
 type PreviewGraph struct {
-	Nodes       []PreviewNode     `json:"nodes"`
-	Edges       []PreviewEdge     `json:"edges"`
-	AuxEdges    []PreviewEdge     `json:"aux_edges,omitempty"`
-	OffGraph    []PreviewOffGraph `json:"off_graph"`
-	BranchHeads []string          `json:"branch_heads,omitempty"`
-	Rounds      int               `json:"rounds"`
+	Nodes         []PreviewNode     `json:"nodes"`
+	Edges         []PreviewEdge     `json:"edges"`
+	AuxEdges      []PreviewEdge     `json:"aux_edges,omitempty"`
+	OffGraph      []PreviewOffGraph `json:"off_graph"`
+	BranchHeads   []string          `json:"branch_heads,omitempty"`
+	SemanticUnits []SemanticUnit    `json:"semantic_units,omitempty"`
+	Rounds        int               `json:"rounds"`
 }
 
 type PreviewNode struct {
@@ -76,6 +77,7 @@ type PreviewSpine struct {
 	Policy      string        `json:"policy,omitempty"`
 	Thesis      string        `json:"thesis"`
 	NodeIDs     []string      `json:"node_ids"`
+	UnitIDs     []string      `json:"unit_ids,omitempty"`
 	Edges       []PreviewEdge `json:"edges"`
 	Scope       string        `json:"scope,omitempty"`
 	FamilyKey   string        `json:"family_key,omitempty"`
@@ -151,6 +153,17 @@ func (c *Client) PreviewFlow(ctx context.Context, bundle Bundle, opts FlowPrevie
 	}
 
 	start = time.Now()
+	selectedState, err = stageSemanticCoverage(ctx, c.runtime, c.model, bundle, selectedState)
+	if err != nil {
+		return FlowPreviewResult{}, fmt.Errorf("semantic_coverage: %w", err)
+	}
+	result.Collapse = toPreviewGraph(selectedState)
+	result.Metrics["semantic_coverage_ms"] = time.Since(start).Milliseconds()
+	if stop := strings.TrimSpace(opts.StopAfter); stop == "semantic" || stop == "semantic_coverage" {
+		return result, nil
+	}
+
+	start = time.Now()
 	relationsState, err := stage3Mainline(ctx, c.runtime, c.model, bundle, cloneGraphState(selectedState))
 	if err != nil {
 		return FlowPreviewResult{}, fmt.Errorf("relations: %w", err)
@@ -200,6 +213,11 @@ func (c *Client) ValidatePreviewResult(ctx context.Context, bundle Bundle, resul
 	if len(state.Spines) == 0 {
 		state.Spines = result.Spines
 	}
+	var err error
+	state, err = stageSemanticCoverage(ctx, c.runtime, c.model, bundle, state)
+	if err != nil {
+		return FlowPreviewResult{}, fmt.Errorf("semantic_coverage: %w", err)
+	}
 	start := time.Now()
 	validated, err := runValidatePreview(ctx, c.runtime, c.model, bundle, state, maxRounds, paragraphLimit)
 	if err != nil {
@@ -216,5 +234,55 @@ func (c *Client) ValidatePreviewResult(ctx context.Context, bundle Bundle, resul
 	}
 	result.Render = rendered
 	result.Metrics["render_ms"] = time.Since(start).Milliseconds()
+	return result, nil
+}
+
+func (c *Client) RenderPreview(ctx context.Context, bundle Bundle, result FlowPreviewResult) (FlowPreviewResult, error) {
+	if c == nil || c.runtime == nil {
+		return FlowPreviewResult{}, fmt.Errorf("compile client is nil")
+	}
+	if result.Metrics == nil {
+		result.Metrics = map[string]int64{}
+	}
+	if strings.TrimSpace(result.Platform) == "" {
+		result.Platform = bundle.Source
+	}
+	if strings.TrimSpace(result.ExternalID) == "" {
+		result.ExternalID = bundle.ExternalID
+	}
+	if strings.TrimSpace(result.URL) == "" {
+		result.URL = bundle.URL
+	}
+
+	state := fromPreviewGraph(result.Validate, result.Spines, result.ArticleForm)
+	if len(state.Nodes) == 0 {
+		state = fromPreviewGraph(result.Classify, result.Spines, result.ArticleForm)
+	}
+	if len(state.Nodes) == 0 {
+		state = fromPreviewGraph(result.Relations, result.Spines, result.ArticleForm)
+	}
+	if len(state.Nodes) == 0 {
+		return FlowPreviewResult{}, fmt.Errorf("rerender requires validate, classify, or relations preview graph")
+	}
+	if len(state.Spines) == 0 {
+		state.Spines = derivePreviewSpines(toPreviewGraph(state))
+		result.Spines = state.Spines
+	}
+	state, err := stageSemanticCoverage(ctx, c.runtime, c.model, bundle, state)
+	if err != nil {
+		return FlowPreviewResult{}, fmt.Errorf("semantic_coverage: %w", err)
+	}
+
+	start := time.Now()
+	rendered, err := stage5Render(ctx, c.runtime, c.model, bundle, cloneGraphState(state))
+	if err != nil {
+		return FlowPreviewResult{}, fmt.Errorf("render: %w", err)
+	}
+	result.Render = rendered
+	elapsed := time.Since(start).Milliseconds()
+	if elapsed <= 0 {
+		elapsed = 1
+	}
+	result.Metrics["render_ms"] = elapsed
 	return result, nil
 }

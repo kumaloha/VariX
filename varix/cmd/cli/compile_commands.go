@@ -17,11 +17,19 @@ type compileClient interface {
 	Compile(ctx context.Context, bundle model.Bundle) (model.Record, error)
 }
 
+type compilePreviewRenderer interface {
+	RenderPreview(ctx context.Context, bundle model.Bundle, result c.FlowPreviewResult) (c.FlowPreviewResult, error)
+}
+
 type verifyClient interface {
 	VerifyDetailed(ctx context.Context, bundle model.Bundle, output model.Output) (model.Verification, error)
 }
 
 var buildCompileClientCurrent = func(projectRoot string) compileClient {
+	return c.NewClientFromConfig(projectRoot, nil)
+}
+
+var buildCompilePreviewRenderer = func(projectRoot string) compilePreviewRenderer {
 	return c.NewClientFromConfig(projectRoot, nil)
 }
 
@@ -33,7 +41,7 @@ var openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
 	return contentstore.NewSQLiteStore(path)
 }
 
-const compileCommandUsage = "usage: varix compile <run|sweep|batch-run|validate-run|show|summary|compare|card> ..."
+const compileCommandUsage = "usage: varix compile <run|rerender|sweep|batch-run|validate-run|show|summary|compare|card> ..."
 
 func parseLLMCacheMode(value string) (contentstore.LLMCacheMode, error) {
 	switch strings.TrimSpace(value) {
@@ -67,6 +75,8 @@ func runCompileCommand(args []string, projectRoot string, stdout, stderr io.Writ
 	switch args[0] {
 	case "run":
 		return runCompileRun(args[1:], projectRoot, stdout, stderr)
+	case "rerender":
+		return runCompileRerender(args[1:], projectRoot, stdout, stderr)
 	case "sweep":
 		return runCompileSweep(args[1:], projectRoot, stdout, stderr)
 	case "batch-run":

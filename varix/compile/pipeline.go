@@ -43,14 +43,15 @@ type offGraphItem struct {
 }
 
 type graphState struct {
-	Nodes       []graphNode
-	Edges       []graphEdge
-	AuxEdges    []auxEdge
-	OffGraph    []offGraphItem
-	BranchHeads []string
-	Spines      []PreviewSpine
-	ArticleForm string
-	Rounds      int
+	Nodes         []graphNode
+	Edges         []graphEdge
+	AuxEdges      []auxEdge
+	OffGraph      []offGraphItem
+	BranchHeads   []string
+	Spines        []PreviewSpine
+	SemanticUnits []SemanticUnit
+	ArticleForm   string
+	Rounds        int
 }
 
 type relationKind string

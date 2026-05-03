@@ -6,6 +6,7 @@ import (
 	"fmt"
 	varixllm "github.com/kumaloha/VariX/varix/llm"
 	"github.com/kumaloha/forge/llm"
+	"sort"
 	"strings"
 )
 
@@ -42,8 +43,15 @@ func translateAll(ctx context.Context, rt runtimeChat, model string, items []map
 	return out, nil
 }
 
-func summarizeChinese(ctx context.Context, rt runtimeChat, model string, articleForm string, drivers, targets []string, paths []TransmissionPath, bundle Bundle) (string, error) {
-	payload, err := json.Marshal(map[string]any{"article_form": normalizeArticleForm(articleForm), "drivers": drivers, "targets": targets, "paths": paths})
+func summarizeChinese(ctx context.Context, rt runtimeChat, model string, articleForm string, drivers, targets []string, paths []TransmissionPath, declarations []Declaration, semanticUnits []SemanticUnit, bundle Bundle) (string, error) {
+	payload, err := json.Marshal(map[string]any{
+		"article_form":   normalizeArticleForm(articleForm),
+		"drivers":        drivers,
+		"targets":        targets,
+		"paths":          paths,
+		"declarations":   declarations,
+		"semantic_units": topSemanticUnitsForSummary(semanticUnits, articleForm),
+	})
 	if err != nil {
 		return "", err
 	}
@@ -62,6 +70,78 @@ func summarizeChinese(ctx context.Context, rt runtimeChat, model string, article
 		return "", err
 	}
 	return strings.TrimSpace(result.Summary), nil
+}
+
+func topSemanticUnitsForSummary(units []SemanticUnit, articleForm string) []SemanticUnit {
+	if len(units) == 0 {
+		return nil
+	}
+	ranked := rankSemanticUnits(units, "shareholder_meeting")
+	if isReaderInterestSummaryForm(articleForm) {
+		sortSemanticUnitsForReaderInterest(ranked)
+	}
+	if len(ranked) > 6 {
+		ranked = ranked[:6]
+	}
+	return ranked
+}
+
+func isReaderInterestSummaryForm(articleForm string) bool {
+	switch strings.ToLower(strings.TrimSpace(articleForm)) {
+	case "management_qa", "shareholder_meeting", "earnings_call", "capital_allocation_discussion":
+		return true
+	default:
+		return false
+	}
+}
+
+func sortSemanticUnitsForReaderInterest(units []SemanticUnit) {
+	sort.SliceStable(units, func(i, j int) bool {
+		left := summaryReaderInterestRank(units[i])
+		right := summaryReaderInterestRank(units[j])
+		if left != right {
+			return left < right
+		}
+		if units[i].Salience != units[j].Salience {
+			return units[i].Salience > units[j].Salience
+		}
+		return units[i].ID < units[j].ID
+	})
+}
+
+func summaryReaderInterestRank(unit SemanticUnit) int {
+	text := strings.ToLower(strings.Join([]string{unit.Subject, unit.Force, unit.Claim, unit.PromptContext}, " "))
+	switch {
+	case strings.Contains(text, "capital allocation") || strings.Contains(text, "资本配置") || strings.Contains(text, "deploy capital") || strings.Contains(text, "部署资本"):
+		return 0
+	case strings.Contains(text, "circle of competence") || strings.Contains(text, "existing portfolio") || strings.Contains(text, "能力圈") || strings.Contains(text, "现有组合"):
+		return 1
+	case strings.Contains(text, "buyback") || strings.Contains(text, "repurchase") || strings.Contains(text, "回购") || strings.Contains(text, "内在价值"):
+		return 2
+	case strings.Contains(text, "underwriting boundary") || strings.Contains(text, "承保边界") || strings.Contains(text, "承保纪律"):
+		return 3
+	case strings.Contains(text, "ai") || strings.Contains(text, "technology") || strings.Contains(text, "人工智能") || strings.Contains(text, "技术"):
+		return 4
+	case strings.Contains(text, "utility") || strings.Contains(text, "utilities") || strings.Contains(text, "公用事业") || strings.Contains(text, "监管契约"):
+		return 5
+	case strings.Contains(text, "tokyo marine") || strings.Contains(text, "东京海上") || strings.Contains(text, "transaction") || strings.Contains(text, "交易"):
+		return 6
+	case strings.Contains(text, "succession") || strings.Contains(text, "culture") || strings.Contains(text, "继任") || strings.Contains(text, "文化"):
+		return 7
+	case strings.Contains(text, "market softening") || strings.Contains(text, "市场软化") || strings.Contains(text, "资本涌入"):
+		return 8
+	default:
+		switch strings.ToLower(strings.TrimSpace(unit.Force)) {
+		case "commit", "answer", "set_boundary":
+			return 9
+		case "disclose":
+			return 10
+		case "frame_risk":
+			return 12
+		default:
+			return 11
+		}
+	}
 }
 
 func stageJSONCall(ctx context.Context, rt runtimeChat, model string, bundle Bundle, systemPrompt string, userPrompt string, stageName string, target any) error {
@@ -197,6 +277,8 @@ func stageJSONSchema(stageName string) *llm.Schema {
 		return linkListSchema("compile_explanation", "explanation_links", "from", "to")
 	case "supplement":
 		return linkListSchema("compile_supplement", "supplement_links", "a", "b")
+	case "semantic_coverage":
+		return semanticCoverageSchema()
 	case "mainline":
 		return mainlineSchema()
 	case "validate":
@@ -269,6 +351,36 @@ func stageJSONSchema(stageName string) *llm.Schema {
 	}
 }
 
+func semanticCoverageSchema() *llm.Schema {
+	return &llm.Schema{
+		Name:     "compile_semantic_coverage",
+		Required: []string{"semantic_units"},
+		Properties: map[string]any{
+			"semantic_units": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type":     "object",
+					"required": []string{"id", "speaker_role", "subject", "force", "claim", "source_quote", "salience", "confidence"},
+					"properties": map[string]any{
+						"id":                map[string]any{"type": "string"},
+						"span":              map[string]any{"type": "string"},
+						"speaker":           map[string]any{"type": "string"},
+						"speaker_role":      map[string]any{"type": "string"},
+						"subject":           map[string]any{"type": "string"},
+						"force":             map[string]any{"type": "string"},
+						"claim":             map[string]any{"type": "string"},
+						"prompt_context":    map[string]any{"type": "string"},
+						"importance_reason": map[string]any{"type": "string"},
+						"source_quote":      map[string]any{"type": "string"},
+						"salience":          map[string]any{"type": "number"},
+						"confidence":        map[string]any{"type": "string"},
+					},
+				},
+			},
+		},
+	}
+}
+
 func mainlineSchema() *llm.Schema {
 	schema := linkListSchema("compile_relations", "relations", "from", "to")
 	if relations, ok := schema.Properties["relations"].(map[string]any); ok {
@@ -290,6 +402,7 @@ func mainlineSchema() *llm.Schema {
 				"policy":       map[string]any{"type": "string"},
 				"thesis":       map[string]any{"type": "string"},
 				"node_ids":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"unit_ids":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				"edge_indexes": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}},
 				"scope":        map[string]any{"type": "string"},
 				"why":          map[string]any{"type": "string"},
