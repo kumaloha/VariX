@@ -29,7 +29,6 @@ type FlowPreviewResult struct {
 	Spines           []PreviewSpine    `json:"spines,omitempty"`
 	Classify         PreviewGraph      `json:"classify"`
 	Coverage         PreviewGraph      `json:"coverage,omitempty"`
-	Validate         PreviewGraph      `json:"validate,omitempty"`
 	Render           Output            `json:"render"`
 	AuthorValidation *AuthorValidation `json:"author_validation,omitempty"`
 	Metrics          map[string]int64  `json:"metrics"`
@@ -231,7 +230,7 @@ func (c *Client) CoveragePreviewResult(ctx context.Context, bundle Bundle, resul
 		return FlowPreviewResult{}, fmt.Errorf("semantic_coverage: %w", err)
 	}
 	start := time.Now()
-	covered, err := runCoveragePreview(ctx, c.runtime, c.model, bundle, state, maxRounds, paragraphLimit)
+	covered, err := runCoverage(ctx, c.runtime, c.model, bundle, state, maxRounds, paragraphLimit)
 	if err != nil {
 		return FlowPreviewResult{}, fmt.Errorf("coverage: %w", err)
 	}
@@ -268,9 +267,6 @@ func (c *Client) RenderPreview(ctx context.Context, bundle Bundle, result FlowPr
 
 	state := fromPreviewGraph(result.Coverage, result.Spines, result.ArticleForm)
 	if len(state.Nodes) == 0 {
-		state = fromPreviewGraph(result.Validate, result.Spines, result.ArticleForm)
-	}
-	if len(state.Nodes) == 0 {
 		state = fromPreviewGraph(result.Classify, result.Spines, result.ArticleForm)
 	}
 	if len(state.Nodes) == 0 {
@@ -283,11 +279,6 @@ func (c *Client) RenderPreview(ctx context.Context, bundle Bundle, result FlowPr
 		state.Spines = derivePreviewSpines(toPreviewGraph(state))
 		result.Spines = state.Spines
 	}
-	state, err := stageSemanticCoverage(ctx, c.runtime, c.model, bundle, state)
-	if err != nil {
-		return FlowPreviewResult{}, fmt.Errorf("semantic_coverage: %w", err)
-	}
-
 	start := time.Now()
 	rendered, err := stage5Render(ctx, c.runtime, c.model, bundle, cloneGraphState(state))
 	if err != nil {

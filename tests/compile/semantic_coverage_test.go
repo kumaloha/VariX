@@ -8,6 +8,15 @@ import (
 )
 
 func TestSemanticCoverageKeepsManagementAnswersAsSpeakerClaims(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"semantic_units":[
+			{"id":"llm-portfolio","span":"speaker_answer","speaker":"Greg Abel","speaker_role":"primary","subject":"existing portfolio / circle of competence","force":"answer","claim":"Greg Abel 的回答是：现有组合由 Warren Buffett 建立，但集中在他也理解业务和经济前景的公司，所以他对组合很舒服；之后会持续评估业务演化和新风险。Apple 是例子，说明伯克希尔判断能力圈不按“科技股”标签，而是看产品价值、消费者依赖、耐久性和风险。","prompt_context":"股东询问 Greg Abel 如何在能力圈不同的情况下管理 Warren Buffett 建立的组合。","source_quote":"technology stock / consumer valued","salience":0.93,"confidence":"high"},
+			{"id":"llm-technology","span":"operating_update","speaker":"Greg Abel","speaker_role":"primary","subject":"technology / AI operating plan","force":"explain","claim":"Greg Abel 表示伯克希尔正在从购买技术转向建设技术能力，并把 AI 能力用于 GEICO、BNSF 等运营业务。","source_quote":"builder of technology","salience":0.88,"confidence":"high"},
+			{"id":"llm-cyber","span":"risk_boundary","speaker":"Greg Abel","speaker_role":"primary","subject":"cyber insurance underwriting boundary","force":"set_boundary","claim":"伯克希尔面对网络保险的做法是克制承保：如果累计风险不能被可靠建模、价格又不足，就宁可不写；只有在能理解累计敞口并拿到足够价格时才可能承保。","source_quote":"cyber aggregation premiums","salience":0.84,"confidence":"high"},
+			{"id":"llm-tokyo","span":"management_disclosure","speaker":"Greg Abel","speaker_role":"primary","subject":"Tokyo Marine strategic transaction","force":"disclose","claim":"Greg Abel 披露伯克希尔与东京海上的交易不是单点投资，而是三部分：买入约2.5%股权、承接一部分财险业务组合，并签订战略合作协议。","source_quote":"tokyo marine strategic agreement","salience":0.8,"confidence":"high"},
+			{"id":"llm-culture","span":"management_boundary","speaker":"Greg Abel","speaker_role":"primary","subject":"culture and succession","force":"set_boundary","claim":"Greg Abel 强调伯克希尔换届后文化和价值观不会改变，董事会也认真处理关键岗位继任计划。","source_quote":"culture values succession","salience":0.78,"confidence":"high"}
+		]}`,
+	}}}
 	text := strings.Join([]string{
 		"Chinese shareholder asked how Greg Abel would manage Warren Buffett's equity portfolio and whether his circle of competence differs.",
 		"Greg Abel answered that he is comfortable with the existing portfolio.",
@@ -20,7 +29,7 @@ func TestSemanticCoverageKeepsManagementAnswersAsSpeakerClaims(t *testing.T) {
 		"Greg said Berkshire's culture and values did not change and the board has a succession plan in place.",
 	}, "\n")
 
-	state, err := stageSemanticCoverage(context.Background(), nil, "", Bundle{Source: "youtube", Content: text}, graphState{ArticleForm: "shareholder_meeting"})
+	state, err := stageSemanticCoverage(context.Background(), rt, "compile-model", Bundle{Source: "youtube", Content: text}, graphState{ArticleForm: "shareholder_meeting"})
 	if err != nil {
 		t.Fatalf("stageSemanticCoverage() error = %v", err)
 	}
@@ -143,9 +152,12 @@ func TestSemanticCoverageRanksAndLimitsUnits(t *testing.T) {
 	}
 }
 
-func TestSemanticCoverageFallbacksDoNotDuplicateLLMCategories(t *testing.T) {
+func TestSemanticCoverageDedupeLLMCategories(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
-		Text: `{"semantic_units":[{"id":"llm-cyber","speaker":"Ajit Jain","speaker_role":"primary","subject":"网络保险承保策略","force":"reject","claim":"伯克希尔拒绝承保网络保险，因为聚合风险无法建模且价格不足。","source_quote":"cyber aggregation risk cannot be modeled","salience":0.9,"confidence":"high"}]}`,
+		Text: `{"semantic_units":[
+			{"id":"llm-cyber-a","speaker":"Ajit Jain","speaker_role":"primary","subject":"网络保险承保策略","force":"reject","claim":"伯克希尔拒绝承保网络保险，因为聚合风险无法建模且价格不足。","source_quote":"cyber aggregation risk cannot be modeled","salience":0.9,"confidence":"high"},
+			{"id":"llm-cyber-b","speaker":"Ajit Jain","speaker_role":"primary","subject":"cyber insurance underwriting boundary","force":"set_boundary","claim":"伯克希尔只有理解累计风险且价格足够时才会承保网络保险。","source_quote":"premiums have been coming down","salience":0.8,"confidence":"medium"}
+		]}`,
 	}}}
 	text := strings.Join([]string{
 		strings.Repeat("management Q&A content ", 300),

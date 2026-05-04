@@ -25,7 +25,6 @@ func authorValidationGraphState(result FlowPreviewResult) graphState {
 	graphs := []PreviewGraph{
 		result.Classify,
 		result.Coverage,
-		result.Validate,
 		result.Relations,
 		result.Evidence,
 		result.Explanation,

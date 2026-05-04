@@ -40,6 +40,12 @@ func TestRenderPreviewRerunsOnlyRenderFromClassifyPayload(t *testing.T) {
 	if rt.calls != 2 {
 		t.Fatalf("runtime calls = %d, want translate+summary only", rt.calls)
 	}
+	if rt.requests[0].JSONSchema == nil || rt.requests[0].JSONSchema.Name != "compile_translate" {
+		t.Fatalf("first rerender request schema = %#v, want compile_translate", rt.requests[0].JSONSchema)
+	}
+	if rt.requests[1].JSONSchema == nil || rt.requests[1].JSONSchema.Name != "compile_summary" {
+		t.Fatalf("second rerender request schema = %#v, want compile_summary", rt.requests[1].JSONSchema)
+	}
 	if result.Metrics["classify_ms"] != 10 {
 		t.Fatalf("Metrics = %#v, want existing metrics preserved", result.Metrics)
 	}

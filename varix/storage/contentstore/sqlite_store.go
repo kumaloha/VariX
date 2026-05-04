@@ -314,6 +314,9 @@ func (s *SQLiteStore) init() error {
 			return err
 		}
 	}
+	if err := s.ensureCompilePreviewRunSchema(); err != nil {
+		return err
+	}
 	if err := s.backfillAuthorSubscriptionIdentityKeys(); err != nil {
 		return err
 	}
@@ -347,6 +350,53 @@ func (s *SQLiteStore) ensureColumn(table, column, definition string) error {
 		return err
 	}
 	_, err = s.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
+	return err
+}
+
+func (s *SQLiteStore) ensureCompilePreviewRunSchema() error {
+	runColumns, err := s.tableColumns("compile_preview_runs")
+	if err != nil {
+		return err
+	}
+	for _, column := range []string{"skip_validate", "validate_paragraph_limit"} {
+		if _, ok := runColumns[column]; ok {
+			if err := s.dropColumn("compile_preview_runs", column); err != nil {
+				return err
+			}
+		}
+	}
+
+	itemColumns, err := s.tableColumns("compile_preview_run_items")
+	if err != nil {
+		return err
+	}
+	if len(itemColumns) == 0 {
+		return nil
+	}
+	_, hasNew := itemColumns["author_validation_targets"]
+	_, hasOld := itemColumns["validate_targets"]
+	switch {
+	case hasNew && hasOld:
+		if _, err := s.db.Exec(`UPDATE compile_preview_run_items
+			SET author_validation_targets = CASE
+				WHEN author_validation_targets != 0 THEN author_validation_targets
+				ELSE validate_targets
+			END`); err != nil {
+			return err
+		}
+		return s.dropColumn("compile_preview_run_items", "validate_targets")
+	case hasOld:
+		_, err := s.db.Exec(`ALTER TABLE compile_preview_run_items RENAME COLUMN validate_targets TO author_validation_targets`)
+		return err
+	case !hasNew:
+		return s.ensureColumn("compile_preview_run_items", "author_validation_targets", "INTEGER NOT NULL DEFAULT 0")
+	default:
+		return nil
+	}
+}
+
+func (s *SQLiteStore) dropColumn(table, column string) error {
+	_, err := s.db.Exec(`ALTER TABLE ` + table + ` DROP COLUMN ` + column)
 	return err
 }
 

@@ -7,7 +7,27 @@ import (
 	"strings"
 )
 
+type coveragePatch struct {
+	MissingNodes []struct {
+		Text              string `json:"text"`
+		SourceQuote       string `json:"source_quote"`
+		SuggestedRoleHint string `json:"suggested_role_hint"`
+	} `json:"missing_nodes"`
+	MissingEdges []struct {
+		FromText string `json:"from_text"`
+		ToText   string `json:"to_text"`
+	} `json:"missing_edges"`
+	Misclassified []struct {
+		NodeID string `json:"node_id"`
+		Issue  string `json:"issue"`
+	} `json:"misclassified"`
+}
+
 func stageCoverage(ctx context.Context, rt runtimeChat, model string, bundle Bundle, state graphState, maxRounds int) (graphState, error) {
+	return runCoverage(ctx, rt, model, bundle, state, maxRounds, 0)
+}
+
+func runCoverage(ctx context.Context, rt runtimeChat, model string, bundle Bundle, state graphState, maxRounds int, paragraphLimit int) (graphState, error) {
 	if maxRounds <= 0 {
 		return state, nil
 	}
@@ -18,6 +38,9 @@ func stageCoverage(ctx context.Context, rt runtimeChat, model string, bundle Bun
 	paragraphs := splitParagraphs(bundle.TextContext())
 	if len(paragraphs) == 0 {
 		return state, nil
+	}
+	if paragraphLimit > 0 && paragraphLimit < len(paragraphs) {
+		paragraphs = paragraphs[:paragraphLimit]
 	}
 	for round := 0; round < maxRounds; round++ {
 		totalPatches := 0

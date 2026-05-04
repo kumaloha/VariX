@@ -17,12 +17,12 @@ import (
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
 )
 
-func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("compile validate-run", flag.ContinueOnError)
+func runCompileAuthorValidateRun(args []string, projectRoot string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("compile author-validate-run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	sourceRunIDsRaw := fs.String("source-run-ids", "", "comma-separated compile preview run ids to validate")
 	workers := fs.Int("workers", 5, "parallel workers")
-	itemTimeout := fs.Duration("item-timeout", 30*time.Minute, "per-sample validate timeout")
+	itemTimeout := fs.Duration("item-timeout", 30*time.Minute, "per-sample author validation timeout")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -32,7 +32,7 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 		return 2
 	}
 	if len(sourceRunIDs) == 0 {
-		fmt.Fprintln(stderr, "usage: varix compile validate-run --source-run-ids <id,id,...>")
+		fmt.Fprintln(stderr, "usage: varix compile author-validate-run --source-run-ids <id,id,...>")
 		return 2
 	}
 	if *workers <= 0 {
@@ -66,14 +66,12 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 
 	scope := "author-validate:" + joinInt64s(sourceRunIDs)
 	runID, err := store.CreateCompilePreviewRun(ctx, contentstore.CompilePreviewRun{
-		Pipeline:               "compile-author-validate",
-		SampleScope:            scope,
-		SampleCount:            len(sourceItems),
-		WorkerCount:            *workers,
-		SkipValidate:           false,
-		ValidateParagraphLimit: 0,
-		Status:                 "running",
-		StartedAt:              currentUTC().Format(time.RFC3339),
+		Pipeline:    "compile-author-validate",
+		SampleScope: scope,
+		SampleCount: len(sourceItems),
+		WorkerCount: *workers,
+		Status:      "running",
+		StartedAt:   currentUTC().Format(time.RFC3339),
 	})
 	if err != nil {
 		writeErr(stderr, err)
@@ -166,7 +164,7 @@ func runCompileValidateRun(args []string, projectRoot string, stdout, stderr io.
 			item.RelationsNodes = len(result.Relations.Nodes)
 			item.RelationsEdges = len(result.Relations.Edges)
 			item.ClassifyTargets = len(previewTargetNodesForCLI(result.Classify.Nodes))
-			item.ValidateTargets = len(result.Render.AuthorValidation.ClaimChecks)
+			item.AuthorValidationTargets = len(result.Render.AuthorValidation.ClaimChecks)
 			item.RenderDrivers = len(result.Render.Drivers)
 			item.RenderTargets = len(result.Render.Targets)
 			item.RenderPaths = len(result.Render.TransmissionPaths)

@@ -16,6 +16,7 @@ var compileCommands = []string{
 	"rerender",
 	"sweep",
 	"batch-run",
+	"author-validate-run",
 	"show",
 	"summary",
 	"compare",
