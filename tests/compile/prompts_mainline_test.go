@@ -96,18 +96,18 @@ func TestStage3MainlinePromptRequiresGroundedRelations(t *testing.T) {
 		}
 	}
 }
-func TestStage4PromptPreservesAdditionalDownstreamChains(t *testing.T) {
+func TestCoveragePromptPreservesAdditionalDownstreamChains(t *testing.T) {
 	loader := newPromptLoader("")
-	body, err := loader.render("validate_system.tmpl", nil)
+	body, err := loader.render("coverage_system.tmpl", nil)
 	if err != nil {
-		t.Fatalf("render(validate_system.tmpl) error = %v", err)
+		t.Fatalf("render(coverage_system.tmpl) error = %v", err)
 	}
 	for _, want := range []string{
 		"If the paragraph supports additional downstream consequences that are not yet in the graph, add them instead of forcing everything into the first retained outcome.",
 		"Do not treat an already-present endpoint as sufficient if the paragraph also contains other distinct market, funding, credit, or allocation consequences.",
 	} {
 		if !contains(body, want) {
-			t.Fatalf("stage4 prompt missing %q", want)
+			t.Fatalf("coverage prompt missing %q", want)
 		}
 	}
 }
@@ -137,7 +137,7 @@ func TestMainlineCandidateEdgesIncludeRatePressureBridge(t *testing.T) {
 	body := serializeMainlineCandidateEdges("", []graphNode{
 		{ID: "n1", Text: "利率维持高位", SourceQuote: "高利率压低所有资产价格（股票、债券、房产、私募）"},
 		{ID: "n2", Text: "高利率对所有资产价格形成下行压力", SourceQuote: "高利率压低所有资产价格（股票、债券、房产、私募）"},
-	})
+	}, nil)
 
 	for _, want := range []string{
 		"n1 [利率维持高位] -> n2 [高利率对所有资产价格形成下行压力]",
@@ -148,6 +148,28 @@ func TestMainlineCandidateEdgesIncludeRatePressureBridge(t *testing.T) {
 		}
 	}
 }
+
+func TestMainlineCandidateEdgesIncludeCoverageHints(t *testing.T) {
+	body := serializeMainlineCandidateEdges("", []graphNode{
+		{ID: "n36", Text: "四大超巨AI基建投资大增", SourceQuote: "四大超巨云端服务商今年要狂砸7250亿美元于AI基建"},
+		{ID: "n2", Text: "S&P500指数四月上涨10%", SourceQuote: "S&P500在四月上涨10%"},
+	}, []coverageHint{{
+		From:        "n36",
+		To:          "n2",
+		SourceQuote: "四大超巨云端服务商今年要狂砸7250亿美元于AI基建，S&P500在四月上涨10%",
+		Reason:      "coverage",
+	}})
+
+	for _, want := range []string{
+		"n36 [四大超巨AI基建投资大增] -> n2 [S&P500指数四月上涨10%]",
+		"coverage",
+	} {
+		if !contains(body, want) {
+			t.Fatalf("mainline candidate edges missing coverage hint %q in:\n%s", want, body)
+		}
+	}
+}
+
 func TestMainlineSchemaIncludesOptionalSpines(t *testing.T) {
 	schema := stageJSONSchema("mainline")
 	if schema == nil {
@@ -180,7 +202,7 @@ func TestMainlineCandidateEdgesRejectKeywordOnlySharedQuote(t *testing.T) {
 	body := serializeMainlineCandidateEdges("", []graphNode{
 		{ID: "n1", Text: "市场情绪转冷导致流动性资产被抛售", SourceQuote: sharedQuote},
 		{ID: "n2", Text: "私募信贷行业流动性压力上升", SourceQuote: sharedQuote},
-	})
+	}, nil)
 
 	if contains(body, "n1 [市场情绪转冷导致流动性资产被抛售] -> n2 [私募信贷行业流动性压力上升]") {
 		t.Fatalf("keyword-only shared quote produced jumpy private-credit candidate:\n%s", body)
@@ -190,7 +212,7 @@ func TestMainlineCandidateEdgesIncludeFormationChainQuote(t *testing.T) {
 	body := serializeMainlineCandidateEdges("", []graphNode{
 		{ID: "n1", Text: "油价上涨", SourceQuote: "油价、通胀、利率、利息形成财政紧缩螺旋"},
 		{ID: "n2", Text: "财政紧缩螺旋形成", SourceQuote: "油价、通胀、利率、利息形成财政紧缩螺旋"},
-	})
+	}, nil)
 
 	if !contains(body, "n1 [油价上涨] -> n2 [财政紧缩螺旋形成]") {
 		t.Fatalf("formation-chain quote did not produce mainline candidate:\n%s", body)
@@ -202,7 +224,7 @@ func TestMainlineCandidateEdgesIncludeArticleWindowAssetPressureBridge(t *testin
 		{ID: "n4", Text: "中东国家购买美债美股的资金减少", SourceQuote: "一买军火的话那就没这么多钱去买美债美股了"},
 		{ID: "n5", Text: "美股面临资金流出压力", SourceQuote: "如果要是石油美元离开了美国的美元的那些资产美股 美债都会受到压力"},
 		{ID: "n6", Text: "美债面临资金流出压力", SourceQuote: "如果要是石油美元离开了美国的美元的那些资产美股 美债都会受到压力"},
-	})
+	}, nil)
 
 	for _, want := range []string{
 		"n4 [中东国家购买美债美股的资金减少] -> n5 [美股面临资金流出压力]",
@@ -219,7 +241,7 @@ func TestMainlineCandidateEdgesIncludeArticleWindowCrowdedTradeBridge(t *testing
 	body := serializeMainlineCandidateEdges(article, []graphNode{
 		{ID: "n7", Text: "AI/M7交易仍处于拥挤状态", SourceQuote: "哪怕今天AI交易也是个拥挤交易"},
 		{ID: "n8", Text: "AI拥挤交易在资金净流出时面临资产价格剧烈波动风险", SourceQuote: "万一要是有钱往外走但没钱往里进那随时可能出事了这可能带来资产价格的变化"},
-	})
+	}, nil)
 
 	for _, want := range []string{
 		"n7 [AI/M7交易仍处于拥挤状态] -> n8 [AI拥挤交易在资金净流出时面临资产价格剧烈波动风险]",
@@ -238,7 +260,7 @@ func TestMainlineCandidateEdgesIncludeFinancialClaimsCycleBridge(t *testing.T) {
 		{ID: "n22", Text: "企业家能通过借贷和发行股票融资", SourceQuote: "货币和信贷约束减少使企业家能通过借贷和发行股票融资"},
 		{ID: "agg4", Text: "金融财富增加", SourceQuote: "金融财富增加"},
 		{ID: "n43", Text: "金融财富和义务相对于有形财富上升至承诺无法兑现", SourceQuote: "金融财富和义务相对于有形财富上升至承诺无法兑现"},
-	})
+	}, nil)
 
 	for _, want := range []string{
 		"n20 [财富变为交付货币的承诺（金融财富）] -> n21 [货币不再受金银约束]",
@@ -256,7 +278,7 @@ func TestMainlineCandidateEdgesIncludeArticleWindowRedemptionGateBridge(t *testi
 	body := serializeMainlineCandidateEdges(article, []graphNode{
 		{ID: "n11", Text: "私募信贷正遭遇集中赎回挤兑", SourceQuote: "此时此刻这个私募信贷开始被挤提了"},
 		{ID: "n21_1", Text: "私募信贷实施赎回额度限制", SourceQuote: "每一个季度开放赎回的时候最多只能赎回5%也好7.5%也好等到了这个额度了对不起我就关门了"},
-	})
+	}, nil)
 
 	for _, want := range []string{
 		"n11 [私募信贷正遭遇集中赎回挤兑] -> n21_1 [私募信贷实施赎回额度限制]",
@@ -276,7 +298,7 @@ func TestMainlineCandidateEdgesIncludePrivateCreditConvergenceBridges(t *testing
 		{ID: "n23", Text: "中东资金从私募信贷基金撤出", SourceQuote: "很多人开始把钱拿回来"},
 		{ID: "n24", Text: "私募信贷基金遭遇集中赎回", SourceQuote: "私募基金一定就会遭到挤提"},
 		{ID: "n25", Text: "私募信贷基金在达到赎回上限后暂停当期赎回", SourceQuote: "每季度最多赎回5%，到了额度就关门"},
-	})
+	}, nil)
 
 	for _, want := range []string{
 		"n18 [私募信贷资金大量流入数据中心建设项目] -> n20 [私募信贷数据中心项目面临违约风险]",

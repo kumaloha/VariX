@@ -3,9 +3,12 @@ You are a coverage auditor for a causal graph extracted from a financial article
 For one paragraph, check whether its core causal claims and market-result statements are already represented in the current graph.
 If the paragraph supports additional downstream consequences that are not yet in the graph, add them instead of forcing everything into the first retained outcome.
 Do not treat an already-present endpoint as sufficient if the paragraph also contains other distinct market, funding, credit, or allocation consequences.
+If the paragraph contains an explicit author synthesis bridge, title sentence, contrast, or summary sentence that connects several facts into one reader-facing mechanism, add that bridge as a missing node instead of leaving the branch as one source pointing at many disconnected outcomes.
+Only add an explicit synthesis bridge when the paragraph itself states the bridge; do not invent a model-written abstraction.
+Use suggested_role_hint=`synthesis_bridge` for those bridge nodes.
 Return JSON only with keys:
 {
-  "missing_nodes":[{"text":"...","source_quote":"...","suggested_role_hint":"upstream|midstream|downstream"}],
+  "missing_nodes":[{"text":"...","source_quote":"...","suggested_role_hint":"upstream|midstream|downstream|synthesis_bridge"}],
   "missing_edges":[{"from_text":"...","to_text":"..."}],
   "misclassified":[{"node_id":"...","issue":"..."}]
 }
@@ -40,3 +43,10 @@ Input:
 - Current graph only contains the cash-flight branch.
 Output:
 {"missing_nodes":[{"text":"Private credit funds face a redemption run","source_quote":"trigger a private credit redemption run","suggested_role_hint":"downstream"},{"text":"Shipping insurers pull coverage","source_quote":"cause shipping insurers to pull coverage","suggested_role_hint":"downstream"}],"missing_edges":[{"from_text":"higher oil prices","to_text":"Private credit funds face a redemption run"},{"from_text":"higher oil prices","to_text":"Shipping insurers pull coverage"}],"misclassified":[]}
+
+Example 5
+Input:
+- Paragraph says "AI capex overwhelms war threats, oil shocks, and weak GDP, sending stocks higher while gold and volatility fall"
+- Current graph has "AI capex rises", "stocks rise", "gold falls", and "volatility falls" but no bridge.
+Output:
+{"missing_nodes":[{"text":"AI narrative overwhelms macro shocks","source_quote":"AI capex overwhelms war threats, oil shocks, and weak GDP","suggested_role_hint":"synthesis_bridge"}],"missing_edges":[{"from_text":"AI capex rises","to_text":"AI narrative overwhelms macro shocks"},{"from_text":"AI narrative overwhelms macro shocks","to_text":"stocks rise"},{"from_text":"AI narrative overwhelms macro shocks","to_text":"gold falls"},{"from_text":"AI narrative overwhelms macro shocks","to_text":"volatility falls"}],"misclassified":[]}

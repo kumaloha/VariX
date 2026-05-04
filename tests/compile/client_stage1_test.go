@@ -2,7 +2,6 @@ package compile
 
 import (
 	"context"
-	varixllm "github.com/kumaloha/VariX/varix/llm"
 	"github.com/kumaloha/forge/llm"
 	"strings"
 	"testing"
@@ -22,10 +21,7 @@ func TestClientCompileRecordsStageMetrics(t *testing.T) {
 		{Text: `{"nodes":[{"id":"n1","text":"Driver A"},{"id":"n2","text":"Target B"},{"id":"n3","text":"Driver C"}],"edges":[{"from":"n1","to":"n2"},{"from":"n3","to":"n2"}],"off_graph":[]}`, Model: "compile-model"},
 		{Text: `{"replacements":[]}`, Model: "compile-model"},
 		{Text: `{"support_edges":[]}`, Model: "compile-model"},
-		{Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"Driver A drives Target B","reason":"The quote directly states the relation."},{"from":"n3","to":"n2","source_quote":"Driver C drives Target B","reason":"The quote directly states the relation."}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Driver A drives Target B","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"primary relation"}]}`, Model: "compile-model"},
 		{Text: `{"missing_nodes":[],"missing_edges":[],"misclassified":[]}`, Model: "compile-model"},
-		{Text: `{"replacements":[]}`, Model: "compile-model"},
-		{Text: `{"support_edges":[]}`, Model: "compile-model"},
 		{Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"Driver A drives Target B","reason":"The quote directly states the relation."},{"from":"n3","to":"n2","source_quote":"Driver C drives Target B","reason":"The quote directly states the relation."}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Driver A drives Target B","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"primary relation"}]}`, Model: "compile-model"},
 		{Text: `{"summary":"驱动A和驱动C推动目标B"}`, Model: "compile-model"},
 	}}
@@ -42,12 +38,12 @@ func TestClientCompileRecordsStageMetrics(t *testing.T) {
 	if record.Metrics.CompileElapsedMS <= 0 {
 		t.Fatalf("CompileElapsedMS = %d, want positive total metric", record.Metrics.CompileElapsedMS)
 	}
-	for _, stage := range []string{"extract", "refine", "aggregate", "support", "collapse", "relations", "classify", "validate", "render"} {
+	for _, stage := range []string{"extract", "refine", "aggregate", "support", "collapse", "relations", "classify", "coverage", "render"} {
 		if record.Metrics.CompileStageElapsedMS[stage] <= 0 {
 			t.Fatalf("CompileStageElapsedMS = %#v, want positive duration for %q", record.Metrics.CompileStageElapsedMS, stage)
 		}
 	}
-	for _, retired := range []string{"mainline", "reclassify", "cluster", "evidence", "explanation", "supplement"} {
+	for _, retired := range []string{"mainline", "validate", "reclassify", "cluster", "evidence", "explanation", "supplement"} {
 		if _, ok := record.Metrics.CompileStageElapsedMS[retired]; ok {
 			t.Fatalf("CompileStageElapsedMS = %#v, want no retired metric %q", record.Metrics.CompileStageElapsedMS, retired)
 		}
@@ -57,15 +53,12 @@ func TestClientCompileRecordsStageMetrics(t *testing.T) {
 	}
 }
 
-func TestClientCompileOnlyValidateUsesSearch(t *testing.T) {
+func TestClientCompileCoverageUsesMainCompileRoute(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{
 		{Text: `{"nodes":[{"id":"n1","text":"Driver A"},{"id":"n2","text":"Target B"},{"id":"n3","text":"Driver C"}],"edges":[{"from":"n1","to":"n2"},{"from":"n3","to":"n2"}],"off_graph":[]}`},
 		{Text: `{"replacements":[]}`},
 		{Text: `{"support_edges":[]}`},
-		{Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"Driver A drives Target B","reason":"The quote directly states the relation."},{"from":"n3","to":"n2","source_quote":"Driver C drives Target B","reason":"The quote directly states the relation."}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Driver A drives Target B","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"primary relation"}]}`},
 		{Text: `{"missing_nodes":[],"missing_edges":[],"misclassified":[]}`},
-		{Text: `{"replacements":[]}`},
-		{Text: `{"support_edges":[]}`},
 		{Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"Driver A drives Target B","reason":"The quote directly states the relation."},{"from":"n3","to":"n2","source_quote":"Driver C drives Target B","reason":"The quote directly states the relation."}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Driver A drives Target B","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"primary relation"}]}`},
 		{Text: `{"summary":"驱动A和驱动C推动目标B"}`},
 	}}
@@ -82,28 +75,28 @@ func TestClientCompileOnlyValidateUsesSearch(t *testing.T) {
 	if len(rt.requests) == 0 {
 		t.Fatal("expected requests to be recorded")
 	}
-	validateRequests := 0
+	coverageRequests := 0
 	for i, req := range rt.requests {
-		isValidate := req.JSONSchema != nil && req.JSONSchema.Name == "compile_validate"
-		if isValidate {
-			validateRequests++
-			if !req.Search {
-				t.Fatalf("validate request %d uses search=false, want search=true", i)
+		isCoverage := req.JSONSchema != nil && req.JSONSchema.Name == "compile_coverage"
+		if isCoverage {
+			coverageRequests++
+			if req.Search {
+				t.Fatalf("coverage request %d uses search=true, want false", i)
 			}
-			if req.Model != varixllm.Qwen36PlusModel {
-				t.Fatalf("validate request %d model = %q, want %q", i, req.Model, varixllm.Qwen36PlusModel)
+			if req.Model != "unused-fallback" {
+				t.Fatalf("coverage request %d model = %q, want compile fallback", i, req.Model)
 			}
 			continue
 		}
 		if req.Search {
-			t.Fatalf("request %d uses search=true outside validate", i)
+			t.Fatalf("request %d uses search=true outside coverage", i)
 		}
 		if req.Model != "unused-fallback" {
 			t.Fatalf("request %d search=false model = %q, want %q", i, req.Model, "unused-fallback")
 		}
 	}
-	if validateRequests != 1 {
-		t.Fatalf("validateRequests = %d, want 1", validateRequests)
+	if coverageRequests != 1 {
+		t.Fatalf("coverageRequests = %d, want 1", coverageRequests)
 	}
 }
 
@@ -139,6 +132,103 @@ func TestSplitParagraphsSkipsTextContextMarkers(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("splitParagraphs[%d] = %q, want %q; all=%#v", i, got[i], want[i], got)
 		}
+	}
+}
+
+func TestApplyCoveragePatchUsesUniqueNodeIDsAfterCollapsedState(t *testing.T) {
+	state := graphState{
+		Nodes: []graphNode{
+			{ID: "n2", Text: "S&P500指数四月上涨10%"},
+			{ID: "n30", Text: "OPEC石油定价权被严重侵蚀"},
+			{ID: "n35", Text: "石油美元体系根基受侵蚀"},
+		},
+	}
+	patch := coveragePatch{}
+	patch.MissingNodes = append(patch.MissingNodes, struct {
+		Text              string `json:"text"`
+		SourceQuote       string `json:"source_quote"`
+		SuggestedRoleHint string `json:"suggested_role_hint"`
+	}{
+		Text:        "四大超巨云端服务商AI基建投资激增",
+		SourceQuote: "四大超巨云端服务商今年要狂砸7250亿美元于AI基建",
+	})
+	patch.MissingEdges = append(patch.MissingEdges, struct {
+		FromText string `json:"from_text"`
+		ToText   string `json:"to_text"`
+	}{
+		FromText: "四大超巨云端服务商AI基建投资激增",
+		ToText:   "S&P500指数四月上涨10%",
+	})
+
+	got := applyCoveragePatch(state, patch)
+
+	seen := map[string]string{}
+	for _, node := range got.Nodes {
+		if previous, ok := seen[node.ID]; ok {
+			t.Fatalf("duplicate node id %q for %q and %q", node.ID, previous, node.Text)
+		}
+		seen[node.ID] = node.Text
+	}
+	if seen["n30"] != "OPEC石油定价权被严重侵蚀" {
+		t.Fatalf("n30 = %q, want original OPEC node preserved", seen["n30"])
+	}
+	if seen["n36"] != "四大超巨云端服务商AI基建投资激增" {
+		t.Fatalf("n36 = %q, want coverage patch to allocate after max existing n-id", seen["n36"])
+	}
+	if len(got.Edges) != 0 {
+		t.Fatalf("Edges = %#v, want coverage patch to leave final graph edges untouched", got.Edges)
+	}
+	if len(got.CoverageHints) != 1 || got.CoverageHints[0].From != "n36" || got.CoverageHints[0].To != "n2" {
+		t.Fatalf("CoverageHints = %#v, want coverage hint from new unique node to existing target", got.CoverageHints)
+	}
+}
+
+func TestApplyCoveragePatchPreservesExplicitSynthesisBridgeForMainline(t *testing.T) {
+	state := graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "四大超巨云端服务商AI基建投资激增"},
+			{ID: "n2", Text: "风险资产上涨"},
+		},
+		BranchHeads: []string{"n2"},
+	}
+	patch := coveragePatch{}
+	patch.MissingNodes = append(patch.MissingNodes, struct {
+		Text              string `json:"text"`
+		SourceQuote       string `json:"source_quote"`
+		SuggestedRoleHint string `json:"suggested_role_hint"`
+	}{
+		Text:              "AI叙事压过战争、油价和GDP担忧",
+		SourceQuote:       "特朗普的战争威胁、原油价格的暴涨、GDP不如预期，都不算什么",
+		SuggestedRoleHint: "synthesis_bridge",
+	})
+	patch.MissingEdges = append(patch.MissingEdges, struct {
+		FromText string `json:"from_text"`
+		ToText   string `json:"to_text"`
+	}{
+		FromText: "四大超巨云端服务商AI基建投资激增",
+		ToText:   "AI叙事压过战争、油价和GDP担忧",
+	}, struct {
+		FromText string `json:"from_text"`
+		ToText   string `json:"to_text"`
+	}{
+		FromText: "AI叙事压过战争、油价和GDP担忧",
+		ToText:   "风险资产上涨",
+	})
+
+	got := applyCoveragePatch(state, patch)
+
+	bridge, ok := nodeByID(got.Nodes, "n3")
+	if !ok {
+		t.Fatalf("Nodes = %#v, want synthesis bridge node", got.Nodes)
+	}
+	if bridge.DiscourseRole != "mechanism" {
+		t.Fatalf("bridge discourse role = %q, want mechanism so mainline can use it", bridge.DiscourseRole)
+	}
+	if len(got.CoverageHints) != 2 {
+		t.Fatalf("CoverageHints = %#v, want bridge edges as mainline hints", got.CoverageHints)
+	}
+	if containsString(got.BranchHeads, "n3") {
+		t.Fatalf("BranchHeads = %#v, want synthesis bridge kept out of branch heads", got.BranchHeads)
 	}
 }
 

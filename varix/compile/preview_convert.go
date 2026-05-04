@@ -113,6 +113,7 @@ func cloneGraphState(state graphState) graphState {
 		AuxEdges:      append([]auxEdge(nil), state.AuxEdges...),
 		OffGraph:      append([]offGraphItem(nil), state.OffGraph...),
 		BranchHeads:   append([]string(nil), state.BranchHeads...),
+		CoverageHints: append([]coverageHint(nil), state.CoverageHints...),
 		Spines:        append([]PreviewSpine(nil), state.Spines...),
 		SemanticUnits: append([]SemanticUnit(nil), state.SemanticUnits...),
 		ArticleForm:   state.ArticleForm,

@@ -147,6 +147,16 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	debugStage(bundle, "semantic_coverage", fmt.Sprintf("done units=%d", len(graph.SemanticUnits)))
 	c.writeDebugJSON(debugRunDir, "semantic_coverage.json", graph)
 	stageStart = time.Now()
+	graph, err = stageCoverage(ctx, c.runtime, c.model, bundle, graph, 1)
+	if err != nil {
+		debugStage(bundle, "coverage", "error: "+err.Error())
+		c.writeDebugArtifact(debugRunDir, "coverage.error.txt", []byte(err.Error()))
+		return Record{}, err
+	}
+	recordStageMetric(stageMetrics, "coverage", time.Since(stageStart))
+	debugStage(bundle, "coverage", fmt.Sprintf("done nodes=%d hints=%d rounds=%d", len(graph.Nodes), len(graph.CoverageHints), graph.Rounds))
+	c.writeDebugJSON(debugRunDir, "coverage.json", graph)
+	stageStart = time.Now()
 	graph, err = stage3Mainline(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {
 		debugStage(bundle, "relations", "error: "+err.Error())
@@ -166,16 +176,6 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	recordStageMetric(stageMetrics, "classify", time.Since(stageStart))
 	debugStage(bundle, "classify", fmt.Sprintf("done drivers=%d targets=%d", countRole(graph, roleDriver), countTargets(graph)))
 	c.writeDebugJSON(debugRunDir, "classify.json", graph)
-	stageStart = time.Now()
-	graph, err = stage4Validate(ctx, c.runtime, c.model, bundle, graph, 1)
-	if err != nil {
-		debugStage(bundle, "validate", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "validate.error.txt", []byte(err.Error()))
-		return Record{}, err
-	}
-	recordStageMetric(stageMetrics, "validate", time.Since(stageStart))
-	debugStage(bundle, "validate", fmt.Sprintf("done nodes=%d relations=%d rounds=%d", len(graph.Nodes), len(graph.Edges), graph.Rounds))
-	c.writeDebugJSON(debugRunDir, "validate.json", graph)
 	stageStart = time.Now()
 	out, err := stage5Render(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {

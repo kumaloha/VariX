@@ -188,7 +188,7 @@ func normalizeText(text string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
 }
 
-func uniqueTexts(nodes []graphNode, targets []graphNode, paths []renderedPath, declarationNodes []graphNode, off []offGraphItem) []map[string]string {
+func uniqueTexts(nodes []graphNode, targets []graphNode, paths []renderedPath, declarationNodes []graphNode, spineNodes []graphNode, off []offGraphItem) []map[string]string {
 	seen := map[string]struct{}{}
 	out := make([]map[string]string, 0)
 	add := func(id, text string) {
@@ -215,6 +215,9 @@ func uniqueTexts(nodes []graphNode, targets []graphNode, paths []renderedPath, d
 		}
 	}
 	for _, n := range declarationNodes {
+		add(n.ID, n.Text)
+	}
+	for _, n := range spineNodes {
 		add(n.ID, n.Text)
 	}
 	for _, o := range off {

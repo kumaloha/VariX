@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func serializeMainlineCandidateEdges(article string, nodes []graphNode) string {
+func serializeMainlineCandidateEdges(article string, nodes []graphNode, coverageHints []coverageHint) string {
 	type candidate struct {
 		from   graphNode
 		to     graphNode
@@ -13,6 +13,23 @@ func serializeMainlineCandidateEdges(article string, nodes []graphNode) string {
 		reason string
 	}
 	candidates := make([]candidate, 0)
+	nodeIndex := map[string]graphNode{}
+	for _, node := range nodes {
+		nodeIndex[node.ID] = node
+	}
+	for _, hint := range coverageHints {
+		from, okFrom := nodeIndex[strings.TrimSpace(hint.From)]
+		to, okTo := nodeIndex[strings.TrimSpace(hint.To)]
+		if !okFrom || !okTo || from.ID == to.ID {
+			continue
+		}
+		candidates = append(candidates, candidate{
+			from:   from,
+			to:     to,
+			quote:  strings.TrimSpace(hint.SourceQuote),
+			reason: FirstNonEmpty(strings.TrimSpace(hint.Reason), "coverage auditor suggested this relation"),
+		})
+	}
 	for _, from := range nodes {
 		for _, to := range nodes {
 			if from.ID == to.ID {

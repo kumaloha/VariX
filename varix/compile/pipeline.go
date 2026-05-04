@@ -34,6 +34,13 @@ type auxEdge struct {
 	Reason      string
 }
 
+type coverageHint struct {
+	From        string
+	To          string
+	SourceQuote string
+	Reason      string
+}
+
 type offGraphItem struct {
 	ID          string
 	Text        string
@@ -48,6 +55,7 @@ type graphState struct {
 	AuxEdges      []auxEdge
 	OffGraph      []offGraphItem
 	BranchHeads   []string
+	CoverageHints []coverageHint
 	Spines        []PreviewSpine
 	SemanticUnits []SemanticUnit
 	ArticleForm   string

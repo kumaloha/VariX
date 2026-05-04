@@ -29,7 +29,8 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 	drivers = filterRenderDrivers(drivers, paths)
 	targets = filterRenderTargets(targets, paths, state.ArticleForm, satiricalCoveredNodes)
 	declarationNodes := declarationTranslationNodes(state)
-	translated, err := translateAll(ctx, rt, model, uniqueTexts(drivers, targets, paths, declarationNodes, state.OffGraph))
+	spineNodes := spineTranslationNodes(state.Spines)
+	translated, err := translateAll(ctx, rt, model, uniqueTexts(drivers, targets, paths, declarationNodes, spineNodes, state.OffGraph))
 	if err != nil {
 		return Output{}, err
 	}
@@ -53,12 +54,13 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 	}
 	declarations := appendSourceDeclarations(bundle, renderDeclarationsFromSpines(bundle, state, cn))
 	branches := attachDeclarationsToBranches(renderBranchesFromSpines(state.Spines, paths, cn), state.Spines, declarations)
+	topics := renderBranchTopics(branches)
 	evidence, explanation, supplementary := renderOffGraph(state.OffGraph, cn)
 	detailItems := renderOffGraphDetails(state.OffGraph, cn)
 	detailItems = append(detailItems, renderTransmissionPathDetails(paths, cn)...)
 	detailItems = append(detailItems, renderSemanticUnitDetails(state.SemanticUnits)...)
 	evidence = dedupeStrings(append(evidence, renderSpineIllustrations(state, cn)...))
-	summary, err := summarizeChinese(ctx, rt, model, state.ArticleForm, driversOut, targetsOut, transmission, declarations, state.SemanticUnits, bundle)
+	summary, err := summarizeChinese(ctx, rt, model, state.ArticleForm, driversOut, targetsOut, transmission, declarations, state.SemanticUnits, topics, bundle)
 	if err != nil {
 		summary = fallbackSummary(driversOut, targetsOut)
 	}
@@ -120,7 +122,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 		SupplementaryNodes: supplementary,
 		Graph:              graph,
 		Details:            HiddenDetails{Caveats: []string{"compile mainline mvp"}, Items: detailItems},
-		Topics:             nil,
+		Topics:             topics,
 		Confidence:         confidenceFromState(driversOut, targetsOut, transmission),
 	}
 	if len(graph.Nodes) < 2 || len(graph.Edges) < 1 {
@@ -216,10 +218,7 @@ func truncateRunes(value string, limit int) string {
 }
 
 func renderPathToTransmission(path renderedPath, cn func(string, string) string) TransmissionPath {
-	steps := make([]string, 0, len(path.premises)+len(path.steps))
-	for _, premise := range path.premises {
-		steps = appendUniqueNonEmptyStep(steps, cn(premise.ID, premise.Text))
-	}
+	steps := make([]string, 0, len(path.steps))
 	for _, step := range path.steps {
 		steps = appendUniqueNonEmptyStep(steps, cn(step.ID, step.Text))
 	}

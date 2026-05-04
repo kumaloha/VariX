@@ -28,6 +28,7 @@ type FlowPreviewResult struct {
 	Relations        PreviewGraph      `json:"relations"`
 	Spines           []PreviewSpine    `json:"spines,omitempty"`
 	Classify         PreviewGraph      `json:"classify"`
+	Coverage         PreviewGraph      `json:"coverage,omitempty"`
 	Validate         PreviewGraph      `json:"validate,omitempty"`
 	Render           Output            `json:"render"`
 	AuthorValidation *AuthorValidation `json:"author_validation,omitempty"`
@@ -164,6 +165,17 @@ func (c *Client) PreviewFlow(ctx context.Context, bundle Bundle, opts FlowPrevie
 	}
 
 	start = time.Now()
+	selectedState, err = stageCoverage(ctx, c.runtime, c.model, bundle, selectedState, 1)
+	if err != nil {
+		return FlowPreviewResult{}, fmt.Errorf("coverage: %w", err)
+	}
+	result.Coverage = toPreviewGraph(selectedState)
+	result.Metrics["coverage_ms"] = time.Since(start).Milliseconds()
+	if strings.TrimSpace(opts.StopAfter) == "coverage" {
+		return result, nil
+	}
+
+	start = time.Now()
 	relationsState, err := stage3Mainline(ctx, c.runtime, c.model, bundle, cloneGraphState(selectedState))
 	if err != nil {
 		return FlowPreviewResult{}, fmt.Errorf("relations: %w", err)
@@ -199,7 +211,7 @@ func (c *Client) PreviewFlow(ctx context.Context, bundle Bundle, opts FlowPrevie
 	return result, nil
 }
 
-func (c *Client) ValidatePreviewResult(ctx context.Context, bundle Bundle, result FlowPreviewResult, maxRounds int, paragraphLimit int) (FlowPreviewResult, error) {
+func (c *Client) CoveragePreviewResult(ctx context.Context, bundle Bundle, result FlowPreviewResult, maxRounds int, paragraphLimit int) (FlowPreviewResult, error) {
 	if c == nil || c.runtime == nil {
 		return FlowPreviewResult{}, fmt.Errorf("compile client is nil")
 	}
@@ -219,16 +231,16 @@ func (c *Client) ValidatePreviewResult(ctx context.Context, bundle Bundle, resul
 		return FlowPreviewResult{}, fmt.Errorf("semantic_coverage: %w", err)
 	}
 	start := time.Now()
-	validated, err := runValidatePreview(ctx, c.runtime, c.model, bundle, state, maxRounds, paragraphLimit)
+	covered, err := runCoveragePreview(ctx, c.runtime, c.model, bundle, state, maxRounds, paragraphLimit)
 	if err != nil {
-		return FlowPreviewResult{}, fmt.Errorf("validate: %w", err)
+		return FlowPreviewResult{}, fmt.Errorf("coverage: %w", err)
 	}
-	result.Validate = toPreviewGraph(validated)
-	result.Spines = validated.Spines
-	result.Metrics["validate_ms"] = time.Since(start).Milliseconds()
+	result.Coverage = toPreviewGraph(covered)
+	result.Spines = covered.Spines
+	result.Metrics["coverage_ms"] = time.Since(start).Milliseconds()
 
 	start = time.Now()
-	rendered, err := stage5Render(ctx, c.runtime, c.model, bundle, cloneGraphState(validated))
+	rendered, err := stage5Render(ctx, c.runtime, c.model, bundle, cloneGraphState(covered))
 	if err != nil {
 		return FlowPreviewResult{}, fmt.Errorf("render: %w", err)
 	}
@@ -254,7 +266,10 @@ func (c *Client) RenderPreview(ctx context.Context, bundle Bundle, result FlowPr
 		result.URL = bundle.URL
 	}
 
-	state := fromPreviewGraph(result.Validate, result.Spines, result.ArticleForm)
+	state := fromPreviewGraph(result.Coverage, result.Spines, result.ArticleForm)
+	if len(state.Nodes) == 0 {
+		state = fromPreviewGraph(result.Validate, result.Spines, result.ArticleForm)
+	}
 	if len(state.Nodes) == 0 {
 		state = fromPreviewGraph(result.Classify, result.Spines, result.ArticleForm)
 	}
@@ -262,7 +277,7 @@ func (c *Client) RenderPreview(ctx context.Context, bundle Bundle, result FlowPr
 		state = fromPreviewGraph(result.Relations, result.Spines, result.ArticleForm)
 	}
 	if len(state.Nodes) == 0 {
-		return FlowPreviewResult{}, fmt.Errorf("rerender requires validate, classify, or relations preview graph")
+		return FlowPreviewResult{}, fmt.Errorf("rerender requires coverage, classify, or relations preview graph")
 	}
 	if len(state.Spines) == 0 {
 		state.Spines = derivePreviewSpines(toPreviewGraph(state))

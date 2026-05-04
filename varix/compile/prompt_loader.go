@@ -212,12 +212,12 @@ func renderStage3MainlineUserPrompt(article string, articleForm string, nodes st
 	})
 }
 
-func renderStage4SystemPrompt() (string, error) {
-	return defaultPromptLoader.render("validate_system.tmpl", nil)
+func renderCoverageSystemPrompt() (string, error) {
+	return defaultPromptLoader.render("coverage_system.tmpl", nil)
 }
 
-func renderStage4UserPrompt(paragraph, nodes, edges string) (string, error) {
-	return defaultPromptLoader.render("validate_user.tmpl", map[string]any{
+func renderCoverageUserPrompt(paragraph, nodes, edges string) (string, error) {
+	return defaultPromptLoader.render("coverage_user.tmpl", map[string]any{
 		"Paragraph":    paragraph,
 		"CurrentNodes": nodes,
 		"CurrentEdges": edges,

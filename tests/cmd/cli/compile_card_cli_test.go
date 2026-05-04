@@ -276,6 +276,7 @@ func TestRunCompileCardFallsBackToLegacyWhenGraphFirstSubgraphMissing(t *testing
 			Model:          varixllm.Qwen36PlusModel,
 			Output: c.Output{
 				Summary:           "一句话总结",
+				Topics:            []string{"主题A", "主题B"},
 				Drivers:           []string{"驱动A"},
 				Targets:           []string{"目标B"},
 				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
@@ -434,6 +435,7 @@ func TestRunCompileCardCompactPrintsCompactView(t *testing.T) {
 			Model:          varixllm.Qwen36PlusModel,
 			Output: c.Output{
 				Summary:           "一句话总结",
+				Topics:            []string{"主题A", "主题B"},
 				Drivers:           []string{"驱动A"},
 				Targets:           []string{"目标B"},
 				TransmissionPaths: []c.TransmissionPath{{Driver: "驱动A", Target: "目标B", Steps: []string{"中间步骤"}}},
@@ -460,7 +462,7 @@ func TestRunCompileCardCompactPrintsCompactView(t *testing.T) {
 		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Summary", "一句话总结", "Drivers", "- 驱动A", "Targets", "- 目标B", "Evidence", "- 证据A", "Explanations", "- 解释B", "Main logic", "驱动A -> 中间步骤 -> 目标B", "Confidence", "high"} {
+	for _, want := range []string{"Summary", "一句话总结", "Topics", "主题A", "Drivers", "- 驱动A", "Targets", "- 目标B", "Evidence", "- 证据A", "Explanations", "- 解释B", "Main logic", "驱动A -> 中间步骤 -> 目标B", "Confidence", "high"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stdout missing %q in %q", want, out)
 		}

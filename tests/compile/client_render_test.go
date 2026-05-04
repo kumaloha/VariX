@@ -17,6 +17,15 @@ func hasTransmissionPath(paths []TransmissionPath, driver, target string) bool {
 	return false
 }
 
+func firstInferencePathDetail(items []map[string]any) (map[string]any, bool) {
+	for _, item := range items {
+		if kind, _ := item["kind"].(string); kind == "inference_path" {
+			return item, true
+		}
+	}
+	return nil, false
+}
+
 func TestStage5RenderProjectsDriverTargetPathsFromSpines(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{
 		{Text: `{"translations":[{"id":"n1","text":"政策冲击"},{"id":"n2","text":"流动性收缩"},{"id":"n3","text":"美股价格下跌"}]}`},
@@ -67,6 +76,143 @@ func TestStage5RenderProjectsDriverTargetPathsFromSpines(t *testing.T) {
 	}
 	if len(out.TransmissionPaths) != 1 {
 		t.Fatalf("TransmissionPaths = %#v, want one spine path", out.TransmissionPaths)
+	}
+}
+
+func TestStage5RenderKeepsOffGraphPremisesOutOfPathSteps(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"AI基础设施投资激增"},{"id":"n2","text":"S&P500指数四月上涨10%"},{"id":"o1","text":"白宫针对联储展开法律行动"}]}`},
+		{Text: `{"summary":"AI投资热推动美股反弹。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compile-model", Bundle{
+		UnitID:     "weibo:offgraph-premise",
+		Source:     "weibo",
+		ExternalID: "offgraph-premise",
+		Content:    "AI spending drove the S&P 500 higher while another point discussed Fed legal action.",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "AI基础设施投资激增"},
+			{ID: "n2", Text: "S&P500指数四月上涨10%", IsTarget: true},
+		},
+		Edges: []graphEdge{{From: "n1", To: "n2", SourceQuote: "AI基建投资使美股为之癫狂，S&P500在四月上涨10%"}},
+		OffGraph: []offGraphItem{{
+			ID:          "o1",
+			Text:        "白宫针对联储展开法律行动",
+			Role:        "evidence",
+			AttachesTo:  "n2",
+			SourceQuote: "白宫针对联储展开法律行动",
+		}},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Thesis:   "AI投资推动美股反弹",
+			NodeIDs:  []string{"n1", "n2"},
+			Edges:    []PreviewEdge{{From: "n1", To: "n2", SourceQuote: "AI基建投资使美股为之癫狂，S&P500在四月上涨10%"}},
+			Scope:    "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if len(out.TransmissionPaths) != 1 {
+		t.Fatalf("TransmissionPaths = %#v, want one path", out.TransmissionPaths)
+	}
+	if len(out.TransmissionPaths[0].Steps) != 0 {
+		t.Fatalf("TransmissionPath steps = %#v, want off_graph evidence kept out of visible path steps", out.TransmissionPaths[0].Steps)
+	}
+	detail, ok := firstInferencePathDetail(out.Details.Items)
+	if !ok {
+		t.Fatalf("Details.Items = %#v, want inference_path detail", out.Details.Items)
+	}
+	if steps, _ := detail["steps"].([]string); len(steps) != 0 {
+		t.Fatalf("inference detail steps = %#v, want off_graph evidence kept out of path steps", steps)
+	}
+	if !containsString(out.EvidenceNodes, "白宫针对联储展开法律行动") {
+		t.Fatalf("EvidenceNodes = %#v, want off_graph evidence preserved outside path steps", out.EvidenceNodes)
+	}
+}
+
+func TestStage5RenderSurfacesTranslatedBranchThemes(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n1","text":"AI基建狂潮"},{"id":"n2","text":"风险偏好压过宏观噪音"},{"id":"n3","text":"风险资产上涨"},{"id":"spine:s1","text":"巨额AI基建投资压倒宏观风险，带动美股及亚洲芯片板块全面走强。"}]}`},
+		{Text: `{"summary":"AI基建压过宏观噪音。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compile-model", Bundle{
+		UnitID:     "weibo:branch-theme",
+		Source:     "weibo",
+		ExternalID: "branch-theme",
+		Content:    "【阿联酋退群 OPEC麻烦】 AI capex overwhelms macro noise and lifts risk assets.",
+	}, graphState{
+		Nodes: []graphNode{
+			{ID: "n1", Text: "AI capex boom"},
+			{ID: "n2", Text: "AI narrative overwhelms war, oil, and GDP concerns"},
+			{ID: "n3", Text: "Risk assets rise", IsTarget: true},
+		},
+		Edges: []graphEdge{
+			{From: "n1", To: "n2"},
+			{From: "n2", To: "n3"},
+		},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Policy:   "market_update",
+			Thesis:   "AI capex overwhelms macro noise",
+			NodeIDs:  []string{"n1", "n2", "n3"},
+			Edges: []PreviewEdge{
+				{From: "n1", To: "n2"},
+				{From: "n2", To: "n3"},
+			},
+			Scope: "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if len(out.Branches) != 1 || out.Branches[0].Thesis != "巨额AI基建投资压倒宏观风险" {
+		t.Fatalf("Branches = %#v, want compact translated branch thesis", out.Branches)
+	}
+	if !containsString(out.Topics, "巨额AI基建投资压倒宏观风险") {
+		t.Fatalf("Topics = %#v, want compact reader-facing branch theme", out.Topics)
+	}
+	summaryPrompt := ""
+	for _, req := range rt.requests {
+		if req.JSONSchema != nil && req.JSONSchema.Name == "compile_summary" {
+			for _, part := range req.UserParts {
+				summaryPrompt += part.Text
+			}
+		}
+	}
+	if !strings.Contains(summaryPrompt, "巨额AI基建投资压倒宏观风险") {
+		t.Fatalf("summary prompt = %q, want translated themes included", summaryPrompt)
+	}
+	if !strings.Contains(summaryPrompt, `"lead_title":"阿联酋退群 OPEC麻烦"`) {
+		t.Fatalf("summary prompt = %q, want lead title included", summaryPrompt)
+	}
+}
+
+func TestLeadTitleFromBundleExtractsBracketTitle(t *testing.T) {
+	got := leadTitleFromBundle(Bundle{Content: "【阿联酋退群 OPEC麻烦】 AI大战油价，AI完胜！正文"})
+	if got != "阿联酋退群 OPEC麻烦" {
+		t.Fatalf("leadTitleFromBundle() = %q", got)
+	}
+}
+
+func TestCompactBranchTopicShortensLongThesis(t *testing.T) {
+	got := compactBranchTopic("阿联酋退出OPEC削弱产油国联盟凝聚力与协调机制，推动石油市场向碎片化及美国主导格局演变，结算体系呈多极化但仍以美元为锚。")
+	if got != "阿联酋退出OPEC削弱产油国联盟凝聚力与协调机制" {
+		t.Fatalf("compactBranchTopic() = %q", got)
+	}
+	if len([]rune(got)) > 32 {
+		t.Fatalf("compactBranchTopic() = %q (%d runes), want <= 32", got, len([]rune(got)))
+	}
+}
+
+func TestCompactBranchTopicPreservesImportantSecondClause(t *testing.T) {
+	got := compactBranchTopic("鲍威尔留任联储迫使管理层更迭，并抬高短期降息门槛。")
+	if got != "鲍威尔留任联储抬高短期降息门槛" {
+		t.Fatalf("compactBranchTopic() = %q", got)
 	}
 }
 
@@ -659,7 +805,7 @@ func TestStage5RenderFallsBackForLowStructureContent(t *testing.T) {
 	}
 }
 
-func TestStage5RenderIncludesAttachedOffGraphPremisesInPathSteps(t *testing.T) {
+func TestStage5RenderKeepsAttachedOffGraphPremisesOutOfPathSteps(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{
 		{Text: `{"translations":[{"id":"n1","text":"AI基础设施支出规模庞大"},{"id":"n2","text":"小型软件公司跑输现金充裕平台"},{"id":"o1","text":"信用利差走阔"}]}`},
 		{Text: `{"summary":"AI支出与信用利差共同影响小型软件公司。"}`},
@@ -699,11 +845,14 @@ func TestStage5RenderIncludesAttachedOffGraphPremisesInPathSteps(t *testing.T) {
 	if len(out.TransmissionPaths) != 1 {
 		t.Fatalf("TransmissionPaths = %#v, want one path", out.TransmissionPaths)
 	}
-	if !containsString(out.TransmissionPaths[0].Steps, "信用利差走阔") {
-		t.Fatalf("TransmissionPath steps = %#v, want attached off-graph premise", out.TransmissionPaths[0].Steps)
+	if containsString(out.TransmissionPaths[0].Steps, "信用利差走阔") {
+		t.Fatalf("TransmissionPath steps = %#v, want attached off-graph premise kept out of visible path", out.TransmissionPaths[0].Steps)
 	}
-	if len(out.Branches) != 1 || len(out.Branches[0].TransmissionPaths) != 1 || !containsString(out.Branches[0].TransmissionPaths[0].Steps, "信用利差走阔") {
-		t.Fatalf("Branch paths = %#v, want attached off-graph premise", out.Branches)
+	if len(out.Branches) != 1 || len(out.Branches[0].TransmissionPaths) != 1 || containsString(out.Branches[0].TransmissionPaths[0].Steps, "信用利差走阔") {
+		t.Fatalf("Branch paths = %#v, want attached off-graph premise kept out of visible path", out.Branches)
+	}
+	if !containsString(out.EvidenceNodes, "信用利差走阔") {
+		t.Fatalf("EvidenceNodes = %#v, want attached off-graph premise preserved as evidence", out.EvidenceNodes)
 	}
 }
 

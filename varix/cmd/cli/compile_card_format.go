@@ -10,9 +10,7 @@ import (
 func formatCompileCard(projection compileCardProjection) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Summary\n%s\n\n", projection.Summary)
-	if len(projection.Topics) > 0 {
-		fmt.Fprintf(&b, "Topics\n- %s\n\n", strings.Join(projection.Topics, "\n- "))
-	}
+	writeTopicsSection(&b, projection.Topics, len(projection.Topics))
 	writeSemanticUnitSection(&b, projection.SemanticUnits, len(projection.SemanticUnits))
 	writeDeclarationSection(&b, projection.Declarations, 5)
 	writeCompactNodeSection(&b, "Drivers", truncateList(projection.Drivers, 5))
@@ -48,6 +46,7 @@ func formatCompileCard(projection compileCardProjection) string {
 func formatCompactCompileCard(projection compileCardProjection) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Summary\n%s\n\n", projection.Summary)
+	writeTopicsSection(&b, projection.Topics, 3)
 	writeSemanticUnitSection(&b, truncateSemanticUnits(projection.SemanticUnits, 3), 3)
 	writeDeclarationSection(&b, truncateDeclarations(projection.Declarations, 2), 2)
 	writeCompactNodeSection(&b, "Drivers", truncateList(projection.Drivers, 3))
@@ -67,6 +66,16 @@ func formatCompactCompileCard(projection compileCardProjection) string {
 	}
 	fmt.Fprintf(&b, "Confidence\n%s\n", projection.Confidence)
 	return b.String()
+}
+
+func writeTopicsSection(b *strings.Builder, topics []string, limit int) {
+	if len(topics) == 0 || limit <= 0 {
+		return
+	}
+	if len(topics) > limit {
+		topics = topics[:limit]
+	}
+	fmt.Fprintf(b, "Topics\n- %s\n\n", strings.Join(topics, "\n- "))
 }
 
 func writeSemanticUnitSection(b *strings.Builder, units []model.SemanticUnit, limit int) {

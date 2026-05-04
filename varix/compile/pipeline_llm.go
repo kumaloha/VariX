@@ -43,9 +43,11 @@ func translateAll(ctx context.Context, rt runtimeChat, model string, items []map
 	return out, nil
 }
 
-func summarizeChinese(ctx context.Context, rt runtimeChat, model string, articleForm string, drivers, targets []string, paths []TransmissionPath, declarations []Declaration, semanticUnits []SemanticUnit, bundle Bundle) (string, error) {
+func summarizeChinese(ctx context.Context, rt runtimeChat, model string, articleForm string, drivers, targets []string, paths []TransmissionPath, declarations []Declaration, semanticUnits []SemanticUnit, topics []string, bundle Bundle) (string, error) {
 	payload, err := json.Marshal(map[string]any{
 		"article_form":   normalizeArticleForm(articleForm),
+		"lead_title":     leadTitleFromBundle(bundle),
+		"topics":         topics,
 		"drivers":        drivers,
 		"targets":        targets,
 		"paths":          paths,
@@ -281,9 +283,9 @@ func stageJSONSchema(stageName string) *llm.Schema {
 		return semanticCoverageSchema()
 	case "mainline":
 		return mainlineSchema()
-	case "validate":
+	case "coverage":
 		return &llm.Schema{
-			Name:     "compile_validate",
+			Name:     "compile_coverage",
 			Required: []string{"missing_nodes", "missing_edges", "misclassified"},
 			Properties: map[string]any{
 				"missing_nodes": map[string]any{
@@ -435,22 +437,12 @@ func linkListSchema(name string, key string, fromKey string, toKey string) *llm.
 }
 
 func stageModel(stageName, fallback string) string {
-	switch strings.TrimSpace(stageName) {
-	case "validate":
-		return varixllm.Qwen36PlusModel
-	default:
-		if strings.TrimSpace(fallback) != "" {
-			return strings.TrimSpace(fallback)
-		}
-		return varixllm.Qwen3MaxModel
+	if strings.TrimSpace(fallback) != "" {
+		return strings.TrimSpace(fallback)
 	}
+	return varixllm.Qwen3MaxModel
 }
 
 func stageSearch(stageName string) bool {
-	switch strings.TrimSpace(stageName) {
-	case "validate":
-		return true
-	default:
-		return false
-	}
+	return false
 }

@@ -33,7 +33,7 @@ func TestMainlineCandidateEdgesSkipEvidenceAndExamples(t *testing.T) {
 			DiscourseRole: "thesis",
 		},
 	}
-	got := serializeMainlineCandidateEdges("earnings growth drives stock highs", nodes)
+	got := serializeMainlineCandidateEdges("earnings growth drives stock highs", nodes, nil)
 	if got != "- (none)" {
 		t.Fatalf("candidate edges = %q, want evidence/example nodes excluded from hints", got)
 	}
@@ -228,6 +228,7 @@ func TestPreviewFlowStopAfterMainlineDoesNotRender(t *testing.T) {
 		{Text: `{"replacements":[]}`},
 		{Text: `{"aggregates":[]}`},
 		{Text: `{"support_edges":[]}`},
+		{Text: `{"missing_nodes":[],"missing_edges":[],"misclassified":[]}`},
 		{Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"高利率压低所有资产价格","reason":"The quote states the pressure."}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"高利率压低股票价格","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"primary relation"}]}`},
 	}}
 	client := &Client{runtime: rt, model: "compile-model", projectRoot: ""}
@@ -249,8 +250,8 @@ func TestPreviewFlowStopAfterMainlineDoesNotRender(t *testing.T) {
 	if len(result.Render.Drivers) != 0 || len(result.Render.Targets) != 0 || len(result.Render.TransmissionPaths) != 0 {
 		t.Fatalf("Render populated despite stop-after mainline: %#v", result.Render)
 	}
-	if rt.calls != 5 {
-		t.Fatalf("runtime calls = %d, want 5 through mainline only", rt.calls)
+	if rt.calls != 6 {
+		t.Fatalf("runtime calls = %d, want 6 through coverage and mainline only", rt.calls)
 	}
 }
 

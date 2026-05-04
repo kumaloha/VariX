@@ -71,9 +71,9 @@ func TestPromptTemplatesIncludeBoundaryFewShot(t *testing.T) {
 			want: []string{"Boundary few-shot examples", "Example 1", "Input:", "Output:"},
 		},
 		{
-			name: "stage4",
-			file: "validate_system.tmpl",
-			want: []string{"Boundary few-shot examples", "Example 1", "Input:", "Output:"},
+			name: "coverage",
+			file: "coverage_system.tmpl",
+			want: []string{"Boundary few-shot examples", "Example 1", "Input:", "Output:", "explicit synthesis bridge"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

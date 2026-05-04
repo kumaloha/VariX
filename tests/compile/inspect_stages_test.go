@@ -43,13 +43,13 @@ func TestInspectG04Stages(t *testing.T) {
 	}
 	printJSON("STAGE3", stage3)
 
-	stage4, err := stage4Validate(ctx, client.runtime, client.model, bundle, stage3, 1)
+	coverage, err := stageCoverage(ctx, client.runtime, client.model, bundle, stage3, 1)
 	if err != nil {
-		t.Fatalf("stage4Validate() error = %v", err)
+		t.Fatalf("stageCoverage() error = %v", err)
 	}
-	printJSON("STAGE4", stage4)
+	printJSON("COVERAGE", coverage)
 
-	stage5, err := stage5Render(ctx, client.runtime, client.model, bundle, stage4)
+	stage5, err := stage5Render(ctx, client.runtime, client.model, bundle, coverage)
 	if err != nil {
 		t.Fatalf("stage5Render() error = %v", err)
 	}

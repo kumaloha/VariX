@@ -136,7 +136,7 @@ func TestRunCompilePipelineUsesCurrentClient(t *testing.T) {
 			Source:     "web",
 			ExternalID: "compile-id",
 			Model:      "qwen3.6-plus",
-			Metrics:    c.RecordMetrics{CompileElapsedMS: 777, CompileStageElapsedMS: map[string]int64{"extract": 101, "refine": 102, "aggregate": 103, "support": 104, "collapse": 105, "relations": 106, "classify": 107, "validate": 108, "render": 109}},
+			Metrics:    c.RecordMetrics{CompileElapsedMS: 777, CompileStageElapsedMS: map[string]int64{"extract": 101, "refine": 102, "aggregate": 103, "support": 104, "collapse": 105, "relations": 106, "classify": 107, "coverage": 108, "render": 109}},
 			Output: c.Output{
 				Summary: "compile summary",
 				Graph: c.ReasoningGraph{
@@ -167,7 +167,7 @@ func TestRunCompilePipelineUsesCurrentClient(t *testing.T) {
 	if got.Metrics.CompileElapsedMS != 777 {
 		t.Fatalf("CompileElapsedMS = %d, want 777", got.Metrics.CompileElapsedMS)
 	}
-	for _, stage := range []string{"extract", "refine", "aggregate", "support", "collapse", "relations", "classify", "validate", "render"} {
+	for _, stage := range []string{"extract", "refine", "aggregate", "support", "collapse", "relations", "classify", "coverage", "render"} {
 		if got.Metrics.CompileStageElapsedMS[stage] <= 0 {
 			t.Fatalf("CompileStageElapsedMS = %#v, want positive persisted compile stage metric for %q", got.Metrics.CompileStageElapsedMS, stage)
 		}
@@ -185,7 +185,7 @@ func TestRunCompilePipelineUsesCurrentClient(t *testing.T) {
 	if shown.Metrics.CompileElapsedMS != 777 {
 		t.Fatalf("shown CompileElapsedMS = %d, want 777", shown.Metrics.CompileElapsedMS)
 	}
-	for _, stage := range []string{"extract", "refine", "aggregate", "support", "collapse", "relations", "classify", "validate", "render"} {
+	for _, stage := range []string{"extract", "refine", "aggregate", "support", "collapse", "relations", "classify", "coverage", "render"} {
 		if shown.Metrics.CompileStageElapsedMS[stage] <= 0 {
 			t.Fatalf("shown CompileStageElapsedMS = %#v, want positive persisted compile stage metric for %q", shown.Metrics.CompileStageElapsedMS, stage)
 		}

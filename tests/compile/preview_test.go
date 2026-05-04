@@ -95,7 +95,7 @@ func TestDerivePreviewSpinesKeepsParallelBranchesSeparate(t *testing.T) {
 	}
 }
 
-func TestPreviewGraphRoundTripsGraphStateForValidate(t *testing.T) {
+func TestPreviewGraphRoundTripsGraphStateForCoverage(t *testing.T) {
 	state := graphState{
 		ArticleForm: "evidence_backed_forecast",
 		Nodes: []graphNode{{
