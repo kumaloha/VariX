@@ -81,6 +81,8 @@ type (
 	ReasoningGraph   = model.ReasoningGraph
 	Declaration      = model.Declaration
 	SemanticUnit     = model.SemanticUnit
+	Ledger           = model.Ledger
+	LedgerItem       = model.LedgerItem
 	BriefItem        = model.BriefItem
 	TransmissionPath = model.TransmissionPath
 	Branch           = model.Branch

@@ -3,43 +3,111 @@ package compile
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
 const briefCategoryLimit = 2
+const briefDefaultLimit = 14
+
+var mandatoryMeetingBriefCategories = []string{
+	"capital",
+	"portfolio",
+	"insurance",
+	"ai",
+	"energy",
+	"culture",
+	"succession",
+	"governance",
+}
 
 var briefNumberPattern = regexp.MustCompile(`\b\d+(?:\.\d+)?%?|\$\d+(?:\.\d+)?\s*(?:billion|million)?`)
 
 func stageBrief(state graphState) graphState {
-	if !isReaderInterestSummaryForm(state.ArticleForm) || len(state.SemanticUnits) == 0 {
+	if !isReaderInterestSummaryForm(state.ArticleForm) {
 		return state
 	}
-	state.Brief = buildBriefItems(state.SemanticUnits, 14)
+	if len(state.Ledger.Items) == 0 {
+		state = stageLedger(state)
+	}
+	state.Brief = buildBriefFromLedger(state.Ledger, state.ArticleForm)
 	return state
 }
 
 func buildBriefItems(units []SemanticUnit, limit int) []BriefItem {
-	if len(units) == 0 || limit <= 0 {
+	return buildBriefFromLedgerWithLimit(buildLedger(graphState{SemanticUnits: units}), "", limit)
+}
+
+func buildBriefFromLedger(ledger Ledger, articleForm string) []BriefItem {
+	return buildBriefFromLedgerWithLimit(ledger, articleForm, briefDefaultLimit)
+}
+
+func buildBriefFromLedgerWithLimit(ledger Ledger, articleForm string, limit int) []BriefItem {
+	if len(ledger.Items) == 0 || limit <= 0 {
 		return nil
 	}
+	ranked := rankLedgerItems(ledger.Items)
 	out := make([]BriefItem, 0, limit)
 	counts := map[string]int{}
-	for _, unit := range rankSemanticUnits(units, "") {
-		item := briefItemFromSemanticUnit(unit)
-		if item.Category == "" || item.Claim == "" {
-			continue
+
+	if isReaderInterestSummaryForm(articleForm) {
+		for _, category := range mandatoryMeetingBriefCategories {
+			item, ok := bestLedgerItemForCategory(ranked, category, counts)
+			if !ok {
+				continue
+			}
+			out = appendBriefItem(out, item)
+			counts[item.Category]++
+			if len(out) == limit {
+				return out
+			}
 		}
-		if counts[item.Category] >= briefCategoryLimit {
+	}
+
+	for _, ledgerItem := range ranked {
+		item := briefItemFromLedgerItem(ledgerItem)
+		if item.Category == "" || item.Claim == "" || counts[item.Category] >= briefCategoryLimit || containsBriefSource(out, item.SourceIDs) {
 			continue
 		}
 		counts[item.Category]++
-		item.ID = fmt.Sprintf("brief-%03d", len(out)+1)
-		out = append(out, item)
+		out = appendBriefItem(out, item)
 		if len(out) == limit {
 			break
 		}
 	}
 	return out
+}
+
+func appendBriefItem(items []BriefItem, item BriefItem) []BriefItem {
+	item.ID = fmt.Sprintf("brief-%03d", len(items)+1)
+	return append(items, item)
+}
+
+func bestLedgerItemForCategory(items []LedgerItem, category string, counts map[string]int) (BriefItem, bool) {
+	for _, item := range items {
+		if item.Category != category || counts[item.Category] >= briefCategoryLimit {
+			continue
+		}
+		return briefItemFromLedgerItem(item), true
+	}
+	return BriefItem{}, false
+}
+
+func briefItemFromLedgerItem(item LedgerItem) BriefItem {
+	kind := strings.TrimSpace(item.Kind)
+	if kind == "" {
+		kind = "point"
+	}
+	return BriefItem{
+		Category:  strings.TrimSpace(item.Category),
+		Kind:      kind,
+		Claim:     strings.TrimSpace(item.Claim),
+		Entities:  append([]string(nil), item.Entities...),
+		Numbers:   append([]string(nil), item.Numbers...),
+		Quote:     strings.TrimSpace(item.Quote),
+		Salience:  item.Salience,
+		SourceIDs: append([]string(nil), item.SourceIDs...),
+	}
 }
 
 func briefItemFromSemanticUnit(unit SemanticUnit) BriefItem {
@@ -62,6 +130,37 @@ func briefItemFromSemanticUnit(unit SemanticUnit) BriefItem {
 		item.Kind = "numeric"
 	}
 	return item
+}
+
+func rankLedgerItems(items []LedgerItem) []LedgerItem {
+	out := append([]LedgerItem(nil), items...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Kind == "list" && out[j].Kind != "list" {
+			return true
+		}
+		if out[i].Kind != "list" && out[j].Kind == "list" {
+			return false
+		}
+		return out[i].Salience > out[j].Salience
+	})
+	return out
+}
+
+func containsBriefSource(items []BriefItem, sourceIDs []string) bool {
+	for _, sourceID := range sourceIDs {
+		sourceID = strings.TrimSpace(sourceID)
+		if sourceID == "" {
+			continue
+		}
+		for _, item := range items {
+			for _, existing := range item.SourceIDs {
+				if existing == sourceID {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func briefCategory(text string) string {

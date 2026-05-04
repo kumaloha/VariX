@@ -1,6 +1,8 @@
 package model
 
 import (
+	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -191,5 +193,43 @@ func TestOutputValidateAllowsSpeakerSalience(t *testing.T) {
 
 	if err := out.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestOutputPreservesLedgerItems(t *testing.T) {
+	out := Output{
+		Summary: "Berkshire meeting digest",
+		Ledger: Ledger{
+			Items: []LedgerItem{{
+				ID:        "ledger-001",
+				Kind:      "list",
+				Category:  "portfolio",
+				Claim:     "Berkshire discussed the major public holdings.",
+				Entities:  []string{"Apple", "American Express", "Coca-Cola", "Bank of America"},
+				SourceIDs: []string{"semantic-014"},
+			}},
+		},
+		Graph: ReasoningGraph{
+			Nodes: []GraphNode{
+				{ID: "n1", Kind: NodeFact, Text: "Berkshire discussed Apple", OccurredAt: time.Date(2026, 5, 4, 0, 0, 0, 0, time.UTC)},
+				{ID: "n2", Kind: NodeConclusion, Text: "Public holdings remain part of the digest"},
+			},
+			Edges: []GraphEdge{{From: "n1", To: "n2", Kind: EdgeExplains}},
+		},
+	}
+
+	if err := out.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+	payload, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	var roundTrip Output
+	if err := json.Unmarshal(payload, &roundTrip); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if got := roundTrip.Ledger.Items[0].Entities; !slices.Contains(got, "Apple") {
+		t.Fatalf("ledger entities = %#v, want Apple", got)
 	}
 }

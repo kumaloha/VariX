@@ -62,6 +62,27 @@ func TestBriefInfersListsAndNumbers(t *testing.T) {
 	}
 }
 
+func TestBriefKeepsMandatoryMeetingCategoriesFromLedger(t *testing.T) {
+	state := graphState{
+		ArticleForm: "shareholder_meeting",
+		Ledger: Ledger{Items: []LedgerItem{
+			{ID: "ledger-001", Category: "capital", Kind: "commitment", Claim: "Hold cash until the right opportunity appears.", Salience: 0.98},
+			{ID: "ledger-002", Category: "insurance", Kind: "boundary", Claim: "Do not write cyber risk when aggregation cannot be modeled.", Salience: 0.96},
+			{ID: "ledger-003", Category: "ai", Kind: "boundary", Claim: "AI must remain additive and supervised.", Salience: 0.94},
+			{ID: "ledger-004", Category: "portfolio", Kind: "list", Claim: "The portfolio includes Apple, American Express, Coca-Cola, and Bank of America.", Entities: []string{"Apple", "American Express", "Coca-Cola", "Bank of America"}, Salience: 0.7},
+			{ID: "ledger-005", Category: "succession", Kind: "commitment", Claim: "The board has succession plans for Greg Abel and Ajit Jain.", Salience: 0.68},
+		}},
+	}
+
+	got := stageBrief(state).Brief
+	if briefItemByCategory(got, "portfolio") == nil {
+		t.Fatalf("brief = %#v, want portfolio", got)
+	}
+	if briefItemByCategory(got, "succession") == nil {
+		t.Fatalf("brief = %#v, want succession", got)
+	}
+}
+
 func briefItemByCategory(items []BriefItem, category string) *BriefItem {
 	for i := range items {
 		if items[i].Category == category {

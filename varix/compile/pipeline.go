@@ -58,6 +58,7 @@ type graphState struct {
 	CoverageHints []coverageHint
 	Spines        []PreviewSpine
 	SemanticUnits []SemanticUnit
+	Ledger        Ledger
 	Brief         []BriefItem
 	ArticleForm   string
 	Rounds        int

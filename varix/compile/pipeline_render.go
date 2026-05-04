@@ -7,6 +7,9 @@ import (
 )
 
 func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bundle, state graphState) (Output, error) {
+	if len(state.Ledger.Items) == 0 {
+		state = stageLedger(state)
+	}
 	if len(state.Brief) == 0 {
 		state = stageBrief(state)
 	}
@@ -118,6 +121,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 		Targets:            targetsOut,
 		Declarations:       declarations,
 		SemanticUnits:      append([]SemanticUnit(nil), state.SemanticUnits...),
+		Ledger:             state.Ledger,
 		Brief:              append([]BriefItem(nil), state.Brief...),
 		TransmissionPaths:  transmission,
 		Branches:           branches,

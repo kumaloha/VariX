@@ -25,6 +25,9 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 	if err := validateSemanticUnits("semantic_units", o.SemanticUnits); err != nil {
 		return err
 	}
+	if err := validateLedger("ledger", o.Ledger); err != nil {
+		return err
+	}
 	if err := validateTransmissionPaths("transmission_paths", o.TransmissionPaths, false); err != nil {
 		return err
 	}
@@ -43,7 +46,7 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 	if len(o.Graph.Edges) < minEdges {
 		return fmt.Errorf("graph must contain at least %d edges", minEdges)
 	}
-	if o.Details.IsEmpty() && len(o.Declarations) == 0 && len(o.SemanticUnits) == 0 && len(o.Brief) == 0 {
+	if o.Details.IsEmpty() && len(o.Declarations) == 0 && len(o.SemanticUnits) == 0 && len(o.Ledger.Items) == 0 && len(o.Brief) == 0 {
 		return fmt.Errorf("details must not be empty")
 	}
 	nodeIDs, err := validateGraphNodes(o.Graph.Nodes)
@@ -411,6 +414,35 @@ func validateSemanticUnits(field string, values []SemanticUnit) error {
 		}
 		if unit.Salience < 0 || unit.Salience > 1 {
 			return fmt.Errorf("%s[%d].salience must be between 0 and 1", field, i)
+		}
+	}
+	return nil
+}
+
+func validateLedger(field string, ledger Ledger) error {
+	seen := map[string]struct{}{}
+	for i, item := range ledger.Items {
+		if strings.TrimSpace(item.ID) == "" {
+			return fmt.Errorf("%s.items[%d].id must not be empty", field, i)
+		}
+		if _, ok := seen[item.ID]; ok {
+			return fmt.Errorf("duplicate %s item id %q", field, item.ID)
+		}
+		seen[item.ID] = struct{}{}
+		if strings.TrimSpace(item.Claim) == "" {
+			return fmt.Errorf("%s.items[%d].claim must not be empty", field, i)
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s.items[%d].entities", field, i), item.Entities); err != nil {
+			return err
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s.items[%d].numbers", field, i), item.Numbers); err != nil {
+			return err
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s.items[%d].sourceIds", field, i), item.SourceIDs); err != nil {
+			return err
+		}
+		if item.Salience < 0 || item.Salience > 1 {
+			return fmt.Errorf("%s.items[%d].salience must be between 0 and 1", field, i)
 		}
 	}
 	return nil
