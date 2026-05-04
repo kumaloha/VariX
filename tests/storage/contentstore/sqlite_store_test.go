@@ -827,6 +827,10 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 				Entities:  []string{"Apple"},
 				SourceIDs: []string{"semantic-001"},
 			}}},
+			CoverageAudit: model.CoverageAudit{
+				MissingCategories: []string{"portfolio"},
+				OmittedLedgerIDs:  []string{"ledger-002"},
+			},
 			TransmissionPaths: []model.TransmissionPath{{Driver: "driver", Target: "target", Steps: []string{"step"}}},
 			Branches: []model.Branch{{
 				ID:                "s1",
@@ -903,6 +907,9 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 	}
 	if len(got.Output.Ledger.Items) != 1 || got.Output.Ledger.Items[0].Category != "portfolio" || got.Output.Ledger.Items[0].Entities[0] != "Apple" {
 		t.Fatalf("Ledger = %#v, want persisted ledger", got.Output.Ledger)
+	}
+	if len(got.Output.CoverageAudit.MissingCategories) != 1 || got.Output.CoverageAudit.MissingCategories[0] != "portfolio" {
+		t.Fatalf("CoverageAudit = %#v, want persisted coverage audit", got.Output.CoverageAudit)
 	}
 	if got.Output.AuthorValidation.Summary.Verdict != "mixed" || len(got.Output.AuthorValidation.ClaimChecks) != 1 {
 		t.Fatalf("AuthorValidation = %#v, want persisted author validation", got.Output.AuthorValidation)

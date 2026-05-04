@@ -100,6 +100,35 @@ func TestClientCompileCoverageUsesMainCompileRoute(t *testing.T) {
 	}
 }
 
+func TestClientCompileLedgerIncludesCoverageAddedNodes(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"nodes":[{"id":"n1","text":"AI capex increased","source_quote":"AI capex increased","role":"thesis"},{"id":"n2","text":"Stocks rallied","source_quote":"stocks rallied","role":"target"}],"edges":[{"from":"n1","to":"n2"}],"off_graph":[]}`},
+		{Text: `{"replacements":[]}`},
+		{Text: `{"support_edges":[]}`},
+		{Text: `{"missing_nodes":[{"text":"OPEC spare capacity declined","source_quote":"OPEC spare capacity declined","suggested_role_hint":"evidence"}],"missing_edges":[],"misclassified":[]}`},
+		{Text: `{"missing_nodes":[],"missing_edges":[],"misclassified":[]}`},
+		{Text: `{"missing_nodes":[],"missing_edges":[],"misclassified":[]}`},
+		{Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"AI capex drove stocks","reason":"direct relation"}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"AI capex drove stocks","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"primary relation"}]}`},
+		{Text: `{"summary":"AI资本开支推动股市上涨"}`},
+	}}
+	client := &Client{runtime: rt, model: "compile-model", projectRoot: ""}
+	record, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "web:coverage-ledger",
+		Source:     "web",
+		ExternalID: "coverage-ledger",
+		Content:    "AI capex increased.\n\nOPEC spare capacity declined.\n\nStocks rallied.",
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if item := ledgerItemByClaim(record.Output.Ledger.Items, "OPEC spare capacity declined"); item == nil {
+		t.Fatalf("Ledger = %#v, want coverage-added node", record.Output.Ledger.Items)
+	}
+	if len(record.Output.Ledger.Items) < 3 {
+		t.Fatalf("Ledger = %#v, want initial graph plus coverage node", record.Output.Ledger.Items)
+	}
+}
+
 func TestSplitParagraphsSkipsTextContextMarkers(t *testing.T) {
 	got := splitParagraphs(strings.Join([]string{
 		"[ROOT CONTENT]",

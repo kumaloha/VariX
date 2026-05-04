@@ -29,6 +29,7 @@ type Output struct {
 	SemanticUnits      []SemanticUnit     `json:"semantic_units,omitempty"`
 	Ledger             Ledger             `json:"ledger,omitempty"`
 	Brief              []BriefItem        `json:"brief,omitempty"`
+	CoverageAudit      CoverageAudit      `json:"coverage_audit,omitempty"`
 	TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
 	Branches           []Branch           `json:"branches,omitempty"`
 	EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
@@ -51,6 +52,7 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		SemanticUnits      []SemanticUnit     `json:"semantic_units,omitempty"`
 		Ledger             *Ledger            `json:"ledger,omitempty"`
 		Brief              []BriefItem        `json:"brief,omitempty"`
+		CoverageAudit      *CoverageAudit     `json:"coverage_audit,omitempty"`
 		TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
 		Branches           []Branch           `json:"branches,omitempty"`
 		EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
@@ -79,6 +81,10 @@ func (o Output) MarshalJSON() ([]byte, error) {
 	if len(o.Ledger.Items) > 0 {
 		ledger = &o.Ledger
 	}
+	var coverageAudit *CoverageAudit
+	if !o.CoverageAudit.IsZero() {
+		coverageAudit = &o.CoverageAudit
+	}
 	return json.Marshal(publicOutput{
 		Summary:            o.Summary,
 		Drivers:            o.Drivers,
@@ -87,6 +93,7 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		SemanticUnits:      o.SemanticUnits,
 		Ledger:             ledger,
 		Brief:              o.Brief,
+		CoverageAudit:      coverageAudit,
 		TransmissionPaths:  o.TransmissionPaths,
 		Branches:           o.Branches,
 		EvidenceNodes:      o.EvidenceNodes,

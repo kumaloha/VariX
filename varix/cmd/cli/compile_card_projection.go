@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/kumaloha/VariX/varix/model"
+	"strconv"
 	"strings"
 )
 
@@ -16,6 +17,7 @@ type compileCardProjection struct {
 	Declarations        []model.Declaration
 	SemanticUnits       []model.SemanticUnit
 	Brief               []model.BriefItem
+	CoverageAudit       []string
 	Branches            []model.Branch
 	Evidence            []string
 	Explanations        []string
@@ -39,6 +41,7 @@ func buildCompileCardProjection(record model.Record, subgraph *model.ContentSubg
 		Declarations:     cloneDeclarations(record.Output.Declarations),
 		SemanticUnits:    cloneSemanticUnits(record.Output.SemanticUnits),
 		Brief:            cloneBriefItems(record.Output.Brief),
+		CoverageAudit:    coverageAuditLines(record.Output.CoverageAudit),
 		Branches:         primaryFirstBranches(record.Output.Branches),
 		Evidence:         cloneStringSlice(record.Output.EvidenceNodes),
 		Explanations:     cloneStringSlice(record.Output.ExplanationNodes),
@@ -82,6 +85,26 @@ func buildCompileCardProjection(record model.Record, subgraph *model.ContentSubg
 		projection.VerificationSummary = verification
 	}
 	return projection
+}
+
+func coverageAuditLines(audit model.CoverageAudit) []string {
+	if audit.IsZero() {
+		return nil
+	}
+	out := make([]string, 0, len(audit.MissingCategories)+2)
+	for _, category := range audit.MissingCategories {
+		category = strings.TrimSpace(category)
+		if category != "" {
+			out = append(out, "missing: "+category)
+		}
+	}
+	if count := len(audit.MissingListItems); count > 0 {
+		out = append(out, "missing list items: "+strconv.Itoa(count))
+	}
+	if count := len(audit.OmittedLedgerIDs); count > 0 {
+		out = append(out, "omitted ledger items: "+strconv.Itoa(count))
+	}
+	return out
 }
 
 func compileRecordKeyPoints(brief []model.BriefItem, units []model.SemanticUnit, limit int) []string {

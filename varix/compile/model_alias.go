@@ -84,6 +84,7 @@ type (
 	Ledger           = model.Ledger
 	LedgerItem       = model.LedgerItem
 	BriefItem        = model.BriefItem
+	CoverageAudit    = model.CoverageAudit
 	TransmissionPath = model.TransmissionPath
 	Branch           = model.Branch
 	HiddenDetails    = model.HiddenDetails

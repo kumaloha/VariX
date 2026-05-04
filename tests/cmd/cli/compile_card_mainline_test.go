@@ -162,6 +162,47 @@ func TestFormatCompileCardRendersPrimaryPathAsMainline(t *testing.T) {
 	}
 }
 
+func TestFormatCompileCardShowsCoverageAuditSummary(t *testing.T) {
+	record := c.Record{
+		UnitID:     "youtube:audit",
+		Source:     "youtube",
+		ExternalID: "audit",
+		Model:      varixllm.Qwen36PlusModel,
+		Output: c.Output{
+			Summary: "会议摘要",
+			Brief: []c.BriefItem{{
+				Category: "capital",
+				Claim:    "保留现金等待机会。",
+			}},
+			CoverageAudit: c.CoverageAudit{
+				MissingCategories: []string{"portfolio"},
+				OmittedLedgerIDs:  []string{"ledger-001", "ledger-002"},
+			},
+			Graph: c.ReasoningGraph{
+				Nodes: []c.GraphNode{
+					{ID: "n1", Kind: c.NodeFact, Text: "现金"},
+					{ID: "n2", Kind: c.NodeConclusion, Text: "等待机会"},
+				},
+				Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeExplains}},
+			},
+			Details:    c.HiddenDetails{Caveats: []string{"detail"}},
+			Confidence: "medium",
+		},
+		CompiledAt: time.Now().UTC(),
+	}
+
+	out := formatCompileCard(buildCompileCardProjection(record, nil))
+	if !strings.Contains(out, "Coverage audit") {
+		t.Fatalf("stdout missing Coverage audit section:\n%s", out)
+	}
+	if !strings.Contains(out, "missing: portfolio") {
+		t.Fatalf("stdout missing portfolio diagnostic:\n%s", out)
+	}
+	if !strings.Contains(out, "omitted ledger items: 2") {
+		t.Fatalf("stdout missing omitted count:\n%s", out)
+	}
+}
+
 func TestBuildCompileCardProjectionDoesNotRepeatGraphFirstPrimaryPathAsSideLogic(t *testing.T) {
 	record := c.Record{
 		UnitID:     "web:graph-first-mainline",

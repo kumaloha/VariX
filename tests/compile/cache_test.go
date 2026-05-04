@@ -3,6 +3,7 @@ package compile
 import (
 	"context"
 	"testing"
+	"time"
 
 	varixllm "github.com/kumaloha/VariX/varix/llm"
 	"github.com/kumaloha/forge/llm"
@@ -55,6 +56,48 @@ func TestClientEnableLLMCacheWrapsCompileRuntime(t *testing.T) {
 	if rt.calls != 1 {
 		t.Fatalf("runtime calls = %d, want second extract served from client cache", rt.calls)
 	}
+}
+
+func TestStageJSONCallAppliesConfiguredStageTimeout(t *testing.T) {
+	t.Setenv("COMPILE_STAGE_TIMEOUT_SECONDS", "7")
+	rt := deadlineRuntime{t: t, max: 8 * time.Second}
+	var result struct {
+		Summary string `json:"summary"`
+	}
+
+	if err := stageJSONCall(context.Background(), rt, "compile-model", Bundle{UnitID: "web:timeout"}, "system", "user", "summary", &result); err != nil {
+		t.Fatalf("stageJSONCall() error = %v", err)
+	}
+	if result.Summary != "ok" {
+		t.Fatalf("Summary = %q, want ok", result.Summary)
+	}
+}
+
+func TestCompileStageTimeoutFallsBackOnMalformedConfig(t *testing.T) {
+	t.Setenv("COMPILE_STAGE_TIMEOUT_SECONDS", "480s")
+	if got := compileStageTimeout(); got != defaultCompileStageTimeout {
+		t.Fatalf("compileStageTimeout() = %s, want default %s for malformed config", got, defaultCompileStageTimeout)
+	}
+	t.Setenv("COMPILE_STAGE_TIMEOUT_SECONDS", "-1")
+	if got := compileStageTimeout(); got != defaultCompileStageTimeout {
+		t.Fatalf("compileStageTimeout() = %s, want default %s for non-positive config", got, defaultCompileStageTimeout)
+	}
+}
+
+type deadlineRuntime struct {
+	t   *testing.T
+	max time.Duration
+}
+
+func (r deadlineRuntime) Call(ctx context.Context, req llm.ProviderRequest) (llm.Response, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		r.t.Fatal("runtime context has no deadline")
+	}
+	if remaining := time.Until(deadline); remaining > r.max {
+		r.t.Fatalf("runtime context deadline remaining = %s, want <= %s", remaining, r.max)
+	}
+	return llm.Response{Text: `{"summary":"ok"}`}, nil
 }
 
 type memoryLLMCacheStore struct {

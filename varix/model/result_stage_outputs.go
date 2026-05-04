@@ -46,6 +46,7 @@ type UnifiedCompileOutput struct {
 	SemanticUnits      []SemanticUnit     `json:"semantic_units,omitempty"`
 	Ledger             Ledger             `json:"ledger,omitempty"`
 	Brief              []BriefItem        `json:"brief,omitempty"`
+	CoverageAudit      CoverageAudit      `json:"coverage_audit,omitempty"`
 	TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
 	EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
 	ExplanationNodes   []string           `json:"explanation_nodes,omitempty"`

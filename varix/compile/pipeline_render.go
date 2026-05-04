@@ -13,6 +13,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 	if len(state.Brief) == 0 {
 		state = stageBrief(state)
 	}
+	coverageAudit := auditBriefCoverage(state.Ledger, state.Brief)
 	state = applyDeclarationCoverageGate(bundle, state)
 	state = dedupeGraphStateForRender(state)
 	if projected, ok := projectRolesFromSpines(state); ok {
@@ -123,6 +124,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 		SemanticUnits:      append([]SemanticUnit(nil), state.SemanticUnits...),
 		Ledger:             state.Ledger,
 		Brief:              append([]BriefItem(nil), state.Brief...),
+		CoverageAudit:      coverageAudit,
 		TransmissionPaths:  transmission,
 		Branches:           branches,
 		EvidenceNodes:      evidence,

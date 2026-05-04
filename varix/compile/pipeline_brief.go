@@ -197,6 +197,11 @@ func containsAIReference(text string) bool {
 	return strings.Contains(" "+text+" ", " ai ") ||
 		strings.Contains(text, "ai应用") ||
 		strings.Contains(text, "ai在") ||
+		strings.Contains(text, "ai目前") ||
+		strings.Contains(text, "ai基建") ||
+		strings.Contains(text, "ai资本") ||
+		strings.Contains(text, "ai革命") ||
+		strings.Contains(text, "ai工具") ||
 		strings.Contains(text, "ai算力") ||
 		strings.Contains(text, "ai数据")
 }

@@ -6,9 +6,14 @@ import (
 	"fmt"
 	varixllm "github.com/kumaloha/VariX/varix/llm"
 	"github.com/kumaloha/forge/llm"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
+
+const defaultCompileStageTimeout = 8 * time.Minute
 
 func translateAll(ctx context.Context, rt runtimeChat, model string, items []map[string]string) (map[string]string, error) {
 	if len(items) == 0 {
@@ -152,14 +157,36 @@ func stageJSONCall(ctx context.Context, rt runtimeChat, model string, bundle Bun
 		return err
 	}
 	req.JSONSchema = stageJSONSchema(stageName)
-	resp, err := callStageRuntime(ctx, rt, stageName, req)
-	if err != nil {
-		return err
+	timeout := compileStageTimeout()
+	callCtx := ctx
+	cancel := func() {}
+	if timeout > 0 {
+		callCtx, cancel = context.WithTimeout(ctx, timeout)
 	}
+	defer cancel()
+	start := time.Now()
+	debugStage(bundle, stageName, fmt.Sprintf("call start model=%s timeout=%s user_chars=%d", strings.TrimSpace(req.Model), timeout, len(userPrompt)))
+	resp, err := callStageRuntime(callCtx, rt, stageName, req)
+	if err != nil {
+		return fmt.Errorf("%s call: %w", stageName, err)
+	}
+	debugStage(bundle, stageName, fmt.Sprintf("call done elapsed_ms=%d tokens=%d", DurationToMilliseconds(time.Since(start)), resp.Tokens.TotalTokens))
 	if err := parseJSONObject(resp.Text, target); err != nil {
 		return fmt.Errorf("%s parse: %w", stageName, err)
 	}
 	return nil
+}
+
+func compileStageTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("COMPILE_STAGE_TIMEOUT_SECONDS"))
+	if raw == "" {
+		return defaultCompileStageTimeout
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= 0 {
+		return defaultCompileStageTimeout
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func stageJSONSchema(stageName string) *llm.Schema {
