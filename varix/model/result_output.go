@@ -27,6 +27,7 @@ type Output struct {
 	Targets            []string           `json:"targets,omitempty"`
 	Declarations       []Declaration      `json:"declarations,omitempty"`
 	SemanticUnits      []SemanticUnit     `json:"semantic_units,omitempty"`
+	Brief              []BriefItem        `json:"brief,omitempty"`
 	TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
 	Branches           []Branch           `json:"branches,omitempty"`
 	EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
@@ -47,6 +48,7 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		Targets            []string           `json:"targets,omitempty"`
 		Declarations       []Declaration      `json:"declarations,omitempty"`
 		SemanticUnits      []SemanticUnit     `json:"semantic_units,omitempty"`
+		Brief              []BriefItem        `json:"brief,omitempty"`
 		TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
 		Branches           []Branch           `json:"branches,omitempty"`
 		EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
@@ -77,6 +79,7 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		Targets:            o.Targets,
 		Declarations:       o.Declarations,
 		SemanticUnits:      o.SemanticUnits,
+		Brief:              o.Brief,
 		TransmissionPaths:  o.TransmissionPaths,
 		Branches:           o.Branches,
 		EvidenceNodes:      o.EvidenceNodes,

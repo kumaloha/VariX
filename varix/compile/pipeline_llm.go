@@ -279,8 +279,8 @@ func stageJSONSchema(stageName string) *llm.Schema {
 		return linkListSchema("compile_explanation", "explanation_links", "from", "to")
 	case "supplement":
 		return linkListSchema("compile_supplement", "supplement_links", "a", "b")
-	case "semantic_coverage":
-		return semanticCoverageSchema()
+	case "salience", "semantic_coverage":
+		return salienceSchema()
 	case "mainline":
 		return mainlineSchema()
 	case "coverage":
@@ -353,9 +353,9 @@ func stageJSONSchema(stageName string) *llm.Schema {
 	}
 }
 
-func semanticCoverageSchema() *llm.Schema {
+func salienceSchema() *llm.Schema {
 	return &llm.Schema{
-		Name:     "compile_semantic_coverage",
+		Name:     "compile_salience",
 		Required: []string{"semantic_units"},
 		Properties: map[string]any{
 			"semantic_units": map[string]any{

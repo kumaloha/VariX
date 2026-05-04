@@ -188,12 +188,12 @@ func renderStage3MainlineSystemPrompt() (string, error) {
 	return defaultPromptLoader.render("mainline_system.tmpl", nil)
 }
 
-func renderSemanticCoverageSystemPrompt() (string, error) {
-	return defaultPromptLoader.render("semantic_coverage_system.tmpl", nil)
+func renderSalienceSystemPrompt() (string, error) {
+	return defaultPromptLoader.render("salience_system.tmpl", nil)
 }
 
-func renderSemanticCoverageUserPrompt(article string, articleForm string, nodes string) (string, error) {
-	return defaultPromptLoader.render("semantic_coverage_user.tmpl", map[string]any{
+func renderSalienceUserPrompt(article string, articleForm string, nodes string) (string, error) {
+	return defaultPromptLoader.render("salience_user.tmpl", map[string]any{
 		"Article":     article,
 		"ArticleForm": articleForm,
 		"Nodes":       nodes,

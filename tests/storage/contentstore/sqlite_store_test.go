@@ -810,9 +810,15 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 		RootExternalID: "100",
 		Model:          "qwen3.6-plus",
 		Output: model.Output{
-			Summary:           "summary text",
-			Drivers:           []string{"driver"},
-			Targets:           []string{"target"},
+			Summary: "summary text",
+			Drivers: []string{"driver"},
+			Targets: []string{"target"},
+			Brief: []model.BriefItem{{
+				Category: "portfolio",
+				Kind:     "list",
+				Claim:    "Apple remains a core holding.",
+				Entities: []string{"Apple"},
+			}},
 			TransmissionPaths: []model.TransmissionPath{{Driver: "driver", Target: "target", Steps: []string{"step"}}},
 			Branches: []model.Branch{{
 				ID:                "s1",
@@ -883,6 +889,9 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 	}
 	if len(got.Output.Branches[0].TransmissionPaths) != 1 || got.Output.Branches[0].TransmissionPaths[0].Target != "target" {
 		t.Fatalf("Branch transmission paths = %#v", got.Output.Branches[0].TransmissionPaths)
+	}
+	if len(got.Output.Brief) != 1 || got.Output.Brief[0].Category != "portfolio" || got.Output.Brief[0].Entities[0] != "Apple" {
+		t.Fatalf("Brief = %#v, want persisted brief", got.Output.Brief)
 	}
 	if got.Output.AuthorValidation.Summary.Verdict != "mixed" || len(got.Output.AuthorValidation.ClaimChecks) != 1 {
 		t.Fatalf("AuthorValidation = %#v, want persisted author validation", got.Output.AuthorValidation)

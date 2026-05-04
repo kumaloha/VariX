@@ -11,14 +11,14 @@ import (
 )
 
 const (
-	semanticCoverageChunkRunes = 36000
-	semanticCoverageMaxChunks  = 6
-	semanticCoverageOverlap    = 1200
-	semanticCoverageParallel   = 3
+	salienceChunkRunes = 36000
+	salienceMaxChunks  = 6
+	salienceOverlap    = 1200
+	salienceParallel   = 3
 )
 
-func stageSemanticCoverage(ctx context.Context, rt runtimeChat, model string, bundle Bundle, state graphState) (graphState, error) {
-	if !shouldRunSemanticCoverage(bundle, state) {
+func stageSalience(ctx context.Context, rt runtimeChat, model string, bundle Bundle, state graphState) (graphState, error) {
+	if !shouldRunSalience(bundle, state) {
 		return state, nil
 	}
 	if len(state.SemanticUnits) > 0 {
@@ -26,7 +26,7 @@ func stageSemanticCoverage(ctx context.Context, rt runtimeChat, model string, bu
 		return state, nil
 	}
 	units := append([]SemanticUnit(nil), state.SemanticUnits...)
-	llmUnits, err := semanticCoverageFromLLM(ctx, rt, model, bundle, state)
+	llmUnits, err := salienceFromLLM(ctx, rt, model, bundle, state)
 	if err != nil {
 		return graphState{}, err
 	}
@@ -35,7 +35,7 @@ func stageSemanticCoverage(ctx context.Context, rt runtimeChat, model string, bu
 	return state, nil
 }
 
-func shouldRunSemanticCoverage(bundle Bundle, state graphState) bool {
+func shouldRunSalience(bundle Bundle, state graphState) bool {
 	switch strings.ToLower(strings.TrimSpace(state.ArticleForm)) {
 	case "management_qa", "shareholder_meeting", "earnings_call", "capital_allocation_discussion":
 		return true
@@ -44,7 +44,7 @@ func shouldRunSemanticCoverage(bundle Bundle, state graphState) bool {
 	return (source == "youtube" || source == "bilibili") && len([]rune(bundle.TextContext())) >= 5000
 }
 
-func semanticCoverageCategory(unit SemanticUnit) string {
+func salienceCategory(unit SemanticUnit) string {
 	text := strings.ToLower(strings.Join([]string{unit.ID, unit.Subject, unit.Force, unit.Claim}, " "))
 	switch {
 	case strings.Contains(text, "capital allocation") || strings.Contains(text, "资本配置"):
@@ -55,8 +55,12 @@ func semanticCoverageCategory(unit SemanticUnit) string {
 		return "cyber_insurance"
 	case strings.Contains(text, "tokyo marine") || strings.Contains(text, "东京海上"):
 		return "tokyo_marine"
-	case strings.Contains(text, "culture") || strings.Contains(text, "succession") || strings.Contains(text, "文化") || strings.Contains(text, "继任"):
-		return "culture_succession"
+	case containsAnyText(text, []string{"culture", "values", "current form", "文化", "价值观", "现有形式"}) &&
+		!containsAnyText(text, []string{"succession", "继任"}):
+		return "culture"
+	case containsAnyText(text, []string{"succession", "successor", "继任", "接班"}) &&
+		!containsAnyText(text, []string{"culture", "values", "文化", "价值观"}):
+		return "succession"
 	case strings.Contains(text, "builder of technology") || strings.Contains(text, "technology / ai operating") || strings.Contains(text, "建设技术能力"):
 		return "technology_operating_plan"
 	default:
@@ -64,21 +68,21 @@ func semanticCoverageCategory(unit SemanticUnit) string {
 	}
 }
 
-func semanticCoverageFromLLM(ctx context.Context, rt runtimeChat, model string, bundle Bundle, state graphState) ([]SemanticUnit, error) {
+func salienceFromLLM(ctx context.Context, rt runtimeChat, model string, bundle Bundle, state graphState) ([]SemanticUnit, error) {
 	if rt == nil || strings.TrimSpace(model) == "" {
 		return nil, nil
 	}
-	systemPrompt, err := renderSemanticCoverageSystemPrompt()
+	systemPrompt, err := renderSalienceSystemPrompt()
 	if err != nil {
 		return nil, err
 	}
-	chunks := semanticCoverageChunks(compactSemanticCoverageArticle(bundle.TextContext()))
+	chunks := salienceChunks(compactSalienceArticle(bundle.TextContext()))
 	if len(chunks) <= 1 {
-		return semanticCoverageChunkFromLLM(ctx, rt, model, bundle, systemPrompt, state, firstSemanticChunk(chunks), 0, len(chunks))
+		return salienceChunkFromLLM(ctx, rt, model, bundle, systemPrompt, state, firstSemanticChunk(chunks), 0, len(chunks))
 	}
 	results := make([][]SemanticUnit, len(chunks))
 	errs := make(chan error, len(chunks))
-	sem := make(chan struct{}, semanticCoverageParallel)
+	sem := make(chan struct{}, salienceParallel)
 	var wg sync.WaitGroup
 	for i, chunk := range chunks {
 		wg.Add(1)
@@ -86,7 +90,7 @@ func semanticCoverageFromLLM(ctx context.Context, rt runtimeChat, model string, 
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			units, err := semanticCoverageChunkFromLLM(ctx, rt, model, bundle, systemPrompt, state, chunk, index, len(chunks))
+			units, err := salienceChunkFromLLM(ctx, rt, model, bundle, systemPrompt, state, chunk, index, len(chunks))
 			if err != nil {
 				errs <- err
 				return
@@ -108,8 +112,8 @@ func semanticCoverageFromLLM(ctx context.Context, rt runtimeChat, model string, 
 	return units, nil
 }
 
-func semanticCoverageChunkFromLLM(ctx context.Context, rt runtimeChat, model string, bundle Bundle, systemPrompt string, state graphState, chunk string, index int, total int) ([]SemanticUnit, error) {
-	userPrompt, err := renderSemanticCoverageUserPrompt(chunk, state.ArticleForm, serializeRelationNodes(state.Nodes))
+func salienceChunkFromLLM(ctx context.Context, rt runtimeChat, model string, bundle Bundle, systemPrompt string, state graphState, chunk string, index int, total int) ([]SemanticUnit, error) {
+	userPrompt, err := renderSalienceUserPrompt(chunk, state.ArticleForm, serializeRelationNodes(state.Nodes))
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +125,7 @@ func semanticCoverageChunkFromLLM(ctx context.Context, rt runtimeChat, model str
 		chunkBundle.UnitID = fmt.Sprintf("%s:semantic:%02d", strings.TrimSpace(bundle.UnitID), index+1)
 		chunkBundle.Content = chunk
 	}
-	if err := stageJSONCall(ctx, rt, model, chunkBundle, systemPrompt, userPrompt, "semantic_coverage", &result); err != nil {
+	if err := stageJSONCall(ctx, rt, model, chunkBundle, systemPrompt, userPrompt, "salience", &result); err != nil {
 		return nil, err
 	}
 	for i := range result.SemanticUnits {
@@ -139,25 +143,25 @@ func firstSemanticChunk(chunks []string) string {
 	return chunks[0]
 }
 
-func semanticCoverageChunks(article string) []string {
+func salienceChunks(article string) []string {
 	article = strings.TrimSpace(article)
 	if article == "" {
 		return nil
 	}
 	total := utf8.RuneCountInString(article)
-	if total <= semanticCoverageChunkRunes {
+	if total <= salienceChunkRunes {
 		return []string{article}
 	}
-	chunkSize := semanticCoverageChunkRunes
-	estimated := int(math.Ceil(float64(total) / float64(chunkSize-semanticCoverageOverlap)))
-	if estimated > semanticCoverageMaxChunks {
-		chunkSize = int(math.Ceil(float64(total) / float64(semanticCoverageMaxChunks)))
-		if chunkSize < semanticCoverageChunkRunes {
-			chunkSize = semanticCoverageChunkRunes
+	chunkSize := salienceChunkRunes
+	estimated := int(math.Ceil(float64(total) / float64(chunkSize-salienceOverlap)))
+	if estimated > salienceMaxChunks {
+		chunkSize = int(math.Ceil(float64(total) / float64(salienceMaxChunks)))
+		if chunkSize < salienceChunkRunes {
+			chunkSize = salienceChunkRunes
 		}
 	}
 	runes := []rune(article)
-	chunks := make([]string, 0, semanticCoverageMaxChunks)
+	chunks := make([]string, 0, salienceMaxChunks)
 	for start := 0; start < len(runes); {
 		end := start + chunkSize
 		if end > len(runes) {
@@ -167,10 +171,10 @@ func semanticCoverageChunks(article string) []string {
 		if chunk != "" {
 			chunks = append(chunks, chunk)
 		}
-		if end == len(runes) || len(chunks) >= semanticCoverageMaxChunks {
+		if end == len(runes) || len(chunks) >= salienceMaxChunks {
 			break
 		}
-		next := end - semanticCoverageOverlap
+		next := end - salienceOverlap
 		if next <= start {
 			next = end
 		}
@@ -179,7 +183,7 @@ func semanticCoverageChunks(article string) []string {
 	return chunks
 }
 
-func compactSemanticCoverageArticle(article string) string {
+func compactSalienceArticle(article string) string {
 	tokens := strings.Fields(strings.TrimSpace(article))
 	if len(tokens) == 0 {
 		return ""
@@ -239,7 +243,7 @@ func dedupeSemanticUnits(units []SemanticUnit) []SemanticUnit {
 			continue
 		}
 		key := strings.ToLower(unit.Subject + "|" + unit.Force)
-		if category := semanticCoverageCategory(unit); category != "" {
+		if category := salienceCategory(unit); category != "" {
 			key = "category:" + category
 		}
 		if idx, ok := seen[key]; ok {
@@ -277,7 +281,7 @@ func mergeSemanticUnit(base, extra SemanticUnit) SemanticUnit {
 	return base
 }
 
-func rankSemanticUnits(units []SemanticUnit, articleForm string) []SemanticUnit {
+func rankSemanticUnits(units []SemanticUnit, _ string) []SemanticUnit {
 	if len(units) == 0 {
 		return nil
 	}
@@ -288,10 +292,6 @@ func rankSemanticUnits(units []SemanticUnit, articleForm string) []SemanticUnit 
 		}
 		return out[i].ID < out[j].ID
 	})
-	limit := semanticCoverageLimit(articleForm)
-	if len(out) > limit {
-		out = out[:limit]
-	}
 	return out
 }
 
@@ -306,10 +306,25 @@ func assignSemanticUnitIDs(units []SemanticUnit) []SemanticUnit {
 	return out
 }
 
-func semanticCoverageLimit(articleForm string) int {
+func topSemanticUnitsForMainline(units []SemanticUnit, articleForm string) []SemanticUnit {
+	if len(units) == 0 {
+		return nil
+	}
+	ranked := rankSemanticUnits(units, articleForm)
+	if isReaderInterestSummaryForm(articleForm) {
+		sortSemanticUnitsForReaderInterest(ranked)
+	}
+	limit := semanticMainlineUnitLimit(articleForm)
+	if len(ranked) > limit {
+		ranked = ranked[:limit]
+	}
+	return ranked
+}
+
+func semanticMainlineUnitLimit(articleForm string) int {
 	switch strings.ToLower(strings.TrimSpace(articleForm)) {
 	case "management_qa", "shareholder_meeting", "earnings_call", "capital_allocation_discussion":
-		return 10
+		return 18
 	default:
 		return 8
 	}
@@ -409,7 +424,7 @@ func prioritizeSemanticSummary(summary string, units []SemanticUnit, articleForm
 		if unit.Salience < 0.75 {
 			continue
 		}
-		if semanticCoverageCategory(unit) == "capital_allocation" {
+		if salienceCategory(unit) == "capital_allocation" {
 			continue
 		}
 		if readerInterest && summaryReaderInterestRank(unit) >= 8 {

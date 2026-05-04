@@ -159,7 +159,7 @@ func TestOutputValidateAllowsDeclarationOnlyRender(t *testing.T) {
 	}
 }
 
-func TestOutputValidateAllowsSpeakerSemanticCoverage(t *testing.T) {
+func TestOutputValidateAllowsSpeakerSalience(t *testing.T) {
 	out := Output{
 		Summary: "Greg Abel 解释，伯克希尔看 Apple 不是科技股标签，而是看消费者价值和风险。",
 		SemanticUnits: []SemanticUnit{{

@@ -153,13 +153,13 @@ func (c *Client) PreviewFlow(ctx context.Context, bundle Bundle, opts FlowPrevie
 	}
 
 	start = time.Now()
-	selectedState, err = stageSemanticCoverage(ctx, c.runtime, c.model, bundle, selectedState)
+	selectedState, err = stageSalience(ctx, c.runtime, c.model, bundle, selectedState)
 	if err != nil {
-		return FlowPreviewResult{}, fmt.Errorf("semantic_coverage: %w", err)
+		return FlowPreviewResult{}, fmt.Errorf("salience: %w", err)
 	}
 	result.Collapse = toPreviewGraph(selectedState)
-	result.Metrics["semantic_coverage_ms"] = time.Since(start).Milliseconds()
-	if stop := strings.TrimSpace(opts.StopAfter); stop == "semantic" || stop == "semantic_coverage" {
+	result.Metrics["salience_ms"] = time.Since(start).Milliseconds()
+	if stop := strings.TrimSpace(opts.StopAfter); stop == "semantic" || stop == "salience" || stop == "semantic_coverage" {
 		return result, nil
 	}
 
@@ -225,9 +225,9 @@ func (c *Client) CoveragePreviewResult(ctx context.Context, bundle Bundle, resul
 		state.Spines = result.Spines
 	}
 	var err error
-	state, err = stageSemanticCoverage(ctx, c.runtime, c.model, bundle, state)
+	state, err = stageSalience(ctx, c.runtime, c.model, bundle, state)
 	if err != nil {
-		return FlowPreviewResult{}, fmt.Errorf("semantic_coverage: %w", err)
+		return FlowPreviewResult{}, fmt.Errorf("salience: %w", err)
 	}
 	start := time.Now()
 	covered, err := runCoverage(ctx, c.runtime, c.model, bundle, state, maxRounds, paragraphLimit)

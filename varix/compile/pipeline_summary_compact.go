@@ -172,7 +172,7 @@ func summaryInterestTopics(declarations []Declaration, units []SemanticUnit) []s
 		}
 	}
 	for _, unit := range topSemanticUnitsForSummary(units, "shareholder_meeting") {
-		switch semanticCoverageCategory(unit) {
+		switch salienceCategory(unit) {
 		case "capital_allocation":
 			out = appendUniqueNonEmptyStep(out, "资本配置")
 		case "portfolio_circle":

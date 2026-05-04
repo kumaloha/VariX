@@ -43,7 +43,7 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 	if len(o.Graph.Edges) < minEdges {
 		return fmt.Errorf("graph must contain at least %d edges", minEdges)
 	}
-	if o.Details.IsEmpty() && len(o.Declarations) == 0 && len(o.SemanticUnits) == 0 {
+	if o.Details.IsEmpty() && len(o.Declarations) == 0 && len(o.SemanticUnits) == 0 && len(o.Brief) == 0 {
 		return fmt.Errorf("details must not be empty")
 	}
 	nodeIDs, err := validateGraphNodes(o.Graph.Nodes)

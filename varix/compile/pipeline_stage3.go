@@ -350,7 +350,8 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle Bu
 	if err != nil {
 		return graphState{}, err
 	}
-	userPrompt, err := renderStage3MainlineUserPrompt(bundle.TextContext(), state.ArticleForm, serializeRelationNodes(state.Nodes), serializeBranchHeads(state), serializeSemanticUnitsForMainline(state.SemanticUnits), serializeMainlineCandidateEdges(bundle.TextContext(), state.Nodes, state.CoverageHints))
+	mainlineUnits := topSemanticUnitsForMainline(state.SemanticUnits, state.ArticleForm)
+	userPrompt, err := renderStage3MainlineUserPrompt(bundle.TextContext(), state.ArticleForm, serializeRelationNodes(state.Nodes), serializeBranchHeads(state), serializeSemanticUnitsForMainline(mainlineUnits), serializeMainlineCandidateEdges(bundle.TextContext(), state.Nodes, state.CoverageHints))
 	if err != nil {
 		return graphState{}, err
 	}

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestSemanticCoverageKeepsManagementAnswersAsSpeakerClaims(t *testing.T) {
+func TestSalienceKeepsManagementAnswersAsSpeakerClaims(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
 		Text: `{"semantic_units":[
 			{"id":"llm-portfolio","span":"speaker_answer","speaker":"Greg Abel","speaker_role":"primary","subject":"existing portfolio / circle of competence","force":"answer","claim":"Greg Abel 的回答是：现有组合由 Warren Buffett 建立，但集中在他也理解业务和经济前景的公司，所以他对组合很舒服；之后会持续评估业务演化和新风险。Apple 是例子，说明伯克希尔判断能力圈不按“科技股”标签，而是看产品价值、消费者依赖、耐久性和风险。","prompt_context":"股东询问 Greg Abel 如何在能力圈不同的情况下管理 Warren Buffett 建立的组合。","source_quote":"technology stock / consumer valued","salience":0.93,"confidence":"high"},
@@ -29,9 +29,9 @@ func TestSemanticCoverageKeepsManagementAnswersAsSpeakerClaims(t *testing.T) {
 		"Greg said Berkshire's culture and values did not change and the board has a succession plan in place.",
 	}, "\n")
 
-	state, err := stageSemanticCoverage(context.Background(), rt, "compile-model", Bundle{Source: "youtube", Content: text}, graphState{ArticleForm: "shareholder_meeting"})
+	state, err := stageSalience(context.Background(), rt, "compile-model", Bundle{Source: "youtube", Content: text}, graphState{ArticleForm: "shareholder_meeting"})
 	if err != nil {
-		t.Fatalf("stageSemanticCoverage() error = %v", err)
+		t.Fatalf("stageSalience() error = %v", err)
 	}
 	if len(state.SemanticUnits) < 5 {
 		t.Fatalf("SemanticUnits = %#v, want broad management answer coverage", state.SemanticUnits)
@@ -68,16 +68,16 @@ func TestSemanticCoverageKeepsManagementAnswersAsSpeakerClaims(t *testing.T) {
 	}
 }
 
-func TestSemanticCoverageUsesLLMSpeakerSweep(t *testing.T) {
+func TestSalienceUsesLLMSpeakerSweep(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
 		Text: `{"semantic_units":[{"id":"semantic-operating-plan","speaker":"Greg Abel","speaker_role":"primary","subject":"operating plan","force":"explain","claim":"Greg Abel 表示系统会输出经营计划，而不是只靠确定性锚点。","source_quote":"we will use the system to produce operating plan coverage","salience":0.91,"confidence":"high"}]}`,
 	}}}
-	state, err := stageSemanticCoverage(context.Background(), rt, "compile-model", Bundle{
+	state, err := stageSalience(context.Background(), rt, "compile-model", Bundle{
 		Source:  "youtube",
 		Content: strings.Repeat("management Q&A content ", 400),
 	}, graphState{ArticleForm: "shareholder_meeting"})
 	if err != nil {
-		t.Fatalf("stageSemanticCoverage() error = %v", err)
+		t.Fatalf("stageSalience() error = %v", err)
 	}
 	if rt.calls != 1 {
 		t.Fatalf("runtime calls = %d, want LLM semantic sweep", rt.calls)
@@ -88,7 +88,7 @@ func TestSemanticCoverageUsesLLMSpeakerSweep(t *testing.T) {
 	}
 }
 
-func TestSemanticCoverageChunksLongArticles(t *testing.T) {
+func TestSalienceChunksLongArticles(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{
 		{Text: `{"semantic_units":[{"id":"chunk-1","speaker":"Speaker A","speaker_role":"primary","subject":"capital allocation","force":"commit","claim":"第一段输出资本配置规则。","source_quote":"first chunk quote","salience":0.9,"confidence":"high"}]}`},
 		{Text: `{"semantic_units":[{"id":"chunk-2","speaker":"Speaker A","speaker_role":"primary","subject":"AI governance","force":"set_boundary","claim":"第二段输出 AI 治理边界。","source_quote":"second chunk quote","salience":0.85,"confidence":"high"}]}`},
@@ -104,12 +104,12 @@ func TestSemanticCoverageChunksLongArticles(t *testing.T) {
 		secondParts = append(secondParts, "second management answer about AI governance unit "+string(rune('a'+(i%26)))+" .")
 	}
 	content := strings.Join(firstParts, " ") + strings.Join(secondParts, " ")
-	state, err := stageSemanticCoverage(context.Background(), rt, "compile-model", Bundle{
+	state, err := stageSalience(context.Background(), rt, "compile-model", Bundle{
 		Source:  "youtube",
 		Content: content,
 	}, graphState{ArticleForm: "shareholder_meeting"})
 	if err != nil {
-		t.Fatalf("stageSemanticCoverage() error = %v", err)
+		t.Fatalf("stageSalience() error = %v", err)
 	}
 	if rt.calls < 2 {
 		t.Fatalf("runtime calls = %d, want chunked semantic sweep", rt.calls)
@@ -119,9 +119,9 @@ func TestSemanticCoverageChunksLongArticles(t *testing.T) {
 	}
 }
 
-func TestSemanticCoverageCompactsRepeatedTranscriptPhrases(t *testing.T) {
+func TestSalienceCompactsRepeatedTranscriptPhrases(t *testing.T) {
 	raw := strings.Repeat("Greg said Greg said Greg said we will not write cyber insurance unless we understand the aggregation risk. ", 20)
-	compacted := compactSemanticCoverageArticle(raw)
+	compacted := compactSalienceArticle(raw)
 	if len([]rune(compacted)) >= len([]rune(raw))/2 {
 		t.Fatalf("compacted transcript still too large: raw=%d compacted=%d", len([]rune(raw)), len([]rune(compacted)))
 	}
@@ -130,7 +130,30 @@ func TestSemanticCoverageCompactsRepeatedTranscriptPhrases(t *testing.T) {
 	}
 }
 
-func TestSemanticCoverageRanksAndLimitsUnits(t *testing.T) {
+func TestSaliencePreservesFullManagementInventory(t *testing.T) {
+	responses := make([]string, 0, 12)
+	for i := 0; i < 12; i++ {
+		responses = append(responses, `{"id":"unit-`+string(rune('a'+i))+`","speaker":"Greg Abel","speaker_role":"primary","subject":"topic `+string(rune('a'+i))+`","force":"explain","claim":"claim `+string(rune('a'+i))+`","source_quote":"quote `+string(rune('a'+i))+`","salience":0.`+string(rune('8'-i%4))+`,"confidence":"medium"}`)
+	}
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"semantic_units":[` + strings.Join(responses, ",") + `]}`,
+	}}}
+	state, err := stageSalience(context.Background(), rt, "compile-model", Bundle{
+		Source:  "youtube",
+		Content: strings.Repeat("shareholder meeting management answer ", 250),
+	}, graphState{ArticleForm: "shareholder_meeting"})
+	if err != nil {
+		t.Fatalf("stageSalience() error = %v", err)
+	}
+	if len(state.SemanticUnits) != 12 {
+		t.Fatalf("len(SemanticUnits) = %d, want full deduped inventory of 12", len(state.SemanticUnits))
+	}
+	if semanticUnitBySubject(state.SemanticUnits, "topic l") == nil {
+		t.Fatalf("SemanticUnits = %#v, missing lower-ranked meeting topic after coverage", state.SemanticUnits)
+	}
+}
+
+func TestSalienceRanksWithoutLimitingUnits(t *testing.T) {
 	units := make([]SemanticUnit, 0, 14)
 	for i := 0; i < 14; i++ {
 		units = append(units, SemanticUnit{
@@ -144,15 +167,34 @@ func TestSemanticCoverageRanksAndLimitsUnits(t *testing.T) {
 		})
 	}
 	got := rankSemanticUnits(units, "shareholder_meeting")
-	if len(got) != 10 {
-		t.Fatalf("len(rankSemanticUnits) = %d, want 10", len(got))
+	if len(got) != len(units) {
+		t.Fatalf("len(rankSemanticUnits) = %d, want full inventory %d", len(got), len(units))
 	}
 	if got[0].Salience < got[len(got)-1].Salience {
 		t.Fatalf("rankSemanticUnits not sorted by salience: %#v", got)
 	}
 }
 
-func TestSemanticCoverageDedupeLLMCategories(t *testing.T) {
+func TestTopSemanticUnitsForSummaryStillUsesReaderBudget(t *testing.T) {
+	units := make([]SemanticUnit, 0, 14)
+	for i := 0; i < 14; i++ {
+		units = append(units, SemanticUnit{
+			ID:          "u" + string(rune('a'+i)),
+			SpeakerRole: "primary",
+			Subject:     "subject " + string(rune('a'+i)),
+			Force:       "explain",
+			Claim:       "claim",
+			Salience:    float64(i) / 20,
+			Confidence:  "medium",
+		})
+	}
+	got := topSemanticUnitsForSummary(units, "shareholder_meeting")
+	if len(got) != 6 {
+		t.Fatalf("len(topSemanticUnitsForSummary) = %d, want summary budget 6", len(got))
+	}
+}
+
+func TestSalienceDedupeLLMCategories(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
 		Text: `{"semantic_units":[
 			{"id":"llm-cyber-a","speaker":"Ajit Jain","speaker_role":"primary","subject":"网络保险承保策略","force":"reject","claim":"伯克希尔拒绝承保网络保险，因为聚合风险无法建模且价格不足。","source_quote":"cyber aggregation risk cannot be modeled","salience":0.9,"confidence":"high"},
@@ -163,13 +205,13 @@ func TestSemanticCoverageDedupeLLMCategories(t *testing.T) {
 		strings.Repeat("management Q&A content ", 300),
 		"On cyber insurance, Ajit said aggregation risk is difficult to model, premiums have been coming down, and supply is greater than demand.",
 	}, "\n")
-	state, err := stageSemanticCoverage(context.Background(), rt, "compile-model", Bundle{Source: "youtube", Content: text}, graphState{ArticleForm: "shareholder_meeting"})
+	state, err := stageSalience(context.Background(), rt, "compile-model", Bundle{Source: "youtube", Content: text}, graphState{ArticleForm: "shareholder_meeting"})
 	if err != nil {
-		t.Fatalf("stageSemanticCoverage() error = %v", err)
+		t.Fatalf("stageSalience() error = %v", err)
 	}
 	count := 0
 	for _, unit := range state.SemanticUnits {
-		if semanticCoverageCategory(unit) == "cyber_insurance" {
+		if salienceCategory(unit) == "cyber_insurance" {
 			count++
 		}
 	}
@@ -178,7 +220,39 @@ func TestSemanticCoverageDedupeLLMCategories(t *testing.T) {
 	}
 }
 
-func TestSemanticCoverageAssignsGlobalIDs(t *testing.T) {
+func TestSalienceKeepsCultureSeparateFromSuccession(t *testing.T) {
+	units := dedupeSemanticUnits([]SemanticUnit{
+		{
+			ID:          "culture",
+			Speaker:     "Greg Abel",
+			SpeakerRole: "primary",
+			Subject:     "culture and values",
+			Force:       "set_boundary",
+			Claim:       "Berkshire's culture and values remain unchanged after the transition.",
+			Salience:    0.82,
+		},
+		{
+			ID:          "succession",
+			Speaker:     "Greg Abel",
+			SpeakerRole: "primary",
+			Subject:     "succession plan",
+			Force:       "disclose",
+			Claim:       "The board has succession plans for Greg Abel and Ajit Jain.",
+			Salience:    0.9,
+		},
+	})
+	if semanticUnitBySubject(units, "culture") == nil {
+		t.Fatalf("units = %#v, missing culture unit", units)
+	}
+	if semanticUnitBySubject(units, "succession") == nil {
+		t.Fatalf("units = %#v, missing succession unit", units)
+	}
+	if len(units) != 2 {
+		t.Fatalf("len(units) = %d, want culture and succession preserved separately: %#v", len(units), units)
+	}
+}
+
+func TestSalienceAssignsGlobalIDs(t *testing.T) {
 	units := assignSemanticUnitIDs([]SemanticUnit{
 		{ID: "semantic-001", Subject: "capital allocation", Claim: "Deploy cash when market dislocation creates a large opportunity.", Force: "commit"},
 		{ID: "semantic-001", Subject: "AI governance", Claim: "Use AI in operations while preserving accountability.", Force: "set_boundary"},

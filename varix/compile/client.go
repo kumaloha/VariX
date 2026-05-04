@@ -137,15 +137,20 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	debugStage(bundle, "collapse", fmt.Sprintf("done nodes=%d off_graph=%d heads=%d", len(graph.Nodes), len(graph.OffGraph), len(graph.BranchHeads)))
 	c.writeDebugJSON(debugRunDir, "collapse.json", graph)
 	stageStart = time.Now()
-	graph, err = stageSemanticCoverage(ctx, c.runtime, c.model, bundle, graph)
+	graph, err = stageSalience(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {
-		debugStage(bundle, "semantic_coverage", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "semantic_coverage.error.txt", []byte(err.Error()))
+		debugStage(bundle, "salience", "error: "+err.Error())
+		c.writeDebugArtifact(debugRunDir, "salience.error.txt", []byte(err.Error()))
 		return Record{}, err
 	}
-	recordStageMetric(stageMetrics, "semantic_coverage", time.Since(stageStart))
-	debugStage(bundle, "semantic_coverage", fmt.Sprintf("done units=%d", len(graph.SemanticUnits)))
-	c.writeDebugJSON(debugRunDir, "semantic_coverage.json", graph)
+	recordStageMetric(stageMetrics, "salience", time.Since(stageStart))
+	debugStage(bundle, "salience", fmt.Sprintf("done units=%d", len(graph.SemanticUnits)))
+	c.writeDebugJSON(debugRunDir, "salience.json", graph)
+	stageStart = time.Now()
+	graph = stageBrief(graph)
+	recordStageMetric(stageMetrics, "brief", time.Since(stageStart))
+	debugStage(bundle, "brief", fmt.Sprintf("done items=%d", len(graph.Brief)))
+	c.writeDebugJSON(debugRunDir, "brief.json", graph)
 	stageStart = time.Now()
 	graph, err = stageCoverage(ctx, c.runtime, c.model, bundle, graph, 1)
 	if err != nil {

@@ -81,6 +81,7 @@ type (
 	ReasoningGraph   = model.ReasoningGraph
 	Declaration      = model.Declaration
 	SemanticUnit     = model.SemanticUnit
+	BriefItem        = model.BriefItem
 	TransmissionPath = model.TransmissionPath
 	Branch           = model.Branch
 	HiddenDetails    = model.HiddenDetails

@@ -7,11 +7,15 @@ import (
 	"github.com/kumaloha/VariX/varix/model"
 )
 
+const fullSpeakerClaimLimit = 12
+
 func formatCompileCard(projection compileCardProjection) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Summary\n%s\n\n", projection.Summary)
+	writeMainlineSection(&b, projection.Mainline)
 	writeTopicsSection(&b, projection.Topics, len(projection.Topics))
-	writeSemanticUnitSection(&b, projection.SemanticUnits, len(projection.SemanticUnits))
+	writeKeyPointSection(&b, projection.KeyPoints, len(projection.KeyPoints))
+	writeReadableSpeakerClaimSection(&b, projection.SemanticUnits)
 	writeDeclarationSection(&b, projection.Declarations, 5)
 	writeCompactNodeSection(&b, "Drivers", truncateList(projection.Drivers, 5))
 	writeCompactNodeSection(&b, "Targets", truncateList(projection.Targets, 5))
@@ -19,7 +23,7 @@ func formatCompileCard(projection compileCardProjection) string {
 	writeCompactNodeSection(&b, "Explanations", truncateList(projection.Explanations, 5))
 	writeBranchSection(&b, projection.Branches, 5)
 	if len(projection.LogicChains) > 0 {
-		fmt.Fprintf(&b, "Logic chain\n")
+		fmt.Fprintf(&b, "%s\n", projection.LogicHeading)
 		for _, chain := range projection.LogicChains {
 			fmt.Fprintf(&b, "- %s\n", chain)
 		}
@@ -46,8 +50,9 @@ func formatCompileCard(projection compileCardProjection) string {
 func formatCompactCompileCard(projection compileCardProjection) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Summary\n%s\n\n", projection.Summary)
+	writeMainlineSection(&b, truncateList(projection.Mainline, 3))
 	writeTopicsSection(&b, projection.Topics, 3)
-	writeSemanticUnitSection(&b, truncateSemanticUnits(projection.SemanticUnits, 3), 3)
+	writeKeyPointSection(&b, projection.KeyPoints, 3)
 	writeDeclarationSection(&b, truncateDeclarations(projection.Declarations, 2), 2)
 	writeCompactNodeSection(&b, "Drivers", truncateList(projection.Drivers, 3))
 	writeCompactNodeSection(&b, "Targets", truncateList(projection.Targets, 3))
@@ -55,7 +60,11 @@ func formatCompactCompileCard(projection compileCardProjection) string {
 	writeCompactNodeSection(&b, "Explanations", truncateList(projection.Explanations, 2))
 	writeBranchSection(&b, projection.Branches, 2)
 	if len(projection.LogicChains) > 0 {
-		fmt.Fprintf(&b, "Main logic\n- %s\n\n", projection.LogicChains[0])
+		heading := projection.LogicHeading
+		if heading == "Logic chain" {
+			heading = "Main logic"
+		}
+		fmt.Fprintf(&b, "%s\n- %s\n\n", heading, projection.LogicChains[0])
 	}
 	if len(projection.AuthorValidation) > 0 {
 		fmt.Fprintf(&b, "Author validation\n")
@@ -66,6 +75,43 @@ func formatCompactCompileCard(projection compileCardProjection) string {
 	}
 	fmt.Fprintf(&b, "Confidence\n%s\n", projection.Confidence)
 	return b.String()
+}
+
+func writeMainlineSection(b *strings.Builder, lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "Mainline\n")
+	for _, line := range lines {
+		fmt.Fprintf(b, "- %s\n", line)
+	}
+	b.WriteString("\n")
+}
+
+func writeKeyPointSection(b *strings.Builder, points []string, limit int) {
+	if len(points) == 0 || limit <= 0 {
+		return
+	}
+	if len(points) < limit {
+		limit = len(points)
+	}
+	fmt.Fprintf(b, "Key points\n")
+	for _, point := range points[:limit] {
+		fmt.Fprintf(b, "- %s\n", point)
+	}
+	b.WriteString("\n")
+}
+
+func writeReadableSpeakerClaimSection(b *strings.Builder, units []model.SemanticUnit) {
+	if len(units) == 0 {
+		return
+	}
+	if len(units) > fullSpeakerClaimLimit {
+		fmt.Fprintf(b, "Speaker claims\n")
+		fmt.Fprintf(b, "- %d total claims stored in the compile output; use `compile show` for the full inventory.\n\n", len(units))
+		return
+	}
+	writeSemanticUnitSection(b, units, len(units))
 }
 
 func writeTopicsSection(b *strings.Builder, topics []string, limit int) {
@@ -262,7 +308,7 @@ func declarationReading(declaration model.Declaration) string {
 	if !isCapitalAllocationCardDeclaration(declaration) {
 		return genericDeclarationReading(declaration)
 	}
-	clauses := []string{"这回答的是“Greg Abel 会怎么用手里的钱”"}
+	clauses := []string{fmt.Sprintf("这是%s的资本配置纪律", capitalAllocationSubject(declaration))}
 	if len(declaration.Constraints) > 0 {
 		boundary := joinCardPhrases(declaration.Constraints, 2)
 		if strings.HasPrefix(boundary, "保持") {
@@ -287,6 +333,26 @@ func declarationReading(declaration model.Declaration) string {
 		clauses = append(clauses, "条件满足后可以"+scale)
 	}
 	return strings.Join(clauses, "；") + "。"
+}
+
+func capitalAllocationSubject(declaration model.Declaration) string {
+	for _, text := range []string{
+		declaration.Statement,
+		declaration.Topic,
+		declaration.SourceQuote,
+		strings.Join(declaration.Conditions, " "),
+		strings.Join(declaration.Actions, " "),
+		strings.Join(declaration.Constraints, " "),
+	} {
+		lower := strings.ToLower(strings.TrimSpace(text))
+		if strings.Contains(text, "伯克希尔") || strings.Contains(lower, "berkshire") {
+			return "伯克希尔"
+		}
+	}
+	if speaker := strings.TrimSpace(declaration.Speaker); speaker != "" {
+		return speaker
+	}
+	return "组织"
 }
 
 func genericDeclarationReading(declaration model.Declaration) string {
