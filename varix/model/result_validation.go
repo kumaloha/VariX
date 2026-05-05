@@ -13,6 +13,9 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 	if err := validateRequiredSummary(o.Summary); err != nil {
 		return err
 	}
+	if err := validatePrimaryView(o.PrimaryView); err != nil {
+		return err
+	}
 	if err := validateStringListEntries("drivers", o.Drivers); err != nil {
 		return err
 	}
@@ -26,6 +29,12 @@ func (o Output) ValidateWithThresholds(minNodes, minEdges int) error {
 		return err
 	}
 	if err := validateLedger("ledger", o.Ledger); err != nil {
+		return err
+	}
+	if err := validateBriefItems("brief", o.Brief); err != nil {
+		return err
+	}
+	if err := validateBriefItems("digest", o.Digest); err != nil {
 		return err
 	}
 	if err := validateTransmissionPaths("transmission_paths", o.TransmissionPaths, false); err != nil {
@@ -443,6 +452,39 @@ func validateLedger(field string, ledger Ledger) error {
 		}
 		if item.Salience < 0 || item.Salience > 1 {
 			return fmt.Errorf("%s.items[%d].salience must be between 0 and 1", field, i)
+		}
+	}
+	return nil
+}
+
+func validatePrimaryView(value string) error {
+	switch strings.TrimSpace(value) {
+	case "", "mainline", "digest":
+		return nil
+	default:
+		return fmt.Errorf("primaryView %q is unsupported", value)
+	}
+}
+
+func validateBriefItems(field string, values []BriefItem) error {
+	for i, item := range values {
+		if strings.TrimSpace(item.Category) == "" {
+			return fmt.Errorf("%s[%d].category must not be empty", field, i)
+		}
+		if strings.TrimSpace(item.Claim) == "" {
+			return fmt.Errorf("%s[%d].claim must not be empty", field, i)
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s[%d].entities", field, i), item.Entities); err != nil {
+			return err
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s[%d].numbers", field, i), item.Numbers); err != nil {
+			return err
+		}
+		if err := validateStringListEntries(fmt.Sprintf("%s[%d].sourceIds", field, i), item.SourceIDs); err != nil {
+			return err
+		}
+		if item.Salience < 0 || item.Salience > 1 {
+			return fmt.Errorf("%s[%d].salience must be between 0 and 1", field, i)
 		}
 	}
 	return nil

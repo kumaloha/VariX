@@ -13,12 +13,12 @@ func auditBriefCoverage(ledger Ledger, brief []BriefItem) CoverageAudit {
 	return auditLedgerCoverage(ledger, view)
 }
 
-func auditRenderedCoverage(ledger Ledger, brief []BriefItem, drivers, targets []graphNode, paths []renderedPath, offGraph []offGraphItem) CoverageAudit {
+func auditRenderedCoverage(ledger Ledger, visibleBrief []BriefItem, drivers, targets []graphNode, paths []renderedPath, offGraph []offGraphItem) CoverageAudit {
 	if len(ledger.Items) == 0 {
 		return CoverageAudit{}
 	}
 	view := newCoverageAuditView()
-	for _, item := range brief {
+	for _, item := range visibleBrief {
 		view.addBriefItem(item)
 	}
 	for _, node := range drivers {

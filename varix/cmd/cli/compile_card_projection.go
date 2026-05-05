@@ -8,8 +8,10 @@ import (
 
 type compileCardProjection struct {
 	Summary             string
+	PrimaryView         string
 	Mainline            []string
 	Topics              []string
+	Digest              []string
 	KeyPoints           []string
 	Confidence          string
 	Drivers             []string
@@ -32,8 +34,10 @@ func buildCompileCardProjection(record model.Record, subgraph *model.ContentSubg
 	logicChains, logicHeading := compileRecordSecondaryLogic(record, len(mainline) > 0)
 	projection := compileCardProjection{
 		Summary:          record.Output.Summary,
+		PrimaryView:      strings.TrimSpace(record.Output.PrimaryView),
 		Mainline:         mainline,
 		Topics:           primaryFirstTopics(record.Output.Branches, record.Output.Topics),
+		Digest:           digestKeyPoints(record.Output.Digest, record.Output.Brief, 14),
 		KeyPoints:        compileRecordKeyPoints(record.Output.Brief, record.Output.SemanticUnits, 12),
 		Confidence:       record.Output.Confidence,
 		Drivers:          cloneStringSlice(record.Output.Drivers),
@@ -137,6 +141,13 @@ func briefKeyPoints(items []model.BriefItem, limit int) []string {
 		}
 	}
 	return out
+}
+
+func digestKeyPoints(digest, brief []model.BriefItem, limit int) []string {
+	if points := briefKeyPoints(digest, limit); len(points) > 0 {
+		return points
+	}
+	return briefKeyPoints(brief, limit)
 }
 
 func semanticKeyPoints(units []model.SemanticUnit, limit int) []string {

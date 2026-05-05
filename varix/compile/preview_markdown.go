@@ -13,6 +13,19 @@ func BuildMainlineMarkdown(result FlowPreviewResult) string {
 	fmt.Fprintf(&b, "Drivers: %d\n", len(result.Render.Drivers))
 	fmt.Fprintf(&b, "Targets: %d\n", len(result.Render.Targets))
 	fmt.Fprintf(&b, "Paths: %d\n\n", len(result.Render.TransmissionPaths))
+	if strings.TrimSpace(result.Render.PrimaryView) == renderPrimaryViewDigest && len(result.Render.Digest) > 0 {
+		b.WriteString("Digest:\n")
+		for _, item := range result.Render.Digest {
+			label := strings.TrimSpace(item.Category)
+			claim := strings.TrimSpace(item.Claim)
+			if label != "" {
+				fmt.Fprintf(&b, "- %s: %s\n", label, claim)
+			} else {
+				fmt.Fprintf(&b, "- %s\n", claim)
+			}
+		}
+		b.WriteString("\n")
+	}
 	if len(result.Spines) > 0 {
 		b.WriteString("Spines:\n")
 		for _, spine := range result.Spines {

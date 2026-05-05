@@ -48,8 +48,8 @@ func translateAll(ctx context.Context, rt runtimeChat, model string, items []map
 	return out, nil
 }
 
-func summarizeChinese(ctx context.Context, rt runtimeChat, model string, articleForm string, drivers, targets []string, paths []TransmissionPath, declarations []Declaration, semanticUnits []SemanticUnit, topics []string, bundle Bundle) (string, error) {
-	payload, err := json.Marshal(map[string]any{
+func summarizeChinese(ctx context.Context, rt runtimeChat, model string, articleForm string, drivers, targets []string, paths []TransmissionPath, declarations []Declaration, semanticUnits []SemanticUnit, digest []BriefItem, topics []string, bundle Bundle) (string, error) {
+	request := map[string]any{
 		"article_form":   normalizeArticleForm(articleForm),
 		"lead_title":     leadTitleFromBundle(bundle),
 		"topics":         topics,
@@ -58,7 +58,11 @@ func summarizeChinese(ctx context.Context, rt runtimeChat, model string, article
 		"paths":          paths,
 		"declarations":   declarations,
 		"semantic_units": topSemanticUnitsForSummary(semanticUnits, articleForm),
-	})
+	}
+	if len(digest) > 0 {
+		request["digest"] = digest
+	}
+	payload, err := json.Marshal(request)
 	if err != nil {
 		return "", err
 	}

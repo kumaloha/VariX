@@ -93,24 +93,28 @@ func (s *SQLiteStore) GetCompiledOutput(ctx context.Context, platform, externalI
 
 func marshalStoredCompileRecord(record model.Record) ([]byte, error) {
 	type storedOutput struct {
-		Summary            string                   `json:"summary,omitempty"`
-		Drivers            []string                 `json:"drivers,omitempty"`
-		Targets            []string                 `json:"targets,omitempty"`
-		Declarations       []model.Declaration      `json:"declarations,omitempty"`
-		SemanticUnits      []model.SemanticUnit     `json:"semantic_units,omitempty"`
-		Ledger             model.Ledger             `json:"ledger,omitempty"`
-		Brief              []model.BriefItem        `json:"brief,omitempty"`
-		CoverageAudit      model.CoverageAudit      `json:"coverage_audit,omitempty"`
-		TransmissionPaths  []model.TransmissionPath `json:"transmission_paths,omitempty"`
-		Branches           []model.Branch           `json:"branches,omitempty"`
-		EvidenceNodes      []string                 `json:"evidence_nodes,omitempty"`
-		ExplanationNodes   []string                 `json:"explanation_nodes,omitempty"`
-		SupplementaryNodes []string                 `json:"supplementary_nodes,omitempty"`
-		Graph              model.ReasoningGraph     `json:"graph,omitempty"`
-		Details            model.HiddenDetails      `json:"details,omitempty"`
-		Topics             []string                 `json:"topics,omitempty"`
-		Confidence         string                   `json:"confidence,omitempty"`
-		AuthorValidation   model.AuthorValidation   `json:"author_validation,omitempty"`
+		Summary                string                   `json:"summary,omitempty"`
+		PrimaryView            string                   `json:"primaryView,omitempty"`
+		Drivers                []string                 `json:"drivers,omitempty"`
+		Targets                []string                 `json:"targets,omitempty"`
+		Declarations           []model.Declaration      `json:"declarations,omitempty"`
+		SemanticUnits          []model.SemanticUnit     `json:"semantic_units,omitempty"`
+		Ledger                 model.Ledger             `json:"ledger,omitempty"`
+		Brief                  []model.BriefItem        `json:"brief,omitempty"`
+		Digest                 []model.BriefItem        `json:"digest,omitempty"`
+		CoverageAudit          model.CoverageAudit      `json:"coverage_audit,omitempty"`
+		VisibleCoverageAudit   model.CoverageAudit      `json:"visibleCoverageAudit,omitempty"`
+		InventoryCoverageAudit model.CoverageAudit      `json:"inventoryCoverageAudit,omitempty"`
+		TransmissionPaths      []model.TransmissionPath `json:"transmission_paths,omitempty"`
+		Branches               []model.Branch           `json:"branches,omitempty"`
+		EvidenceNodes          []string                 `json:"evidence_nodes,omitempty"`
+		ExplanationNodes       []string                 `json:"explanation_nodes,omitempty"`
+		SupplementaryNodes     []string                 `json:"supplementary_nodes,omitempty"`
+		Graph                  model.ReasoningGraph     `json:"graph,omitempty"`
+		Details                model.HiddenDetails      `json:"details,omitempty"`
+		Topics                 []string                 `json:"topics,omitempty"`
+		Confidence             string                   `json:"confidence,omitempty"`
+		AuthorValidation       model.AuthorValidation   `json:"author_validation,omitempty"`
 	}
 	type storedRecord struct {
 		UnitID         string              `json:"unit_id"`
@@ -130,24 +134,28 @@ func marshalStoredCompileRecord(record model.Record) ([]byte, error) {
 		Model:          record.Model,
 		Metrics:        record.Metrics,
 		Output: storedOutput{
-			Summary:            record.Output.Summary,
-			Drivers:            record.Output.Drivers,
-			Targets:            record.Output.Targets,
-			Declarations:       record.Output.Declarations,
-			SemanticUnits:      record.Output.SemanticUnits,
-			Ledger:             record.Output.Ledger,
-			Brief:              record.Output.Brief,
-			CoverageAudit:      record.Output.CoverageAudit,
-			TransmissionPaths:  record.Output.TransmissionPaths,
-			Branches:           record.Output.Branches,
-			EvidenceNodes:      record.Output.EvidenceNodes,
-			ExplanationNodes:   record.Output.ExplanationNodes,
-			SupplementaryNodes: record.Output.SupplementaryNodes,
-			Graph:              record.Output.Graph,
-			Details:            record.Output.Details,
-			Topics:             record.Output.Topics,
-			Confidence:         record.Output.Confidence,
-			AuthorValidation:   record.Output.AuthorValidation,
+			Summary:                record.Output.Summary,
+			PrimaryView:            record.Output.PrimaryView,
+			Drivers:                record.Output.Drivers,
+			Targets:                record.Output.Targets,
+			Declarations:           record.Output.Declarations,
+			SemanticUnits:          record.Output.SemanticUnits,
+			Ledger:                 record.Output.Ledger,
+			Brief:                  record.Output.Brief,
+			Digest:                 record.Output.Digest,
+			CoverageAudit:          record.Output.CoverageAudit,
+			VisibleCoverageAudit:   record.Output.VisibleCoverageAudit,
+			InventoryCoverageAudit: record.Output.InventoryCoverageAudit,
+			TransmissionPaths:      record.Output.TransmissionPaths,
+			Branches:               record.Output.Branches,
+			EvidenceNodes:          record.Output.EvidenceNodes,
+			ExplanationNodes:       record.Output.ExplanationNodes,
+			SupplementaryNodes:     record.Output.SupplementaryNodes,
+			Graph:                  record.Output.Graph,
+			Details:                record.Output.Details,
+			Topics:                 record.Output.Topics,
+			Confidence:             record.Output.Confidence,
+			AuthorValidation:       record.Output.AuthorValidation,
 		},
 		CompiledAt: record.CompiledAt,
 	})

@@ -479,3 +479,46 @@ Commit implementation separately from the design docs.
 
 Use a Lore message whose directive states that ledger is the shared internal
 truth and mainline/brief are view projections.
+
+### Follow-up Task: Make Digest a First-Class Render View
+
+**Files:**
+- Modify: `varix/model/result_output.go`
+- Modify: `varix/model/result_stage_outputs.go`
+- Modify: `varix/model/parse.go`
+- Modify: `varix/model/result_validation.go`
+- Create: `varix/compile/pipeline_digest.go`
+- Modify: `varix/compile/pipeline_render.go`
+- Modify: `varix/compile/pipeline_llm.go`
+- Modify: `varix/compile/preview_markdown.go`
+- Modify: `varix/cmd/cli/compile_card_projection.go`
+- Modify: `varix/cmd/cli/compile_card_format.go`
+- Modify: `varix/storage/contentstore/sqlite_compiled_output.go`
+- Test: `tests/compile/client_render_test.go`
+- Test: `tests/cmd/cli/compile_card_mainline_test.go`
+- Test: `tests/storage/contentstore/sqlite_store_test.go`
+
+- [x] **Step 1: Add failing render contract test**
+
+Assert that reader-interest content emits `primaryView=digest`, copies all
+brief items into `digest`, and reports both visible and inventory audits.
+
+- [x] **Step 2: Add failing CLI card test**
+
+Assert that digest-primary cards print `Digest` before `Mainline` while keeping
+mainline available as a secondary projection.
+
+- [x] **Step 3: Implement output fields and validation**
+
+Add `PrimaryView`, `Digest`, `VisibleCoverageAudit`, and
+`InventoryCoverageAudit` to the model output contract and parser.
+
+- [x] **Step 4: Implement digest projection after ledger/brief**
+
+Build digest only for reader-interest forms, keep analysis articles on mainline,
+and pass digest to the summary prompt when present.
+
+- [x] **Step 5: Preserve new fields through storage**
+
+Update the compiled-output storage marshal and round-trip test so digest view
+metadata survives persistence.

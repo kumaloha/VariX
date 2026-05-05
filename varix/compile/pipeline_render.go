@@ -34,7 +34,10 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 	targets = mergePathTargets(targets, paths)
 	drivers = filterRenderDrivers(drivers, paths)
 	targets = filterRenderTargets(targets, paths, state.ArticleForm, satiricalCoveredNodes)
-	coverageAudit := auditRenderedCoverage(state.Ledger, state.Brief, drivers, targets, paths, state.OffGraph)
+	digest := renderDigestItems(state)
+	primaryView := primaryRenderView(state)
+	visibleCoverageAudit := auditRenderedCoverage(state.Ledger, digest, drivers, targets, paths, state.OffGraph)
+	inventoryCoverageAudit := auditBriefCoverage(state.Ledger, state.Brief)
 	declarationNodes := declarationTranslationNodes(state)
 	spineNodes := spineTranslationNodes(state.Spines)
 	translated, err := translateAll(ctx, rt, model, uniqueTexts(drivers, targets, paths, declarationNodes, spineNodes, state.OffGraph))
@@ -67,7 +70,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 	detailItems = append(detailItems, renderTransmissionPathDetails(paths, cn)...)
 	detailItems = append(detailItems, renderSemanticUnitDetails(state.SemanticUnits)...)
 	evidence = dedupeStrings(append(evidence, renderSpineIllustrations(state, cn)...))
-	summary, err := summarizeChinese(ctx, rt, model, state.ArticleForm, driversOut, targetsOut, transmission, declarations, state.SemanticUnits, topics, bundle)
+	summary, err := summarizeChinese(ctx, rt, model, state.ArticleForm, driversOut, targetsOut, transmission, declarations, state.SemanticUnits, digest, topics, bundle)
 	if err != nil {
 		summary = fallbackSummary(driversOut, targetsOut)
 	}
@@ -117,23 +120,27 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 		graph.Edges = append(graph.Edges, GraphEdge{From: e.From, To: e.To, Kind: EdgePositive})
 	}
 	out := Output{
-		Summary:            summary,
-		Drivers:            driversOut,
-		Targets:            targetsOut,
-		Declarations:       declarations,
-		SemanticUnits:      append([]SemanticUnit(nil), state.SemanticUnits...),
-		Ledger:             state.Ledger,
-		Brief:              append([]BriefItem(nil), state.Brief...),
-		CoverageAudit:      coverageAudit,
-		TransmissionPaths:  transmission,
-		Branches:           branches,
-		EvidenceNodes:      evidence,
-		ExplanationNodes:   explanation,
-		SupplementaryNodes: supplementary,
-		Graph:              graph,
-		Details:            HiddenDetails{Caveats: []string{"compile mainline mvp"}, Items: detailItems},
-		Topics:             topics,
-		Confidence:         confidenceFromState(driversOut, targetsOut, transmission),
+		Summary:                summary,
+		PrimaryView:            primaryView,
+		Drivers:                driversOut,
+		Targets:                targetsOut,
+		Declarations:           declarations,
+		SemanticUnits:          append([]SemanticUnit(nil), state.SemanticUnits...),
+		Ledger:                 state.Ledger,
+		Brief:                  append([]BriefItem(nil), state.Brief...),
+		Digest:                 digest,
+		CoverageAudit:          visibleCoverageAudit,
+		VisibleCoverageAudit:   visibleCoverageAudit,
+		InventoryCoverageAudit: inventoryCoverageAudit,
+		TransmissionPaths:      transmission,
+		Branches:               branches,
+		EvidenceNodes:          evidence,
+		ExplanationNodes:       explanation,
+		SupplementaryNodes:     supplementary,
+		Graph:                  graph,
+		Details:                HiddenDetails{Caveats: []string{"compile mainline mvp"}, Items: detailItems},
+		Topics:                 topics,
+		Confidence:             confidenceFromState(driversOut, targetsOut, transmission),
 	}
 	if len(graph.Nodes) < 2 || len(graph.Edges) < 1 {
 		fallback := renderLowStructureOutput(bundle, summary, lowStructureSourceText(bundle, state, cn), observedAt, detailItems)

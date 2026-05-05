@@ -249,6 +249,27 @@ public output field. Only the internal stage name has changed from
 - Existing output JSON can be parsed and rendered without ledger data.
 - Full Go test suite passes.
 
+## Implemented View Contract Extension
+
+The first follow-up implementation makes the view split explicit without
+changing the extraction or ledger-building stages:
+
+- `Output.PrimaryView` selects the default reader view. The initial values are
+  `mainline` and `digest`.
+- `Output.Digest` is the visible agenda projection for reader-interest forms
+  such as `management_qa`, `shareholder_meeting`, `earnings_call`, and
+  `capital_allocation_discussion`.
+- `Output.CoverageAudit` remains the backward-compatible audit field, but now
+  follows default visible-view semantics.
+- `Output.VisibleCoverageAudit` exposes the explicit visible-view audit.
+- `Output.InventoryCoverageAudit` exposes the ledger-to-brief inventory audit.
+- CLI cards print `Digest` before `Mainline` when `PrimaryView` is `digest`.
+
+This extension deliberately does not solve multi-source ingestion. If a digest
+article combines a shareholder meeting and a separate interview, the compiler
+still needs a `SourceSet`/merged bundle before ledger construction can preserve
+facts from both sources.
+
 ## Risks
 
 - The first deterministic ledger adapter will still depend on what salience

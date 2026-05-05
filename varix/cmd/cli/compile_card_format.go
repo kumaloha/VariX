@@ -12,9 +12,12 @@ const fullSpeakerClaimLimit = 12
 func formatCompileCard(projection compileCardProjection) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Summary\n%s\n\n", projection.Summary)
+	writeDigestSection(&b, projection)
 	writeMainlineSection(&b, projection.Mainline)
 	writeTopicsSection(&b, projection.Topics, len(projection.Topics))
-	writeKeyPointSection(&b, projection.KeyPoints, len(projection.KeyPoints))
+	if projection.PrimaryView != "digest" {
+		writeKeyPointSection(&b, projection.KeyPoints, len(projection.KeyPoints))
+	}
 	writeCompactNodeSection(&b, "Coverage audit", projection.CoverageAudit)
 	writeReadableSpeakerClaimSection(&b, projection.SemanticUnits)
 	writeDeclarationSection(&b, projection.Declarations, 5)
@@ -51,9 +54,12 @@ func formatCompileCard(projection compileCardProjection) string {
 func formatCompactCompileCard(projection compileCardProjection) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Summary\n%s\n\n", projection.Summary)
+	writeDigestSection(&b, projection)
 	writeMainlineSection(&b, truncateList(projection.Mainline, 3))
 	writeTopicsSection(&b, projection.Topics, 3)
-	writeKeyPointSection(&b, projection.KeyPoints, 3)
+	if projection.PrimaryView != "digest" {
+		writeKeyPointSection(&b, projection.KeyPoints, 3)
+	}
 	writeCompactNodeSection(&b, "Coverage audit", truncateList(projection.CoverageAudit, 3))
 	writeDeclarationSection(&b, truncateDeclarations(projection.Declarations, 2), 2)
 	writeCompactNodeSection(&b, "Drivers", truncateList(projection.Drivers, 3))
@@ -85,6 +91,17 @@ func writeMainlineSection(b *strings.Builder, lines []string) {
 	}
 	fmt.Fprintf(b, "Mainline\n")
 	for _, line := range lines {
+		fmt.Fprintf(b, "- %s\n", line)
+	}
+	b.WriteString("\n")
+}
+
+func writeDigestSection(b *strings.Builder, projection compileCardProjection) {
+	if projection.PrimaryView != "digest" || len(projection.Digest) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "Digest\n")
+	for _, line := range projection.Digest {
 		fmt.Fprintf(b, "- %s\n", line)
 	}
 	b.WriteString("\n")

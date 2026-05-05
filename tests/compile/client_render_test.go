@@ -3,6 +3,7 @@ package compile
 import (
 	"context"
 	"github.com/kumaloha/forge/llm"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -291,6 +292,91 @@ func TestStage5SummaryRequestIncludesSemanticUnits(t *testing.T) {
 	}
 	if len(rt.requests) < 2 || !providerRequestContains(rt.requests[1], "semantic_units") {
 		t.Fatalf("summary request did not include semantic units: %#v", rt.requests)
+	}
+}
+
+func TestStage5RenderUsesDigestAsPrimaryViewForReaderInterestContent(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"translations":[{"id":"n-cash","text":"保留现金等待机会"},{"id":"n-action","text":"出现机会时大额行动"},{"id":"spine:s1","text":"资本配置保持耐心"}]}`},
+		{Text: `{"summary":"Greg Abel阐明资本配置纪律。"}`},
+	}}
+	out, err := stage5Render(context.Background(), rt, "compile-model", Bundle{
+		UnitID:     "youtube:meeting-digest-view",
+		Source:     "youtube",
+		ExternalID: "meeting-digest-view",
+		Content:    "shareholder meeting with capital, data center and portfolio answers",
+	}, graphState{
+		ArticleForm: "shareholder_meeting",
+		Nodes: []graphNode{
+			{ID: "n-cash", Text: "保留现金等待机会"},
+			{ID: "n-action", Text: "出现机会时大额行动", IsTarget: true},
+		},
+		Edges: []graphEdge{{From: "n-cash", To: "n-action"}},
+		Ledger: Ledger{Items: []LedgerItem{{
+			ID:        "ledger-001",
+			Category:  "capital",
+			Kind:      "commitment",
+			Claim:     "资本配置保持耐心，只在好机会出现时大额行动。",
+			SourceIDs: []string{"semantic-capital"},
+		}, {
+			ID:        "ledger-002",
+			Category:  "energy",
+			Kind:      "boundary",
+			Claim:     "数据中心客户必须承担全部用电成本。",
+			SourceIDs: []string{"semantic-energy"},
+		}, {
+			ID:        "ledger-003",
+			Category:  "portfolio",
+			Kind:      "claim",
+			Claim:     "核心持仓需要持续评估商业价值和消费者需求。",
+			SourceIDs: []string{"semantic-portfolio"},
+		}}},
+		Brief: []BriefItem{{
+			Category:  "capital",
+			Kind:      "commitment",
+			Claim:     "资本配置保持耐心，只在好机会出现时大额行动。",
+			SourceIDs: []string{"semantic-capital"},
+		}, {
+			Category:  "energy",
+			Kind:      "boundary",
+			Claim:     "数据中心客户必须承担全部用电成本。",
+			SourceIDs: []string{"semantic-energy"},
+		}, {
+			Category:  "portfolio",
+			Kind:      "claim",
+			Claim:     "核心持仓需要持续评估商业价值和消费者需求。",
+			SourceIDs: []string{"semantic-portfolio"},
+		}},
+		Spines: []PreviewSpine{{
+			ID:       "s1",
+			Level:    "primary",
+			Priority: 1,
+			Policy:   "capital_allocation_rule",
+			Thesis:   "资本配置保持耐心",
+			NodeIDs:  []string{"n-cash", "n-action"},
+			Edges:    []PreviewEdge{{From: "n-cash", To: "n-action"}},
+			Scope:    "article",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stage5Render() error = %v", err)
+	}
+	if out.PrimaryView != "digest" {
+		t.Fatalf("PrimaryView = %q, want digest", out.PrimaryView)
+	}
+	if len(out.Digest) != 3 {
+		t.Fatalf("Digest = %#v, want all brief items visible", out.Digest)
+	}
+	if !slices.ContainsFunc(out.Digest, func(item BriefItem) bool {
+		return item.Category == "energy" && item.Claim == "数据中心客户必须承担全部用电成本。"
+	}) {
+		t.Fatalf("Digest = %#v, want energy agenda item visible", out.Digest)
+	}
+	if !out.VisibleCoverageAudit.IsZero() {
+		t.Fatalf("VisibleCoverageAudit = %#v, want digest-visible coverage to satisfy ledger", out.VisibleCoverageAudit)
+	}
+	if !out.InventoryCoverageAudit.IsZero() {
+		t.Fatalf("InventoryCoverageAudit = %#v, want brief inventory to cover ledger", out.InventoryCoverageAudit)
 	}
 }
 

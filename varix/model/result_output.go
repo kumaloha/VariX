@@ -22,48 +22,56 @@ func (d HiddenDetails) IsEmpty() bool {
 }
 
 type Output struct {
-	Summary            string             `json:"summary,omitempty"`
-	Drivers            []string           `json:"drivers,omitempty"`
-	Targets            []string           `json:"targets,omitempty"`
-	Declarations       []Declaration      `json:"declarations,omitempty"`
-	SemanticUnits      []SemanticUnit     `json:"semantic_units,omitempty"`
-	Ledger             Ledger             `json:"ledger,omitempty"`
-	Brief              []BriefItem        `json:"brief,omitempty"`
-	CoverageAudit      CoverageAudit      `json:"coverage_audit,omitempty"`
-	TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
-	Branches           []Branch           `json:"branches,omitempty"`
-	EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
-	ExplanationNodes   []string           `json:"explanation_nodes,omitempty"`
-	SupplementaryNodes []string           `json:"supplementary_nodes,omitempty"`
-	Graph              ReasoningGraph     `json:"graph,omitempty"`
-	Details            HiddenDetails      `json:"details,omitempty"`
-	Topics             []string           `json:"topics,omitempty"`
-	Confidence         string             `json:"confidence,omitempty"`
-	Verification       Verification       `json:"verification,omitempty"`
-	AuthorValidation   AuthorValidation   `json:"author_validation,omitempty"`
+	Summary                string             `json:"summary,omitempty"`
+	PrimaryView            string             `json:"primaryView,omitempty"`
+	Drivers                []string           `json:"drivers,omitempty"`
+	Targets                []string           `json:"targets,omitempty"`
+	Declarations           []Declaration      `json:"declarations,omitempty"`
+	SemanticUnits          []SemanticUnit     `json:"semantic_units,omitempty"`
+	Ledger                 Ledger             `json:"ledger,omitempty"`
+	Brief                  []BriefItem        `json:"brief,omitempty"`
+	Digest                 []BriefItem        `json:"digest,omitempty"`
+	CoverageAudit          CoverageAudit      `json:"coverage_audit,omitempty"`
+	VisibleCoverageAudit   CoverageAudit      `json:"visibleCoverageAudit,omitempty"`
+	InventoryCoverageAudit CoverageAudit      `json:"inventoryCoverageAudit,omitempty"`
+	TransmissionPaths      []TransmissionPath `json:"transmission_paths,omitempty"`
+	Branches               []Branch           `json:"branches,omitempty"`
+	EvidenceNodes          []string           `json:"evidence_nodes,omitempty"`
+	ExplanationNodes       []string           `json:"explanation_nodes,omitempty"`
+	SupplementaryNodes     []string           `json:"supplementary_nodes,omitempty"`
+	Graph                  ReasoningGraph     `json:"graph,omitempty"`
+	Details                HiddenDetails      `json:"details,omitempty"`
+	Topics                 []string           `json:"topics,omitempty"`
+	Confidence             string             `json:"confidence,omitempty"`
+	Verification           Verification       `json:"verification,omitempty"`
+	AuthorValidation       AuthorValidation   `json:"author_validation,omitempty"`
 }
 
 func (o Output) MarshalJSON() ([]byte, error) {
 	type publicOutput struct {
-		Summary            string             `json:"summary,omitempty"`
-		Drivers            []string           `json:"drivers,omitempty"`
-		Targets            []string           `json:"targets,omitempty"`
-		Declarations       []Declaration      `json:"declarations,omitempty"`
-		SemanticUnits      []SemanticUnit     `json:"semantic_units,omitempty"`
-		Ledger             *Ledger            `json:"ledger,omitempty"`
-		Brief              []BriefItem        `json:"brief,omitempty"`
-		CoverageAudit      *CoverageAudit     `json:"coverage_audit,omitempty"`
-		TransmissionPaths  []TransmissionPath `json:"transmission_paths,omitempty"`
-		Branches           []Branch           `json:"branches,omitempty"`
-		EvidenceNodes      []string           `json:"evidence_nodes,omitempty"`
-		ExplanationNodes   []string           `json:"explanation_nodes,omitempty"`
-		SupplementaryNodes []string           `json:"supplementary_nodes,omitempty"`
-		Graph              *ReasoningGraph    `json:"graph,omitempty"`
-		Details            HiddenDetails      `json:"details,omitempty"`
-		Topics             []string           `json:"topics,omitempty"`
-		Confidence         string             `json:"confidence,omitempty"`
-		Verification       *Verification      `json:"verification,omitempty"`
-		AuthorValidation   *AuthorValidation  `json:"author_validation,omitempty"`
+		Summary                string             `json:"summary,omitempty"`
+		PrimaryView            string             `json:"primaryView,omitempty"`
+		Drivers                []string           `json:"drivers,omitempty"`
+		Targets                []string           `json:"targets,omitempty"`
+		Declarations           []Declaration      `json:"declarations,omitempty"`
+		SemanticUnits          []SemanticUnit     `json:"semantic_units,omitempty"`
+		Ledger                 *Ledger            `json:"ledger,omitempty"`
+		Brief                  []BriefItem        `json:"brief,omitempty"`
+		Digest                 []BriefItem        `json:"digest,omitempty"`
+		CoverageAudit          *CoverageAudit     `json:"coverage_audit,omitempty"`
+		VisibleCoverageAudit   *CoverageAudit     `json:"visibleCoverageAudit,omitempty"`
+		InventoryCoverageAudit *CoverageAudit     `json:"inventoryCoverageAudit,omitempty"`
+		TransmissionPaths      []TransmissionPath `json:"transmission_paths,omitempty"`
+		Branches               []Branch           `json:"branches,omitempty"`
+		EvidenceNodes          []string           `json:"evidence_nodes,omitempty"`
+		ExplanationNodes       []string           `json:"explanation_nodes,omitempty"`
+		SupplementaryNodes     []string           `json:"supplementary_nodes,omitempty"`
+		Graph                  *ReasoningGraph    `json:"graph,omitempty"`
+		Details                HiddenDetails      `json:"details,omitempty"`
+		Topics                 []string           `json:"topics,omitempty"`
+		Confidence             string             `json:"confidence,omitempty"`
+		Verification           *Verification      `json:"verification,omitempty"`
+		AuthorValidation       *AuthorValidation  `json:"author_validation,omitempty"`
 	}
 	var graph *ReasoningGraph
 	if len(o.Graph.Nodes) > 0 || len(o.Graph.Edges) > 0 {
@@ -85,26 +93,38 @@ func (o Output) MarshalJSON() ([]byte, error) {
 	if !o.CoverageAudit.IsZero() {
 		coverageAudit = &o.CoverageAudit
 	}
+	var visibleCoverageAudit *CoverageAudit
+	if !o.VisibleCoverageAudit.IsZero() {
+		visibleCoverageAudit = &o.VisibleCoverageAudit
+	}
+	var inventoryCoverageAudit *CoverageAudit
+	if !o.InventoryCoverageAudit.IsZero() {
+		inventoryCoverageAudit = &o.InventoryCoverageAudit
+	}
 	return json.Marshal(publicOutput{
-		Summary:            o.Summary,
-		Drivers:            o.Drivers,
-		Targets:            o.Targets,
-		Declarations:       o.Declarations,
-		SemanticUnits:      o.SemanticUnits,
-		Ledger:             ledger,
-		Brief:              o.Brief,
-		CoverageAudit:      coverageAudit,
-		TransmissionPaths:  o.TransmissionPaths,
-		Branches:           o.Branches,
-		EvidenceNodes:      o.EvidenceNodes,
-		ExplanationNodes:   o.ExplanationNodes,
-		SupplementaryNodes: o.SupplementaryNodes,
-		Graph:              graph,
-		Details:            o.Details,
-		Topics:             o.Topics,
-		Confidence:         o.Confidence,
-		Verification:       verification,
-		AuthorValidation:   authorValidation,
+		Summary:                o.Summary,
+		PrimaryView:            o.PrimaryView,
+		Drivers:                o.Drivers,
+		Targets:                o.Targets,
+		Declarations:           o.Declarations,
+		SemanticUnits:          o.SemanticUnits,
+		Ledger:                 ledger,
+		Brief:                  o.Brief,
+		Digest:                 o.Digest,
+		CoverageAudit:          coverageAudit,
+		VisibleCoverageAudit:   visibleCoverageAudit,
+		InventoryCoverageAudit: inventoryCoverageAudit,
+		TransmissionPaths:      o.TransmissionPaths,
+		Branches:               o.Branches,
+		EvidenceNodes:          o.EvidenceNodes,
+		ExplanationNodes:       o.ExplanationNodes,
+		SupplementaryNodes:     o.SupplementaryNodes,
+		Graph:                  graph,
+		Details:                o.Details,
+		Topics:                 o.Topics,
+		Confidence:             o.Confidence,
+		Verification:           verification,
+		AuthorValidation:       authorValidation,
 	})
 }
 

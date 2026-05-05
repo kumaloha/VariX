@@ -810,10 +810,17 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 		RootExternalID: "100",
 		Model:          "qwen3.6-plus",
 		Output: model.Output{
-			Summary: "summary text",
-			Drivers: []string{"driver"},
-			Targets: []string{"target"},
+			Summary:     "summary text",
+			PrimaryView: "digest",
+			Drivers:     []string{"driver"},
+			Targets:     []string{"target"},
 			Brief: []model.BriefItem{{
+				Category: "portfolio",
+				Kind:     "list",
+				Claim:    "Apple remains a core holding.",
+				Entities: []string{"Apple"},
+			}},
+			Digest: []model.BriefItem{{
 				Category: "portfolio",
 				Kind:     "list",
 				Claim:    "Apple remains a core holding.",
@@ -830,6 +837,12 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 			CoverageAudit: model.CoverageAudit{
 				MissingCategories: []string{"portfolio"},
 				OmittedLedgerIDs:  []string{"ledger-002"},
+			},
+			VisibleCoverageAudit: model.CoverageAudit{
+				OmittedLedgerIDs: []string{"ledger-002"},
+			},
+			InventoryCoverageAudit: model.CoverageAudit{
+				MissingCategories: []string{"operations"},
 			},
 			TransmissionPaths: []model.TransmissionPath{{Driver: "driver", Target: "target", Steps: []string{"step"}}},
 			Branches: []model.Branch{{
@@ -905,11 +918,23 @@ func TestSQLiteStore_UpsertAndGetCompiledOutput(t *testing.T) {
 	if len(got.Output.Brief) != 1 || got.Output.Brief[0].Category != "portfolio" || got.Output.Brief[0].Entities[0] != "Apple" {
 		t.Fatalf("Brief = %#v, want persisted brief", got.Output.Brief)
 	}
+	if got.Output.PrimaryView != "digest" {
+		t.Fatalf("PrimaryView = %q, want digest", got.Output.PrimaryView)
+	}
+	if len(got.Output.Digest) != 1 || got.Output.Digest[0].Category != "portfolio" || got.Output.Digest[0].Entities[0] != "Apple" {
+		t.Fatalf("Digest = %#v, want persisted digest", got.Output.Digest)
+	}
 	if len(got.Output.Ledger.Items) != 1 || got.Output.Ledger.Items[0].Category != "portfolio" || got.Output.Ledger.Items[0].Entities[0] != "Apple" {
 		t.Fatalf("Ledger = %#v, want persisted ledger", got.Output.Ledger)
 	}
 	if len(got.Output.CoverageAudit.MissingCategories) != 1 || got.Output.CoverageAudit.MissingCategories[0] != "portfolio" {
 		t.Fatalf("CoverageAudit = %#v, want persisted coverage audit", got.Output.CoverageAudit)
+	}
+	if len(got.Output.VisibleCoverageAudit.OmittedLedgerIDs) != 1 || got.Output.VisibleCoverageAudit.OmittedLedgerIDs[0] != "ledger-002" {
+		t.Fatalf("VisibleCoverageAudit = %#v, want persisted visible coverage audit", got.Output.VisibleCoverageAudit)
+	}
+	if len(got.Output.InventoryCoverageAudit.MissingCategories) != 1 || got.Output.InventoryCoverageAudit.MissingCategories[0] != "operations" {
+		t.Fatalf("InventoryCoverageAudit = %#v, want persisted inventory coverage audit", got.Output.InventoryCoverageAudit)
 	}
 	if got.Output.AuthorValidation.Summary.Verdict != "mixed" || len(got.Output.AuthorValidation.ClaimChecks) != 1 {
 		t.Fatalf("AuthorValidation = %#v, want persisted author validation", got.Output.AuthorValidation)
