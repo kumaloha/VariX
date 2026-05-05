@@ -166,26 +166,31 @@ func (c *Client) Compile(ctx context.Context, bundle Bundle) (Record, error) {
 	recordStageMetric(stageMetrics, "brief", time.Since(stageStart))
 	debugStage(bundle, "brief", fmt.Sprintf("done items=%d", len(graph.Brief)))
 	c.writeDebugJSON(debugRunDir, "brief.json", graph)
-	stageStart = time.Now()
-	graph, err = stage3Mainline(ctx, c.runtime, c.model, bundle, graph)
-	if err != nil {
-		debugStage(bundle, "relations", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "relations.error.txt", []byte(err.Error()))
-		return Record{}, err
+	if shouldRunMainlineContract(graph.ArticleForm) {
+		stageStart = time.Now()
+		graph, err = stage3Mainline(ctx, c.runtime, c.model, bundle, graph)
+		if err != nil {
+			debugStage(bundle, "relations", "error: "+err.Error())
+			c.writeDebugArtifact(debugRunDir, "relations.error.txt", []byte(err.Error()))
+			return Record{}, err
+		}
+		recordStageMetric(stageMetrics, "relations", time.Since(stageStart))
+		debugStage(bundle, "relations", fmt.Sprintf("done nodes=%d relations=%d spines=%d", len(graph.Nodes), len(graph.Edges), len(graph.Spines)))
+		c.writeDebugJSON(debugRunDir, "relations.json", graph)
+		stageStart = time.Now()
+		graph, err = stage3Classify(ctx, c.runtime, c.model, bundle, graph)
+		if err != nil {
+			debugStage(bundle, "classify", "error: "+err.Error())
+			c.writeDebugArtifact(debugRunDir, "classify.error.txt", []byte(err.Error()))
+			return Record{}, err
+		}
+		recordStageMetric(stageMetrics, "classify", time.Since(stageStart))
+		debugStage(bundle, "classify", fmt.Sprintf("done drivers=%d targets=%d", countRole(graph, roleDriver), countTargets(graph)))
+		c.writeDebugJSON(debugRunDir, "classify.json", graph)
+	} else {
+		debugStage(bundle, "relations", fmt.Sprintf("skipped article_form=%s", graph.ArticleForm))
+		debugStage(bundle, "classify", fmt.Sprintf("skipped article_form=%s", graph.ArticleForm))
 	}
-	recordStageMetric(stageMetrics, "relations", time.Since(stageStart))
-	debugStage(bundle, "relations", fmt.Sprintf("done nodes=%d relations=%d spines=%d", len(graph.Nodes), len(graph.Edges), len(graph.Spines)))
-	c.writeDebugJSON(debugRunDir, "relations.json", graph)
-	stageStart = time.Now()
-	graph, err = stage3Classify(ctx, c.runtime, c.model, bundle, graph)
-	if err != nil {
-		debugStage(bundle, "classify", "error: "+err.Error())
-		c.writeDebugArtifact(debugRunDir, "classify.error.txt", []byte(err.Error()))
-		return Record{}, err
-	}
-	recordStageMetric(stageMetrics, "classify", time.Since(stageStart))
-	debugStage(bundle, "classify", fmt.Sprintf("done drivers=%d targets=%d", countRole(graph, roleDriver), countTargets(graph)))
-	c.writeDebugJSON(debugRunDir, "classify.json", graph)
 	stageStart = time.Now()
 	out, err := stage5Render(ctx, c.runtime, c.model, bundle, graph)
 	if err != nil {

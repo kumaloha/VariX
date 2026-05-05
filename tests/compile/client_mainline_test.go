@@ -151,6 +151,44 @@ func TestClientCompilePassesArticleContextToMainline(t *testing.T) {
 	}
 }
 
+func TestClientCompileSkipsMainlineForReaderInterestForms(t *testing.T) {
+	generic := llm.Response{Text: `{"missing_nodes":[],"missing_edges":[],"misclassified":[],"relations":[{"from":"n1","to":"n2","source_quote":"capex supports AI demand","reason":"The call links investment to AI demand."}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"Capex supports AI demand","node_ids":["n1","n2"],"edge_indexes":[0],"scope":"article","why":"primary relation"}],"translations":[{"id":"n1","text":"2026年资本开支为1750亿至1850亿美元"},{"id":"n2","text":"AI算力需求保持强劲"}],"summary":"Alphabet管理层给出AI资本开支议程"}`}
+	rt := &fakeRuntime{responses: []llm.Response{
+		{Text: `{"article_form":"earnings_call","nodes":[{"id":"n1","text":"2026 capex is $175B to $185B","source_quote":"For the full year 2026, we expect CapEx to be in the range of $175 billion to $185 billion","role":"guidance"},{"id":"n2","text":"AI compute demand remains strong","source_quote":"internal and external AI demand remains very strong","role":"operating_plan"}],"off_graph":[]}`},
+		{Text: `{"replacements":[]}`},
+		{Text: `{"support_edges":[]}`},
+		{Text: `{"semantic_units":[{"id":"u1","speaker":"Anat Ashkenazi","speaker_role":"primary","subject":"2026 capital expenditure","force":"guidance","claim":"2026年资本开支预计为1750亿至1850亿美元，用于AI算力和云客户需求。","source_quote":"CapEx to be in the range of $175 billion to $185 billion","salience":0.95,"confidence":"high"}]}`},
+		generic,
+		generic,
+		generic,
+		generic,
+	}}
+	client := &Client{runtime: rt, model: "compile-model", projectRoot: ""}
+	record, err := client.Compile(context.Background(), Bundle{
+		UnitID:     "youtube:alphabet-earnings-call",
+		Source:     "youtube",
+		ExternalID: "alphabet-earnings-call",
+		Content:    "Alphabet Fourth Quarter 2025 Earnings Conference Call. For the full year 2026, we expect CapEx to be in the range of $175 billion to $185 billion. AI compute demand remains very strong.",
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	for _, req := range rt.requests {
+		if req.JSONSchema != nil && req.JSONSchema.Name == "compile_relations" {
+			t.Fatalf("unexpected mainline request for earnings call: %#v", req)
+		}
+	}
+	if record.Output.PrimaryView != "digest" {
+		t.Fatalf("PrimaryView = %q, want digest", record.Output.PrimaryView)
+	}
+	if len(record.Output.Digest) == 0 {
+		t.Fatalf("Digest = %#v, want meeting agenda digest", record.Output.Digest)
+	}
+	if len(record.Output.Drivers) != 0 || len(record.Output.Targets) != 0 || len(record.Output.TransmissionPaths) != 0 || len(record.Output.Branches) != 0 {
+		t.Fatalf("analysis skeleton = drivers %#v targets %#v paths %#v branches %#v, want no analysis skeleton for earnings call", record.Output.Drivers, record.Output.Targets, record.Output.TransmissionPaths, record.Output.Branches)
+	}
+}
+
 func TestStage3MainlinePreservesInferenceRelationKind(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
 		Text: `{"relations":[{"from":"n1","to":"n2","kind":"inference","source_quote":"沃什主张大幅降息，因此金融抑制可能开启","reason":"The Warsh research clue is used to infer the financial repression forecast."},{"from":"n2","to":"n3","kind":"causal","source_quote":"金融抑制开启后现金购买力会贬值","reason":"The forecast regime drives the cash purchasing-power implication."}],"spines":[{"id":"s1","level":"primary","priority":1,"thesis":"调研证据推导金融抑制并影响现金","node_ids":["n1","n2","n3"],"edge_indexes":[0,1],"scope":"article","why":"This is the proof-backed forecast spine."}]}`,

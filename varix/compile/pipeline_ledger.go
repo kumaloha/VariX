@@ -126,6 +126,8 @@ func ledgerCategory(text string) string {
 	switch {
 	case containsAnyText(lower, []string{"buyback", "repurchase", "回购"}):
 		return "buyback"
+	case containsFinancialMetric(lower):
+		return "financials"
 	case containsAnyText(lower, []string{"portfolio", "holding", "apple", "coca-cola", "american express", "bank of america", "trading house", "现有组合", "股票组合", "持仓", "能力圈"}):
 		return "portfolio"
 	case containsAnyText(lower, []string{"succession", "successor", "继任", "接班"}):
@@ -149,6 +151,18 @@ func ledgerCategory(text string) string {
 	default:
 		return "governance"
 	}
+}
+
+func containsFinancialMetric(lower string) bool {
+	return containsAnyText(lower, []string{
+		"revenue", "revenues", "operating income", "net income", "operating margin",
+		"backlog", "capital expenditure", "capital expenditures", "capex", "free cash flow",
+		"cashflow", "cash flow", "dividend", "depreciation", "fx tailwind", "fx headwind",
+		"r&d", "research and development", "stock-based compensation",
+		"营收", "收入", "经营利润", "运营利润", "净利润", "利润率", "积压订单",
+		"资本开支", "资本支出", "自由现金流", "股息", "折旧", "汇率顺风", "汇率逆风",
+		"研发费用", "股权激励费用",
+	})
 }
 
 func ledgerEntities(text string) []string {

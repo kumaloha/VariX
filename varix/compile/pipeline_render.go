@@ -2,6 +2,7 @@ package compile
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -15,6 +16,10 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 	}
 	state = applyDeclarationCoverageGate(bundle, state)
 	state = dedupeGraphStateForRender(state)
+	digest := renderDigestItems(state)
+	if shouldUseDigestOnlyRender(state.ArticleForm, digest) {
+		return stage5DigestRender(ctx, rt, model, bundle, state, digest)
+	}
 	if projected, ok := projectRolesFromSpines(state); ok {
 		state = dedupeGraphStateForRender(projected)
 	}
@@ -34,7 +39,6 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 	targets = mergePathTargets(targets, paths)
 	drivers = filterRenderDrivers(drivers, paths)
 	targets = filterRenderTargets(targets, paths, state.ArticleForm, satiricalCoveredNodes)
-	digest := renderDigestItems(state)
 	primaryView := primaryRenderView(state)
 	visibleCoverageAudit := auditRenderedCoverage(state.Ledger, digest, drivers, targets, paths, state.OffGraph)
 	inventoryCoverageAudit := auditBriefCoverage(state.Ledger, state.Brief)
@@ -152,6 +156,129 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 		}
 	}
 	return out, nil
+}
+
+func stage5DigestRender(ctx context.Context, rt runtimeChat, model string, bundle Bundle, state graphState, digest []BriefItem) (Output, error) {
+	observedAt := bundle.PostedAt
+	if observedAt.IsZero() {
+		observedAt = NowUTC()
+	}
+	declarationNodes := declarationTranslationNodes(state)
+	spineNodes := spineTranslationNodes(state.Spines)
+	translated, err := translateAll(ctx, rt, model, uniqueTexts(nil, nil, nil, declarationNodes, spineNodes, nil))
+	if err != nil {
+		return Output{}, err
+	}
+	cn := func(id, fallback string) string {
+		if value, ok := translated[id]; ok && strings.TrimSpace(value) != "" {
+			return value
+		}
+		return fallback
+	}
+	declarations := appendSourceDeclarations(bundle, renderDeclarationsFromSpines(bundle, state, cn))
+	detailItems := renderOffGraphDetails(state.OffGraph, cn)
+	detailItems = append(detailItems, renderSemanticUnitDetails(state.SemanticUnits)...)
+	summary, err := summarizeChinese(ctx, rt, model, state.ArticleForm, nil, nil, nil, declarations, state.SemanticUnits, digest, nil, bundle)
+	if err != nil || strings.TrimSpace(summary) == "" {
+		summary = fallbackDigestSummary(digest, bundle)
+	}
+	summary = prioritizeDeclarationSummary(summary, state.Spines, declarations)
+	summary = prioritizeSemanticSummary(summary, state.SemanticUnits, state.ArticleForm)
+	summary = compactSummaryForDisplay(summary, state.ArticleForm, declarations, state.SemanticUnits)
+	visibleCoverageAudit := auditRenderedCoverage(state.Ledger, digest, nil, nil, nil, state.OffGraph)
+	inventoryCoverageAudit := auditBriefCoverage(state.Ledger, state.Brief)
+	return Output{
+		Summary:                summary,
+		PrimaryView:            renderPrimaryViewDigest,
+		Declarations:           declarations,
+		SemanticUnits:          append([]SemanticUnit(nil), state.SemanticUnits...),
+		Ledger:                 state.Ledger,
+		Brief:                  append([]BriefItem(nil), state.Brief...),
+		Digest:                 digest,
+		CoverageAudit:          visibleCoverageAudit,
+		VisibleCoverageAudit:   visibleCoverageAudit,
+		InventoryCoverageAudit: inventoryCoverageAudit,
+		Graph:                  digestReasoningGraph(bundle, digest, observedAt),
+		Details:                HiddenDetails{Caveats: []string{"digest render contract"}, Items: detailItems},
+		Confidence:             digestRenderConfidence(digest),
+	}, nil
+}
+
+func fallbackDigestSummary(digest []BriefItem, bundle Bundle) string {
+	for _, item := range digest {
+		if claim := strings.TrimSpace(item.Claim); claim != "" {
+			return truncateRunes(strings.TrimRight(claim, "。.!！"), summaryMaxRunes)
+		}
+	}
+	if title := leadTitleFromBundle(bundle); strings.TrimSpace(title) != "" {
+		return truncateRunes(title, summaryMaxRunes)
+	}
+	return "会议要点纪要"
+}
+
+func digestRenderConfidence(digest []BriefItem) string {
+	if len(digest) >= 3 {
+		return "medium"
+	}
+	return "low"
+}
+
+func digestReasoningGraph(bundle Bundle, digest []BriefItem, observedAt time.Time) ReasoningGraph {
+	sourceText := strings.TrimSpace(leadTitleFromBundle(bundle))
+	if sourceText == "" {
+		sourceText = truncateRunes(strings.TrimSpace(bundle.Content), 120)
+	}
+	if sourceText == "" {
+		sourceText = "会议全文"
+	}
+	nodes := []GraphNode{{
+		ID:         "digest_source",
+		Kind:       NodeFact,
+		Form:       NodeFormObservation,
+		Function:   NodeFunctionSupport,
+		Text:       sourceText,
+		OccurredAt: observedAt,
+	}}
+	edges := make([]GraphEdge, 0, len(digest))
+	for i, item := range digest {
+		claim := strings.TrimSpace(item.Claim)
+		if claim == "" {
+			continue
+		}
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = "digest_item_" + formatThreeDigitIndex(i+1)
+		}
+		nodes = append(nodes, GraphNode{
+			ID:       id,
+			Kind:     NodeConclusion,
+			Form:     NodeFormJudgment,
+			Function: NodeFunctionClaim,
+			Text:     claim,
+		})
+		edges = append(edges, GraphEdge{From: "digest_source", To: id, Kind: EdgeExplains})
+	}
+	if len(nodes) == 1 {
+		nodes = append(nodes, GraphNode{
+			ID:       "digest_inventory",
+			Kind:     NodeConclusion,
+			Form:     NodeFormJudgment,
+			Function: NodeFunctionClaim,
+			Text:     "该内容以会议议程和管理层问答清单呈现。",
+		})
+		edges = append(edges, GraphEdge{From: "digest_source", To: "digest_inventory", Kind: EdgeExplains})
+	}
+	return ReasoningGraph{Nodes: nodes, Edges: edges}
+}
+
+func formatThreeDigitIndex(value int) string {
+	if value < 10 {
+		return "00" + strconv.Itoa(value)
+	}
+	if value < 100 {
+		return "0" + strconv.Itoa(value)
+	}
+	return strconv.Itoa(value)
 }
 
 func renderLowStructureOutput(bundle Bundle, summary, sourceText string, observedAt time.Time, detailItems []map[string]any) Output {

@@ -13,26 +13,26 @@ func formatCompileCard(projection compileCardProjection) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Summary\n%s\n\n", projection.Summary)
 	writeDigestSection(&b, projection)
-	writeMainlineSection(&b, projection.Mainline)
-	writeTopicsSection(&b, projection.Topics, len(projection.Topics))
 	if projection.PrimaryView != "digest" {
+		writeMainlineSection(&b, projection.Mainline)
+		writeTopicsSection(&b, projection.Topics, len(projection.Topics))
 		writeKeyPointSection(&b, projection.KeyPoints, len(projection.KeyPoints))
+		writeCompactNodeSection(&b, "Drivers", truncateList(projection.Drivers, 5))
+		writeCompactNodeSection(&b, "Targets", truncateList(projection.Targets, 5))
+		writeCompactNodeSection(&b, "Evidence", truncateList(projection.Evidence, 5))
+		writeCompactNodeSection(&b, "Explanations", truncateList(projection.Explanations, 5))
+		writeBranchSection(&b, projection.Branches, 5)
+		if len(projection.LogicChains) > 0 {
+			fmt.Fprintf(&b, "%s\n", projection.LogicHeading)
+			for _, chain := range projection.LogicChains {
+				fmt.Fprintf(&b, "- %s\n", chain)
+			}
+			b.WriteString("\n")
+		}
 	}
 	writeCompactNodeSection(&b, "Coverage audit", projection.CoverageAudit)
 	writeReadableSpeakerClaimSection(&b, projection.SemanticUnits)
 	writeDeclarationSection(&b, projection.Declarations, 5)
-	writeCompactNodeSection(&b, "Drivers", truncateList(projection.Drivers, 5))
-	writeCompactNodeSection(&b, "Targets", truncateList(projection.Targets, 5))
-	writeCompactNodeSection(&b, "Evidence", truncateList(projection.Evidence, 5))
-	writeCompactNodeSection(&b, "Explanations", truncateList(projection.Explanations, 5))
-	writeBranchSection(&b, projection.Branches, 5)
-	if len(projection.LogicChains) > 0 {
-		fmt.Fprintf(&b, "%s\n", projection.LogicHeading)
-		for _, chain := range projection.LogicChains {
-			fmt.Fprintf(&b, "- %s\n", chain)
-		}
-		b.WriteString("\n")
-	}
 	if len(projection.VerificationSummary) > 0 {
 		fmt.Fprintf(&b, "Verification\n")
 		for _, line := range projection.VerificationSummary {
@@ -57,25 +57,25 @@ func formatCompactCompileCard(projection compileCardProjection) string {
 	compactProjection := projection
 	compactProjection.Digest = truncateList(projection.Digest, 3)
 	writeDigestSection(&b, compactProjection)
-	writeMainlineSection(&b, truncateList(projection.Mainline, 3))
-	writeTopicsSection(&b, projection.Topics, 3)
 	if projection.PrimaryView != "digest" {
+		writeMainlineSection(&b, truncateList(projection.Mainline, 3))
+		writeTopicsSection(&b, projection.Topics, 3)
 		writeKeyPointSection(&b, projection.KeyPoints, 3)
+		writeCompactNodeSection(&b, "Drivers", truncateList(projection.Drivers, 3))
+		writeCompactNodeSection(&b, "Targets", truncateList(projection.Targets, 3))
+		writeCompactNodeSection(&b, "Evidence", truncateList(projection.Evidence, 3))
+		writeCompactNodeSection(&b, "Explanations", truncateList(projection.Explanations, 2))
+		writeBranchSection(&b, projection.Branches, 2)
+		if len(projection.LogicChains) > 0 {
+			heading := projection.LogicHeading
+			if heading == "Logic chain" {
+				heading = "Main logic"
+			}
+			fmt.Fprintf(&b, "%s\n- %s\n\n", heading, projection.LogicChains[0])
+		}
 	}
 	writeCompactNodeSection(&b, "Coverage audit", truncateList(projection.CoverageAudit, 3))
 	writeDeclarationSection(&b, truncateDeclarations(projection.Declarations, 2), 2)
-	writeCompactNodeSection(&b, "Drivers", truncateList(projection.Drivers, 3))
-	writeCompactNodeSection(&b, "Targets", truncateList(projection.Targets, 3))
-	writeCompactNodeSection(&b, "Evidence", truncateList(projection.Evidence, 3))
-	writeCompactNodeSection(&b, "Explanations", truncateList(projection.Explanations, 2))
-	writeBranchSection(&b, projection.Branches, 2)
-	if len(projection.LogicChains) > 0 {
-		heading := projection.LogicHeading
-		if heading == "Logic chain" {
-			heading = "Main logic"
-		}
-		fmt.Fprintf(&b, "%s\n- %s\n\n", heading, projection.LogicChains[0])
-	}
 	if len(projection.AuthorValidation) > 0 {
 		fmt.Fprintf(&b, "Author validation\n")
 		for _, line := range truncateList(projection.AuthorValidation, 3) {

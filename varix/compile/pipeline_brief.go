@@ -9,10 +9,12 @@ import (
 
 const briefCategoryLimit = 2
 const meetingBriefCategoryLimit = 4
+const earningsCallBriefCategoryLimit = 12
 const briefDefaultLimit = 14
 const meetingBriefDefaultLimit = 30
 
 var mandatoryMeetingBriefCategories = []string{
+	"financials",
 	"capital",
 	"portfolio",
 	"insurance",
@@ -103,6 +105,9 @@ func bestLedgerItemForCategory(items []LedgerItem, category string, counts map[s
 }
 
 func briefCategoryLimitForForm(articleForm string) int {
+	if normalizeArticleForm(articleForm) == "earnings_call" {
+		return earningsCallBriefCategoryLimit
+	}
 	if isReaderInterestSummaryForm(articleForm) {
 		return meetingBriefCategoryLimit
 	}
@@ -192,6 +197,8 @@ func briefCategory(text string) string {
 	switch {
 	case containsAnyText(lower, []string{"buyback", "repurchase", "回购"}):
 		return "buyback"
+	case containsFinancialMetric(lower):
+		return "financials"
 	case containsAnyText(lower, []string{"capital allocation", "cash", "treasury", "资本配置", "现金", "国债", "美债"}):
 		return "capital"
 	case containsAnyText(lower, []string{"portfolio", "holding", "apple", "coca-cola", "american express", "bank of america", "trading house", "现有组合", "股票组合", "持仓", "能力圈"}):

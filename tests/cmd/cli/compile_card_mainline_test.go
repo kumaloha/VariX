@@ -369,6 +369,8 @@ func TestFormatCompileCardUsesDigestAsPrimaryView(t *testing.T) {
 					Target: "大额行动",
 				}},
 			}},
+			Drivers:    []string{"保留现金"},
+			Targets:    []string{"大额行动"},
 			Confidence: "medium",
 		},
 		CompiledAt: time.Now().UTC(),
@@ -378,11 +380,10 @@ func TestFormatCompileCardUsesDigestAsPrimaryView(t *testing.T) {
 	if !strings.Contains(out, "Digest\n- capital: 资本配置保持耐心，只在好机会出现时大额行动\n- energy: 数据中心客户必须承担全部用电成本") {
 		t.Fatalf("stdout = %q, want digest section as primary view", out)
 	}
-	if !strings.Contains(out, "Mainline\n- Thesis: 资本配置保持耐心") {
-		t.Fatalf("stdout = %q, want mainline still available after digest", out)
-	}
-	if strings.Index(out, "Digest") > strings.Index(out, "Mainline") {
-		t.Fatalf("stdout = %q, want digest before mainline", out)
+	for _, notWant := range []string{"Mainline", "Drivers", "Targets", "Branches", "Path: 保留现金 -> 大额行动"} {
+		if strings.Contains(out, notWant) {
+			t.Fatalf("stdout = %q, did not want analysis section %q for digest primary view", out, notWant)
+		}
 	}
 }
 

@@ -14,6 +14,14 @@ func primaryRenderView(state graphState) string {
 	return renderPrimaryViewMainline
 }
 
+func shouldRunMainlineContract(articleForm string) bool {
+	return !isReaderInterestSummaryForm(articleForm)
+}
+
+func shouldUseDigestOnlyRender(articleForm string, digest []BriefItem) bool {
+	return isReaderInterestSummaryForm(articleForm) && len(digest) > 0
+}
+
 func renderDigestItems(state graphState) []BriefItem {
 	if !isReaderInterestSummaryForm(state.ArticleForm) || len(state.Brief) == 0 {
 		return nil

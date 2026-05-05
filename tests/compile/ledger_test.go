@@ -103,6 +103,20 @@ func TestLedgerClassifiesCultureAndGEICOBeforeOperations(t *testing.T) {
 	}
 }
 
+func TestLedgerClassifiesEarningsMetricsAsFinancials(t *testing.T) {
+	for _, text := range []string{
+		"Q4 Google Cloud revenues increased 48% to $17.7 billion",
+		"Google Cloud backlog increased 55% sequentially to $240 billion",
+		"Q4 Alphabet operating income increased 16% to $35.9 billion",
+		"2026 Alphabet capital expenditures are anticipated to be $175 billion to $185 billion",
+		"Q4 Alphabet free cash flow was $24.6 billion",
+	} {
+		if got := ledgerCategory(text); got != "financials" {
+			t.Fatalf("ledgerCategory(%q) = %q, want financials", text, got)
+		}
+	}
+}
+
 func ledgerItemByCategory(items []LedgerItem, category string) *LedgerItem {
 	for i := range items {
 		if items[i].Category == category {

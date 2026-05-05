@@ -118,6 +118,34 @@ func TestMeetingBriefKeepsMultipleSpecificAgendaItemsPerCategory(t *testing.T) {
 	}
 }
 
+func TestEarningsCallBriefKeepsFinancialMetricInventory(t *testing.T) {
+	state := graphState{
+		ArticleForm: "earnings_call",
+		Ledger: Ledger{Items: []LedgerItem{
+			{ID: "revenue", Category: "financials", Kind: "number", Claim: "FY 2025 Alphabet consolidated revenues reached $403 billion, up 15%.", Salience: 0.99},
+			{ID: "q4-revenue", Category: "financials", Kind: "number", Claim: "Q4 2025 Alphabet consolidated revenues reached $113.8 billion, up 18%.", Salience: 0.98},
+			{ID: "search", Category: "financials", Kind: "number", Claim: "Q4 Google Search and Other advertising revenues increased 17% to $63.1 billion.", Salience: 0.97},
+			{ID: "youtube", Category: "financials", Kind: "number", Claim: "Q4 YouTube advertising revenues increased 9% to $11.4 billion.", Salience: 0.96},
+			{ID: "cloud", Category: "financials", Kind: "number", Claim: "Q4 Google Cloud revenues increased 48% to $17.7 billion.", Salience: 0.95},
+			{ID: "backlog", Category: "financials", Kind: "number", Claim: "Google Cloud backlog increased 55% sequentially to $240 billion.", Salience: 0.94},
+			{ID: "operating-income", Category: "financials", Kind: "number", Claim: "Q4 Alphabet operating income increased 16% to $35.9 billion.", Salience: 0.93},
+			{ID: "net-income", Category: "financials", Kind: "number", Claim: "Q4 Alphabet net income increased 30% to $34.5 billion.", Salience: 0.92},
+			{ID: "capex", Category: "financials", Kind: "number", Claim: "Q4 Alphabet capital expenditures were $27.9 billion.", Salience: 0.91},
+			{ID: "ai", Category: "ai", Kind: "commitment", Claim: "2026 capital expenditures support AI compute and Cloud demand.", Salience: 0.9},
+		}},
+	}
+
+	got := stageBrief(state).Brief
+	if countBriefCategory(got, "financials") < 8 {
+		t.Fatalf("brief = %#v, want earnings call financial metric inventory preserved", got)
+	}
+	for _, want := range []string{"Google Cloud revenues", "Cloud backlog", "net income"} {
+		if !briefContainsClaim(got, want) {
+			t.Fatalf("brief = %#v, missing metric containing %q", got, want)
+		}
+	}
+}
+
 func briefItemByCategory(items []BriefItem, category string) *BriefItem {
 	for i := range items {
 		if items[i].Category == category {

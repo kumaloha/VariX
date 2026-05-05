@@ -290,7 +290,7 @@ func TestStage5SummaryRequestIncludesSemanticUnits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stage5Render() error = %v", err)
 	}
-	if len(rt.requests) < 2 || !providerRequestContains(rt.requests[1], "semantic_units") {
+	if !requestWithSchemaContains(rt.requests, "compile_summary", "semantic_units") {
 		t.Fatalf("summary request did not include semantic units: %#v", rt.requests)
 	}
 }
@@ -377,6 +377,9 @@ func TestStage5RenderUsesDigestAsPrimaryViewForReaderInterestContent(t *testing.
 	}
 	if !out.InventoryCoverageAudit.IsZero() {
 		t.Fatalf("InventoryCoverageAudit = %#v, want brief inventory to cover ledger", out.InventoryCoverageAudit)
+	}
+	if len(out.Drivers) != 0 || len(out.Targets) != 0 || len(out.TransmissionPaths) != 0 || len(out.Branches) != 0 {
+		t.Fatalf("analysis skeleton = drivers %#v targets %#v paths %#v branches %#v, want digest-only meeting render", out.Drivers, out.Targets, out.TransmissionPaths, out.Branches)
 	}
 }
 
@@ -535,6 +538,18 @@ func providerRequestContains(req llm.ProviderRequest, needle string) bool {
 	return false
 }
 
+func requestWithSchemaContains(requests []llm.ProviderRequest, schemaName, needle string) bool {
+	for _, req := range requests {
+		if req.JSONSchema == nil || req.JSONSchema.Name != schemaName {
+			continue
+		}
+		if providerRequestContains(req, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestStage5RenderBuildsCapitalAllocationDeclarationFromSpine(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{
 		{Text: `{"translations":[{"id":"n_cash","text":"伯克希尔持有约3800亿美元现金和短债"},{"id":"n_rule","text":"伯克希尔会等待市场错配"},{"id":"n_action","text":"出现机会时会快速且果断行动"},{"id":"n_scale","text":"会投入大量资本"},{"id":"n_boundary","text":"不会仅因现金规模大而被迫投资"}]}`},
@@ -607,17 +622,8 @@ func TestStage5RenderBuildsCapitalAllocationDeclarationFromSpine(t *testing.T) {
 	if !containsString(got.Evidence, "伯克希尔持有约3800亿美元现金和短债") {
 		t.Fatalf("Declaration.Evidence = %#v, want cash reserve support", got.Evidence)
 	}
-	if len(out.Branches) != 1 || len(out.Branches[0].Declarations) != 1 {
-		t.Fatalf("Branches = %#v, want branch declaration", out.Branches)
-	}
-	if len(out.TransmissionPaths) == 0 {
-		t.Fatalf("TransmissionPaths = %#v, want declaration spine rendered as a view reasoning path", out.TransmissionPaths)
-	}
-	if !hasTransmissionPath(out.TransmissionPaths, "伯克希尔持有约3800亿美元现金和短债", "会投入大量资本") {
-		t.Fatalf("TransmissionPaths = %#v, want capital allocation context -> scale path", out.TransmissionPaths)
-	}
-	if len(out.Branches[0].TransmissionPaths) == 0 {
-		t.Fatalf("Branch paths = %#v, want declaration branch to carry its rendered path", out.Branches[0].TransmissionPaths)
+	if len(out.Branches) != 0 || len(out.TransmissionPaths) != 0 || len(out.Drivers) != 0 || len(out.Targets) != 0 {
+		t.Fatalf("analysis skeleton = branches %#v paths %#v drivers %#v targets %#v, want digest/declaration render without mainline skeleton", out.Branches, out.TransmissionPaths, out.Drivers, out.Targets)
 	}
 }
 
