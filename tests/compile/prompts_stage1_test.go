@@ -48,6 +48,39 @@ func TestStage1PromptAllowsNormalizationButRejectsSemanticUpgrade(t *testing.T) 
 		}
 	}
 }
+
+func TestStage1PromptNamesCurrentGraphInventoryContract(t *testing.T) {
+	loader := newPromptLoader("")
+	systemBody, err := loader.render("extract_system.tmpl", nil)
+	if err != nil {
+		t.Fatalf("render(extract_system.tmpl) error = %v", err)
+	}
+	userBody, err := loader.render("extract_user.tmpl", map[string]any{"Article": "article context sentinel"})
+	if err != nil {
+		t.Fatalf("render(extract_user.tmpl) error = %v", err)
+	}
+	for _, want := range []string{
+		"graph-node inventory extractor",
+		"This stage builds the node/off_graph inventory",
+		"Extract information-bearing graph nodes",
+	} {
+		if !contains(systemBody, want) {
+			t.Fatalf("extract system prompt missing current contract %q", want)
+		}
+	}
+	if !contains(userBody, "Extract graph nodes and off-graph support from the following article") {
+		t.Fatalf("extract user prompt = %q, want graph-node language", userBody)
+	}
+	for _, stale := range []string{
+		"You are a semantic unit extractor",
+		"Extract semantic units from the following article",
+	} {
+		if contains(systemBody, stale) || contains(userBody, stale) {
+			t.Fatalf("extract prompts still contain stale wording %q\nsystem:\n%s\nuser:\n%s", stale, systemBody, userBody)
+		}
+	}
+}
+
 func TestExtractSchemaRequiresArticleFormAndNodeRole(t *testing.T) {
 	schema := stageJSONSchema("extract")
 	if schema == nil {

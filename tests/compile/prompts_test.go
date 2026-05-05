@@ -89,6 +89,31 @@ func TestPromptTemplatesIncludeBoundaryFewShot(t *testing.T) {
 		})
 	}
 }
+
+func TestSummaryPromptNamesRenderedViewContract(t *testing.T) {
+	loader := newPromptLoader("")
+	userBody, err := loader.render("summary_user.tmpl", map[string]any{"Payload": "{}"})
+	if err != nil {
+		t.Fatalf("render(summary_user.tmpl) error = %v", err)
+	}
+	systemBody, err := loader.render("summary_system.tmpl", nil)
+	if err != nil {
+		t.Fatalf("render(summary_system.tmpl) error = %v", err)
+	}
+	for _, want := range []string{
+		"rendered compile view",
+		"For management or meeting content, title the management agenda",
+		"For multi-branch market updates, title the dominant bridge or tension",
+	} {
+		if !contains(systemBody+"\n"+userBody, want) {
+			t.Fatalf("summary prompts missing %q", want)
+		}
+	}
+	if contains(userBody, "thesis package") {
+		t.Fatalf("summary user prompt still names stale thesis package contract:\n%s", userBody)
+	}
+}
+
 func TestMainlineUpstreamUserPromptsIncludeArticleContext(t *testing.T) {
 	loader := newPromptLoader("")
 	for _, tc := range []struct {

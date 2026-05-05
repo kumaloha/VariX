@@ -120,7 +120,8 @@ func applyCoveragePatch(state graphState, patch coveragePatch) graphState {
 }
 
 func coverageDiscourseRole(hint string) string {
-	switch strings.ToLower(strings.TrimSpace(hint)) {
+	normalized := strings.ToLower(strings.TrimSpace(hint))
+	switch normalized {
 	case "synthesis_bridge", "bridge", "midstream", "mechanism":
 		return "mechanism"
 	case "downstream", "outcome", "implication":
@@ -128,13 +129,26 @@ func coverageDiscourseRole(hint string) string {
 	case "upstream", "driver", "thesis":
 		return "thesis"
 	default:
+		if isManagementCoverageHint(normalized) {
+			return normalized
+		}
 		return ""
 	}
 }
 
 func coverageHintAddsBranchHead(hint string) bool {
-	switch strings.ToLower(strings.TrimSpace(hint)) {
+	normalized := strings.ToLower(strings.TrimSpace(hint))
+	switch normalized {
 	case "downstream", "outcome", "implication", "target":
+		return true
+	default:
+		return isManagementCoverageHint(normalized)
+	}
+}
+
+func isManagementCoverageHint(hint string) bool {
+	switch hint {
+	case "declaration", "commitment", "policy_stance", "capital_allocation_rule", "guidance", "operating_plan", "risk_boundary", "condition", "action", "scale", "constraint", "non_action":
 		return true
 	default:
 		return false

@@ -261,6 +261,26 @@ func TestApplyCoveragePatchPreservesExplicitSynthesisBridgeForMainline(t *testin
 	}
 }
 
+func TestCoverageDiscourseRolePreservesManagementHints(t *testing.T) {
+	for _, tc := range []struct {
+		hint string
+		want string
+	}{
+		{hint: "declaration", want: "declaration"},
+		{hint: "capital_allocation_rule", want: "capital_allocation_rule"},
+		{hint: "operating_plan", want: "operating_plan"},
+		{hint: "risk_boundary", want: "risk_boundary"},
+		{hint: "non_action", want: "non_action"},
+	} {
+		if got := coverageDiscourseRole(tc.hint); got != tc.want {
+			t.Fatalf("coverageDiscourseRole(%q) = %q, want %q", tc.hint, got, tc.want)
+		}
+		if !coverageHintAddsBranchHead(tc.hint) {
+			t.Fatalf("coverageHintAddsBranchHead(%q) = false, want management coverage node to survive as a branch head", tc.hint)
+		}
+	}
+}
+
 func TestStage1ExtractPreservesArticleFormAndNodeRoles(t *testing.T) {
 	rt := &fakeRuntime{responses: []llm.Response{{
 		Text: `{"article_form":"main_narrative_plus_investment_implication","nodes":[{"id":"n1","text":"War desensitization drives US stock highs","source_quote":"markets are desensitized and stocks hit highs","role":"thesis"},{"id":"n2","text":"Oil prices erode consumer confidence","source_quote":"oil prices erode consumer confidence","role":"mechanism"},{"id":"n3","text":"FactSet reports earnings growth","source_quote":"FactSet reports earnings growth","role":"evidence"}],"off_graph":[]}`,

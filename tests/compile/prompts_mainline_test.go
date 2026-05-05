@@ -20,6 +20,7 @@ func TestStage3ClassifyPromptRejectsProcessAndWrapperTargets(t *testing.T) {
 		"Do not classify upstream drivers, transmission steps, process states, or narrative wrappers as market outcomes",
 		"restatement, slogan, label, wrapper, or commentary",
 		"not enough that the node sounds important or result-like",
+		"Management declarations, commitments, guidance, operating plans, risk boundaries, and capital allocation rules can be important without being target tags.",
 	} {
 		if !contains(body, want) {
 			t.Fatalf("classify prompt missing %q", want)
@@ -111,6 +112,79 @@ func TestCoveragePromptPreservesAdditionalDownstreamChains(t *testing.T) {
 		}
 	}
 }
+
+func TestCoveragePromptHandlesManagementClaimsWithoutSampleLeakage(t *testing.T) {
+	loader := newPromptLoader("")
+	body, err := loader.render("coverage_system.tmpl", nil)
+	if err != nil {
+		t.Fatalf("render(coverage_system.tmpl) error = %v", err)
+	}
+	for _, want := range []string{
+		"For management/Q&A paragraphs, core claims include declarations, boundaries, rules, actions, non-actions, and disclosed constraints",
+		"suggested_role_hint=`declaration`",
+		"suggested_role_hint=`capital_allocation_rule`",
+		"suggested_role_hint=`risk_boundary`",
+		"dominant demand narrative overwhelms macro shocks",
+	} {
+		if !contains(body, want) {
+			t.Fatalf("coverage prompt missing %q", want)
+		}
+	}
+	for _, stale := range []string{
+		"AI capex overwhelms war threats",
+		"war threats, oil shocks, and weak GDP",
+	} {
+		if contains(body, stale) {
+			t.Fatalf("coverage prompt still contains sample-specific wording %q", stale)
+		}
+	}
+}
+
+func TestSalienceAndMainlinePromptsUseCurrentSalienceLanguage(t *testing.T) {
+	loader := newPromptLoader("")
+	salienceBody, err := loader.render("salience_system.tmpl", nil)
+	if err != nil {
+		t.Fatalf("render(salience_system.tmpl) error = %v", err)
+	}
+	mainlineSystemBody, err := loader.render("mainline_system.tmpl", nil)
+	if err != nil {
+		t.Fatalf("render(mainline_system.tmpl) error = %v", err)
+	}
+	mainlineUserBody, err := loader.render("mainline_user.tmpl", map[string]any{
+		"Article":        "article context sentinel",
+		"ArticleForm":    "shareholder_meeting",
+		"SpinePolicy":    "policy sentinel",
+		"Nodes":          "n1 | node",
+		"BranchHeads":    "n1",
+		"SemanticUnits":  "salience unit sentinel",
+		"CandidateEdges": "- (none)",
+	})
+	if err != nil {
+		t.Fatalf("render(mainline_user.tmpl) error = %v", err)
+	}
+	for _, want := range []string{
+		"salience units",
+		"legacy JSON key `semantic_units` only as the wire format",
+	} {
+		if !contains(salienceBody, want) {
+			t.Fatalf("salience prompt missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"unit_ids: optional salience-unit ids",
+		"Speaker salience units:",
+		"Use speaker salience units as recall hints",
+	} {
+		combined := mainlineSystemBody + "\n" + mainlineUserBody
+		if !contains(combined, want) {
+			t.Fatalf("mainline prompts missing %q", want)
+		}
+	}
+	if contains(mainlineUserBody, "Speaker semantic units:") {
+		t.Fatalf("mainline user prompt still uses stale semantic-unit label:\n%s", mainlineUserBody)
+	}
+}
+
 func TestStage3UserPromptIncludesNeighborContext(t *testing.T) {
 	loader := newPromptLoader("")
 	body, err := loader.render("classify_user.tmpl", map[string]any{
