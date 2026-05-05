@@ -37,7 +37,7 @@ func buildCompileCardProjection(record model.Record, subgraph *model.ContentSubg
 		PrimaryView:      strings.TrimSpace(record.Output.PrimaryView),
 		Mainline:         mainline,
 		Topics:           primaryFirstTopics(record.Output.Branches, record.Output.Topics),
-		Digest:           digestKeyPoints(record.Output.Digest, record.Output.Brief, 14),
+		Digest:           digestKeyPoints(record.Output.Digest, record.Output.Brief, fullDigestLimit(record.Output.Digest, record.Output.Brief)),
 		KeyPoints:        compileRecordKeyPoints(record.Output.Brief, record.Output.SemanticUnits, 12),
 		Confidence:       record.Output.Confidence,
 		Drivers:          cloneStringSlice(record.Output.Drivers),
@@ -148,6 +148,13 @@ func digestKeyPoints(digest, brief []model.BriefItem, limit int) []string {
 		return points
 	}
 	return briefKeyPoints(brief, limit)
+}
+
+func fullDigestLimit(digest, brief []model.BriefItem) int {
+	if len(digest) > 0 {
+		return len(digest)
+	}
+	return len(brief)
 }
 
 func semanticKeyPoints(units []model.SemanticUnit, limit int) []string {

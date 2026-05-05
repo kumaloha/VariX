@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -382,6 +383,34 @@ func TestFormatCompileCardUsesDigestAsPrimaryView(t *testing.T) {
 	}
 	if strings.Index(out, "Digest") > strings.Index(out, "Mainline") {
 		t.Fatalf("stdout = %q, want digest before mainline", out)
+	}
+}
+
+func TestFormatCompileCardShowsFullDigestPrimaryView(t *testing.T) {
+	digest := make([]c.BriefItem, 0, 15)
+	for i := 1; i <= 15; i++ {
+		digest = append(digest, c.BriefItem{
+			Category: "agenda",
+			Claim:    "议程项" + strconv.Itoa(i),
+		})
+	}
+	record := c.Record{
+		UnitID:     "youtube:full-digest",
+		Source:     "youtube",
+		ExternalID: "full-digest",
+		Model:      varixllm.Qwen36PlusModel,
+		Output: c.Output{
+			Summary:     "一句话总结",
+			PrimaryView: "digest",
+			Digest:      digest,
+			Confidence:  "medium",
+		},
+		CompiledAt: time.Now().UTC(),
+	}
+
+	out := formatCompileCard(buildCompileCardProjection(record, nil))
+	if !strings.Contains(out, "议程项15") {
+		t.Fatalf("stdout = %q, want full digest primary view", out)
 	}
 }
 

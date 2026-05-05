@@ -28,7 +28,7 @@ func TestBriefBalancesMeetingCategories(t *testing.T) {
 			t.Fatalf("Brief = %#v, missing category %q", got, want)
 		}
 	}
-	if countBriefCategory(got, "insurance") > 2 {
+	if countBriefCategory(got, "insurance") > meetingBriefCategoryLimit {
 		t.Fatalf("Brief = %#v, want insurance capped so it cannot crowd out meeting topics", got)
 	}
 }
@@ -83,6 +83,41 @@ func TestBriefKeepsMandatoryMeetingCategoriesFromLedger(t *testing.T) {
 	}
 }
 
+func TestMeetingBriefKeepsMultipleSpecificAgendaItemsPerCategory(t *testing.T) {
+	state := graphState{
+		ArticleForm: "shareholder_meeting",
+		Ledger: Ledger{Items: []LedgerItem{
+			{ID: "capital", Category: "capital", Kind: "commitment", Claim: "Hold cash and wait for rare opportunities.", Salience: 0.99},
+			{ID: "portfolio", Category: "portfolio", Kind: "list", Claim: "Portfolio holdings remain concentrated.", Salience: 0.98},
+			{ID: "ai", Category: "ai", Kind: "boundary", Claim: "AI must retain human oversight.", Salience: 0.97},
+			{ID: "culture", Category: "culture", Kind: "commitment", Claim: "Culture stays unchanged.", Salience: 0.96},
+			{ID: "succession", Category: "succession", Kind: "commitment", Claim: "The board has succession plans for Greg Abel and Ajit Jain.", Salience: 0.95},
+			{ID: "governance", Category: "governance", Kind: "risk", Claim: "Single-day options make the market more casino-like.", Salience: 0.94},
+			{ID: "buyback", Category: "buyback", Kind: "boundary", Claim: "Repurchase only below intrinsic value.", Salience: 0.93},
+			{ID: "shareholder", Category: "shareholder", Kind: "disclosure", Claim: "Tokyo Marine partnership has three parts.", Salience: 0.92},
+			{ID: "insurance-soft", Category: "insurance", Kind: "boundary", Claim: "Insurance market softening means Berkshire writes less premium.", Salience: 0.91},
+			{ID: "insurance-geico", Category: "insurance", Kind: "commitment", Claim: "GEICO must balance risk pricing, retention, and growth.", Salience: 0.9},
+			{ID: "insurance-underwriting", Category: "insurance", Kind: "boundary", Claim: "Underwriters default to saying no unless value screams.", Salience: 0.89},
+			{ID: "insurance-cyber", Category: "insurance", Kind: "boundary", Claim: "Cyber insurance is avoided while aggregate exposure cannot be modeled.", Salience: 0.88},
+			{ID: "energy-compact", Category: "energy", Kind: "boundary", Claim: "Utilities need a balanced regulatory compact.", Salience: 0.91},
+			{ID: "energy-inflation", Category: "energy", Kind: "risk", Claim: "Runaway inflation is something Berkshire can only avoid.", Salience: 0.9},
+			{ID: "energy-data-center", Category: "energy", Kind: "boundary", Claim: "Data centers and hyperscalers must bear their full infrastructure cost.", Salience: 0.89},
+			{ID: "operations-bnsf", Category: "operations", Kind: "commitment", Claim: "BNSF must improve operating efficiency toward leading railroad margins.", Salience: 0.87},
+		}},
+	}
+
+	got := stageBrief(state).Brief
+	for _, want := range []string{
+		"Cyber insurance is avoided",
+		"Data centers and hyperscalers",
+		"BNSF must improve",
+	} {
+		if !briefContainsClaim(got, want) {
+			t.Fatalf("brief = %#v, missing agenda item containing %q", got, want)
+		}
+	}
+}
+
 func briefItemByCategory(items []BriefItem, category string) *BriefItem {
 	for i := range items {
 		if items[i].Category == category {
@@ -105,6 +140,15 @@ func countBriefCategory(items []BriefItem, category string) int {
 func containsBriefEntity(values []string, needle string) bool {
 	for _, value := range values {
 		if strings.EqualFold(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func briefContainsClaim(items []BriefItem, needle string) bool {
+	for _, item := range items {
+		if strings.Contains(item.Claim, needle) {
 			return true
 		}
 	}

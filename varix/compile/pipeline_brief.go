@@ -8,7 +8,9 @@ import (
 )
 
 const briefCategoryLimit = 2
+const meetingBriefCategoryLimit = 4
 const briefDefaultLimit = 14
+const meetingBriefDefaultLimit = 30
 
 var mandatoryMeetingBriefCategories = []string{
 	"capital",
@@ -16,9 +18,12 @@ var mandatoryMeetingBriefCategories = []string{
 	"insurance",
 	"ai",
 	"energy",
+	"operations",
 	"culture",
 	"succession",
 	"governance",
+	"buyback",
+	"shareholder",
 }
 
 var briefNumberPattern = regexp.MustCompile(`\b\d+(?:\.\d+)?%?|\$\d+(?:\.\d+)?\s*(?:billion|million)?`)
@@ -39,6 +44,9 @@ func buildBriefItems(units []SemanticUnit, limit int) []BriefItem {
 }
 
 func buildBriefFromLedger(ledger Ledger, articleForm string) []BriefItem {
+	if isReaderInterestSummaryForm(articleForm) {
+		return buildBriefFromLedgerWithLimit(ledger, articleForm, meetingBriefDefaultLimit)
+	}
 	return buildBriefFromLedgerWithLimit(ledger, articleForm, briefDefaultLimit)
 }
 
@@ -49,10 +57,11 @@ func buildBriefFromLedgerWithLimit(ledger Ledger, articleForm string, limit int)
 	ranked := rankLedgerItems(ledger.Items)
 	out := make([]BriefItem, 0, limit)
 	counts := map[string]int{}
+	categoryLimit := briefCategoryLimitForForm(articleForm)
 
 	if isReaderInterestSummaryForm(articleForm) {
 		for _, category := range mandatoryMeetingBriefCategories {
-			item, ok := bestLedgerItemForCategory(ranked, category, counts)
+			item, ok := bestLedgerItemForCategory(ranked, category, counts, categoryLimit)
 			if !ok {
 				continue
 			}
@@ -66,7 +75,7 @@ func buildBriefFromLedgerWithLimit(ledger Ledger, articleForm string, limit int)
 
 	for _, ledgerItem := range ranked {
 		item := briefItemFromLedgerItem(ledgerItem)
-		if item.Category == "" || item.Claim == "" || counts[item.Category] >= briefCategoryLimit || containsBriefSource(out, item.SourceIDs) {
+		if item.Category == "" || item.Claim == "" || counts[item.Category] >= categoryLimit || containsBriefItem(out, item) {
 			continue
 		}
 		counts[item.Category]++
@@ -83,14 +92,21 @@ func appendBriefItem(items []BriefItem, item BriefItem) []BriefItem {
 	return append(items, item)
 }
 
-func bestLedgerItemForCategory(items []LedgerItem, category string, counts map[string]int) (BriefItem, bool) {
+func bestLedgerItemForCategory(items []LedgerItem, category string, counts map[string]int, categoryLimit int) (BriefItem, bool) {
 	for _, item := range items {
-		if item.Category != category || counts[item.Category] >= briefCategoryLimit {
+		if item.Category != category || counts[item.Category] >= categoryLimit {
 			continue
 		}
 		return briefItemFromLedgerItem(item), true
 	}
 	return BriefItem{}, false
+}
+
+func briefCategoryLimitForForm(articleForm string) int {
+	if isReaderInterestSummaryForm(articleForm) {
+		return meetingBriefCategoryLimit
+	}
+	return briefCategoryLimit
 }
 
 func briefItemFromLedgerItem(item LedgerItem) BriefItem {
@@ -146,8 +162,16 @@ func rankLedgerItems(items []LedgerItem) []LedgerItem {
 	return out
 }
 
-func containsBriefSource(items []BriefItem, sourceIDs []string) bool {
-	for _, sourceID := range sourceIDs {
+func containsBriefItem(items []BriefItem, candidate BriefItem) bool {
+	candidateClaim := normalizeText(candidate.Claim)
+	if candidateClaim != "" {
+		for _, item := range items {
+			if normalizeText(item.Claim) == candidateClaim {
+				return true
+			}
+		}
+	}
+	for _, sourceID := range candidate.SourceIDs {
 		sourceID = strings.TrimSpace(sourceID)
 		if sourceID == "" {
 			continue

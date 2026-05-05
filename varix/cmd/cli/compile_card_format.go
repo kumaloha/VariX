@@ -54,7 +54,9 @@ func formatCompileCard(projection compileCardProjection) string {
 func formatCompactCompileCard(projection compileCardProjection) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Summary\n%s\n\n", projection.Summary)
-	writeDigestSection(&b, projection)
+	compactProjection := projection
+	compactProjection.Digest = truncateList(projection.Digest, 3)
+	writeDigestSection(&b, compactProjection)
 	writeMainlineSection(&b, truncateList(projection.Mainline, 3))
 	writeTopicsSection(&b, projection.Topics, 3)
 	if projection.PrimaryView != "digest" {
