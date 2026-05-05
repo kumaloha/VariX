@@ -141,6 +141,7 @@ type (
 
 var (
 	BuildBundle               = model.BuildBundle
+	BuildMergedBundle         = model.BuildMergedBundle
 	ParseOutput               = model.ParseOutput
 	ParseNodeExtractionOutput = model.ParseNodeExtractionOutput
 	ParseFullGraphOutput      = model.ParseFullGraphOutput

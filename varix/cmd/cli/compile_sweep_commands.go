@@ -189,10 +189,13 @@ func sweepCompileRefs(ctx context.Context, store *contentstore.SQLiteStore, clie
 }
 
 func compileRawCapture(ctx context.Context, client compileClient, raw types.RawContent) (model.Record, error) {
+	return compileBundle(ctx, client, model.BuildBundle(raw))
+}
+
+func compileBundle(ctx context.Context, client compileClient, bundle model.Bundle) (model.Record, error) {
 	if client == nil {
 		return model.Record{}, fmt.Errorf("compile client is nil")
 	}
-	bundle := model.BuildBundle(raw)
 	compileStart := time.Now()
 	record, err := client.Compile(ctx, bundle)
 	if err != nil {

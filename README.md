@@ -13,6 +13,9 @@ Convenience identity:
 Default behavior:
 - `compile run` returns cached compile output when it already exists
 - `compile run --force` recomputes and overwrites the stored result
+- `compile run --include <platform:id>` can add related raw captures to the same
+  compile run; included sources bypass the primary-only cache and enter the
+  bundle as `[INCLUDED SOURCE ...]`
 - `compile sweep` compiles raw captures that do not yet have persisted compile
   output; `compile sweep --user <user>` also backfills content-memory graphs for
   that user

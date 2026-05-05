@@ -36,6 +36,9 @@ There is no compile history timeline in the current design.
 
 - If no compiled output exists, compute and persist it.
 - If a compiled output already exists, return the cached result by default.
+- If `--include <platform:id>` is present, treat the run as a manual source set:
+  load those additional raw captures as included sources, bypass the primary-only
+  cached result, compute, and persist the new result for the primary identity.
 
 ### `compile run --force`
 
@@ -62,6 +65,10 @@ All of the above support either:
 
 - `--platform <platform> --id <external_id>`
 - `--url <url>`
+
+`compile run` also supports repeatable `--include <platform:id>` for explicit
+multi-source compile inputs. Included raw captures appear in the bundle text
+context as `[INCLUDED SOURCE n <platform:id>]`, not as ordinary links.
 
 ---
 

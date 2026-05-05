@@ -522,3 +522,40 @@ and pass digest to the summary prompt when present.
 
 Update the compiled-output storage marshal and round-trip test so digest view
 metadata survives persistence.
+
+### Follow-up Task: Add Explicit Source-Set Inputs
+
+**Files:**
+- Modify: `varix/model/bundle.go`
+- Modify: `varix/compile/model_alias.go`
+- Modify: `varix/cmd/cli/compile_run_commands.go`
+- Modify: `varix/cmd/cli/compile_sweep_commands.go`
+- Modify: `varix/compile/pipeline_render_details.go`
+- Test: `tests/compile/bundle_test.go`
+- Test: `tests/compile/client_stage1_test.go`
+- Test: `tests/cmd/cli/compile_cli_test.go`
+
+- [x] **Step 1: Add failing bundle source-set test**
+
+Assert that a merged bundle keeps the primary source identity and adds related
+raw captures as `source_set` references in text context.
+
+- [x] **Step 2: Add failing CLI include test**
+
+Assert that `compile run --include <platform:id>` loads additional stored raw
+captures and passes a merged bundle to the compile client.
+
+- [x] **Step 3: Render included sources as peer inputs**
+
+Emit source-set references as `[INCLUDED SOURCE n <platform:id>]` so extraction
+does not treat related meeting/interview material as an ordinary link.
+
+- [x] **Step 4: Preserve coverage helper behavior**
+
+Teach text-context marker parsing to skip included-source markers when splitting
+source paragraphs for coverage diagnostics.
+
+- [x] **Step 5: Document cache semantics**
+
+Record that `--include` bypasses the primary-only cached compile because the
+input set differs from a single-source run.

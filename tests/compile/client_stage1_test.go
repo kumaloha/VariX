@@ -141,6 +141,9 @@ func TestSplitParagraphsSkipsTextContextMarkers(t *testing.T) {
 		"[REFERENCE 2 URL]",
 		"https://example.com/source",
 		"",
+		"[INCLUDED SOURCE 3 youtube:abc]",
+		"included source paragraph",
+		"",
 		"[THREAD 3]",
 		"thread paragraph",
 		"",
@@ -151,6 +154,7 @@ func TestSplitParagraphsSkipsTextContextMarkers(t *testing.T) {
 		"body paragraph line one\nbody paragraph line two",
 		"quoted paragraph",
 		"https://example.com/source",
+		"included source paragraph",
 		"thread paragraph",
 		"transcript paragraph",
 	}

@@ -177,7 +177,9 @@ is enough.
 Target compile flow:
 
 ```text
-coverage/classify/relations inputs
+single source or source set
+  -> bundle text context
+  -> coverage/classify/relations inputs
   -> salience
   -> ledger
   -> facets
@@ -196,6 +198,28 @@ In the first implementation:
   views.
 - preview/rerender can rebuild ledger and brief from existing persisted salience
   if the older output does not have ledger data.
+
+## Source Sets
+
+Meeting digests can combine multiple raw captures, such as a shareholder meeting
+plus a separate management interview. This must be handled before extraction, not
+by asking render to infer missing agenda items.
+
+Initial source-set support is explicit and operator-driven:
+
+```text
+compile run --platform youtube --id <primary> --include youtube:<related>
+```
+
+The primary raw capture remains the compile target, while each included raw
+capture is injected into the bundle as a `source_set` reference and rendered in
+text context as `[INCLUDED SOURCE n <platform:id>]`. This gives extraction,
+salience, ledger, and digest stages access to every source in the same run while
+keeping storage schema unchanged for the first pass.
+
+`--include` bypasses the normal single-source cached result because the input
+set is different from the persisted primary-only compile. Automatic source
+discovery and first-class source-set storage identities are later work.
 
 ## Coverage Audit
 

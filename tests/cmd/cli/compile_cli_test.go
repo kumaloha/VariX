@@ -12,6 +12,7 @@ import (
 	varixllm "github.com/kumaloha/VariX/varix/llm"
 	"github.com/kumaloha/VariX/varix/memory"
 	"github.com/kumaloha/VariX/varix/storage/contentstore"
+	"strings"
 	"testing"
 	"time"
 )
@@ -256,6 +257,108 @@ func TestRunCompileReadsExistingRawCaptureByPlatformAndID(t *testing.T) {
 	}
 	if got.ExternalID != "QAu4U9USk" {
 		t.Fatalf("ExternalID = %q", got.ExternalID)
+	}
+}
+
+func TestRunCompileIncludesAdditionalRawCapturesInBundle(t *testing.T) {
+	prevNewIngestRuntime := newIngestRuntime
+	prevBuildCompileClientCurrent := buildCompileClientCurrent
+	prevOpenSQLiteStore := openSQLiteStore
+	t.Cleanup(func() {
+		newIngestRuntime = prevNewIngestRuntime
+		buildCompileClientCurrent = prevBuildCompileClientCurrent
+		openSQLiteStore = prevOpenSQLiteStore
+	})
+
+	tmp := t.TempDir()
+	newIngestRuntime = func(projectRoot string) (*ingest.Runtime, error) {
+		app := &ingest.Runtime{}
+		app.Settings.ContentDBPath = tmp + "/content.db"
+		return app, nil
+	}
+	buildCompileClientCurrent = func(projectRoot string) compileClient {
+		return fakeCompileClient{
+			compileFn: func(_ context.Context, bundle c.Bundle) (c.Record, error) {
+				if bundle.Source != "youtube" || bundle.ExternalID != "QQOWQcnNmr0" {
+					t.Fatalf("bundle target = %q/%q, want primary interview", bundle.Source, bundle.ExternalID)
+				}
+				if len(bundle.References) != 1 {
+					t.Fatalf("len(bundle.References) = %d, want included meeting source", len(bundle.References))
+				}
+				ref := bundle.References[0]
+				if ref.Kind != "source_set" || ref.ExternalID != "4VwLwtiuxVQ" {
+					t.Fatalf("included reference = %#v, want source_set meeting", ref)
+				}
+				ctx := bundle.TextContext()
+				for _, want := range []string{"Buffett interview transcript", "Berkshire annual meeting transcript"} {
+					if !strings.Contains(ctx, want) {
+						t.Fatalf("bundle.TextContext() missing %q in %q", want, ctx)
+					}
+				}
+				return c.Record{
+					UnitID:         bundle.Source + ":" + bundle.ExternalID,
+					Source:         bundle.Source,
+					ExternalID:     bundle.ExternalID,
+					RootExternalID: bundle.RootExternalID,
+					Model:          varixllm.Qwen36PlusModel,
+					Output: c.Output{
+						Summary: "merged Berkshire compile",
+						Graph: c.ReasoningGraph{
+							Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "事实A"), testGraphNode("n2", c.NodeConclusion, "结论B")},
+							Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+						},
+						Details: c.HiddenDetails{Caveats: []string{"说明"}},
+					},
+					CompiledAt: time.Now().UTC(),
+				}, nil
+			},
+		}
+	}
+	openSQLiteStore = func(path string) (*contentstore.SQLiteStore, error) {
+		store, err := contentstore.NewSQLiteStore(path)
+		if err != nil {
+			return nil, err
+		}
+		for _, raw := range []types.RawContent{
+			{Source: "youtube", ExternalID: "QQOWQcnNmr0", Content: "Buffett interview transcript", URL: "https://www.youtube.com/watch?v=QQOWQcnNmr0"},
+			{Source: "youtube", ExternalID: "4VwLwtiuxVQ", Content: "Berkshire annual meeting transcript", URL: "https://www.youtube.com/watch?v=4VwLwtiuxVQ"},
+		} {
+			if err := store.UpsertRawCapture(context.Background(), raw); err != nil {
+				return nil, err
+			}
+		}
+		if err := store.UpsertCompiledOutput(context.Background(), c.Record{
+			UnitID:         "youtube:QQOWQcnNmr0",
+			Source:         "youtube",
+			ExternalID:     "QQOWQcnNmr0",
+			RootExternalID: "QQOWQcnNmr0",
+			Model:          varixllm.Qwen36PlusModel,
+			Output: c.Output{
+				Summary: "cached primary-only compile",
+				Graph: c.ReasoningGraph{
+					Nodes: []c.GraphNode{testGraphNode("n1", c.NodeFact, "old fact"), testGraphNode("n2", c.NodeConclusion, "old conclusion")},
+					Edges: []c.GraphEdge{{From: "n1", To: "n2", Kind: c.EdgeDerives}},
+				},
+				Details: c.HiddenDetails{Caveats: []string{"old"}},
+			},
+			CompiledAt: time.Now().UTC(),
+		}); err != nil {
+			return nil, err
+		}
+		return store, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"compile", "run", "--platform", "youtube", "--id", "QQOWQcnNmr0", "--include", "youtube:4VwLwtiuxVQ"}, "/tmp/project", &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	var got c.Record
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(stdout) error = %v", err)
+	}
+	if got.Output.Summary != "merged Berkshire compile" {
+		t.Fatalf("Summary = %q, want merged Berkshire compile", got.Output.Summary)
 	}
 }
 

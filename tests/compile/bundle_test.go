@@ -72,6 +72,51 @@ func TestBuildBundleSuppressesWebInfographicImagesForLongformBodies(t *testing.T
 	}
 }
 
+func TestBuildMergedBundleAddsIncludedSourcesAsReferences(t *testing.T) {
+	primary := types.RawContent{
+		Source:     "youtube",
+		ExternalID: "QQOWQcnNmr0",
+		Content:    "Buffett interview transcript",
+		URL:        "https://www.youtube.com/watch?v=QQOWQcnNmr0",
+	}
+	meeting := types.RawContent{
+		Source:     "youtube",
+		ExternalID: "4VwLwtiuxVQ",
+		Content:    "Berkshire annual meeting transcript",
+		URL:        "https://www.youtube.com/watch?v=4VwLwtiuxVQ",
+		Attachments: []types.Attachment{{
+			Type:       "image",
+			StoredPath: "/tmp/meeting-slide.png",
+		}},
+	}
+
+	got := BuildMergedBundle(primary, []types.RawContent{meeting})
+	if got.UnitID != "youtube:QQOWQcnNmr0" {
+		t.Fatalf("UnitID = %q", got.UnitID)
+	}
+	if len(got.References) != 1 {
+		t.Fatalf("len(References) = %d, want 1", len(got.References))
+	}
+	ref := got.References[0]
+	if ref.Kind != "source_set" {
+		t.Fatalf("reference kind = %q, want source_set", ref.Kind)
+	}
+	if ref.Source != "youtube" || ref.ExternalID != "4VwLwtiuxVQ" {
+		t.Fatalf("reference source/id = %q/%q", ref.Source, ref.ExternalID)
+	}
+	for _, want := range []string{
+		"[ROOT CONTENT]\nBuffett interview transcript",
+		"[INCLUDED SOURCE 1 youtube:4VwLwtiuxVQ]\nBerkshire annual meeting transcript",
+	} {
+		if !strings.Contains(got.TextContext(), want) {
+			t.Fatalf("TextContext() missing %q in %q", want, got.TextContext())
+		}
+	}
+	if len(got.LocalImagePaths) != 1 || got.LocalImagePaths[0] != "/tmp/meeting-slide.png" {
+		t.Fatalf("LocalImagePaths = %#v, want included source image path", got.LocalImagePaths)
+	}
+}
+
 func TestBundleTextContextIncludesStructuredSections(t *testing.T) {
 	b := Bundle{
 		Content: "root body",

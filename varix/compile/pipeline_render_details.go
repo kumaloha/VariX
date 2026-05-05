@@ -267,6 +267,8 @@ func isTextContextSectionMarker(item string) bool {
 	switch parts[0] {
 	case "QUOTE", "REFERENCE", "THREAD":
 		return len(parts) >= 2
+	case "INCLUDED":
+		return len(parts) >= 3 && parts[1] == "SOURCE"
 	case "ATTACHMENT":
 		return len(parts) >= 3 && parts[1] == "TRANSCRIPT"
 	case "ROOT":
