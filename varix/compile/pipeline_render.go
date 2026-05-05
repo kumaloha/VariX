@@ -13,7 +13,6 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 	if len(state.Brief) == 0 {
 		state = stageBrief(state)
 	}
-	coverageAudit := auditBriefCoverage(state.Ledger, state.Brief)
 	state = applyDeclarationCoverageGate(bundle, state)
 	state = dedupeGraphStateForRender(state)
 	if projected, ok := projectRolesFromSpines(state); ok {
@@ -35,6 +34,7 @@ func stage5Render(ctx context.Context, rt runtimeChat, model string, bundle Bund
 	targets = mergePathTargets(targets, paths)
 	drivers = filterRenderDrivers(drivers, paths)
 	targets = filterRenderTargets(targets, paths, state.ArticleForm, satiricalCoveredNodes)
+	coverageAudit := auditRenderedCoverage(state.Ledger, state.Brief, drivers, targets, paths, state.OffGraph)
 	declarationNodes := declarationTranslationNodes(state)
 	spineNodes := spineTranslationNodes(state.Spines)
 	translated, err := translateAll(ctx, rt, model, uniqueTexts(drivers, targets, paths, declarationNodes, spineNodes, state.OffGraph))
