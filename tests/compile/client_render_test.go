@@ -524,8 +524,14 @@ func TestStage5RenderBuildsCapitalAllocationDeclarationFromSpine(t *testing.T) {
 	if len(out.Branches) != 1 || len(out.Branches[0].Declarations) != 1 {
 		t.Fatalf("Branches = %#v, want branch declaration", out.Branches)
 	}
-	if len(out.TransmissionPaths) != 0 {
-		t.Fatalf("TransmissionPaths = %#v, declaration spine should not be rendered as causal path", out.TransmissionPaths)
+	if len(out.TransmissionPaths) == 0 {
+		t.Fatalf("TransmissionPaths = %#v, want declaration spine rendered as a view reasoning path", out.TransmissionPaths)
+	}
+	if !hasTransmissionPath(out.TransmissionPaths, "伯克希尔持有约3800亿美元现金和短债", "会投入大量资本") {
+		t.Fatalf("TransmissionPaths = %#v, want capital allocation context -> scale path", out.TransmissionPaths)
+	}
+	if len(out.Branches[0].TransmissionPaths) == 0 {
+		t.Fatalf("Branch paths = %#v, want declaration branch to carry its rendered path", out.Branches[0].TransmissionPaths)
 	}
 }
 

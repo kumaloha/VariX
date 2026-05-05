@@ -405,6 +405,7 @@ func stage3Mainline(ctx context.Context, rt runtimeChat, model string, bundle Bu
 	oldEdges := state.Edges
 	state.Edges = pruneTransitiveRelations(dedupeEdges(append(append([]graphEdge(nil), oldEdges...), newEdges...)))
 	state.Spines = buildSpinesFromLLM(result.Spines, newEdges, state.Edges, valid, state.ArticleForm)
+	state.Edges = mergeSpineEdgesIntoGraph(state.Edges, state.Spines, valid)
 	if len(state.BranchHeads) > 0 {
 		keep := collectBranchMainlineNodes(state.Edges, state.BranchHeads)
 		demoted := map[string]struct{}{}

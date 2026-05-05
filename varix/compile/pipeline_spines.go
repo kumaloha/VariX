@@ -114,6 +114,7 @@ func buildSpinesFromLLM(raw []mainlineSpinePatch, rawEdges []graphEdge, finalEdg
 	out = inferMissingSpinePolicies(out, valid, policy)
 	out = applySpinePolicy(out, valid, policy)
 	out = compactSpines(out, valid)
+	out = enrichLeadMarketUpdateSpine(out, valid, policy)
 	out = enforceSpineBudget(out, valid, policy)
 	return assignSpineFamilies(out, valid)
 }

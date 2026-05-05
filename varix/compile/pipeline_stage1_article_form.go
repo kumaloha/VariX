@@ -15,6 +15,9 @@ func normalizeArticleForm(value string) string {
 
 func refineArticleFormFromExtract(bundle Bundle, state graphState) string {
 	form := normalizeArticleForm(state.ArticleForm)
+	if form == "macro_framework" && shortMarketRoundupScore(bundle, state.Nodes) >= 6 {
+		return "market_update"
+	}
 	if form != "" && form != "main_narrative_plus_investment_implication" {
 		return form
 	}
@@ -34,6 +37,70 @@ func refineArticleFormFromExtract(bundle Bundle, state graphState) string {
 		return form
 	}
 	return "macro_framework"
+}
+
+func shortMarketRoundupScore(bundle Bundle, nodes []graphNode) int {
+	if isLongFormMacroSource(bundle) {
+		return 0
+	}
+	textParts := []string{bundle.TextContext()}
+	marketMoves := 0
+	for _, node := range nodes {
+		textParts = append(textParts, node.Text, node.SourceQuote)
+		if normalizeDiscourseRole(node.DiscourseRole) == "market_move" {
+			marketMoves++
+		}
+	}
+	if marketMoves < 3 {
+		return 0
+	}
+	score := 0
+	if isSocialMarketSource(bundle.Source) {
+		score += 2
+	}
+	if len([]rune(bundle.TextContext())) <= 12000 {
+		score++
+	}
+	if marketMoves >= 5 {
+		score += 2
+	} else {
+		score++
+	}
+	text := strings.ToLower(strings.Join(textParts, " "))
+	families := 0
+	for _, family := range [][]string{
+		{"s&p", "sp500", "纳斯达克", "股票", "美股", "韩股", "台股", "equity"},
+		{"美债", "国债", "收益率", "yield", "bond", "treasury"},
+		{"美元", "日元", "汇率", "dollar", "yen", "dxy"},
+		{"原油", "油价", "brent", "opec", "石油"},
+		{"黄金", "白银", "gold", "silver"},
+		{"vix", "恐慌"},
+		{"etf", "资金", "流入", "inflow"},
+		{"央行", "联储", "fomc", "fed"},
+	} {
+		if containsAnyText(text, family) {
+			families++
+		}
+	}
+	if families >= 3 {
+		score += 2
+	}
+	if families >= 5 {
+		score++
+	}
+	if containsAnyText(text, []string{"上涨", "暴涨", "下挫", "回落", "升至", "走软", "走强", "flow", "rally", "selloff"}) {
+		score++
+	}
+	return score
+}
+
+func isSocialMarketSource(source string) bool {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "weibo", "x", "twitter", "tweet", "threads", "telegram":
+		return true
+	default:
+		return false
+	}
 }
 
 func satireArticleScore(article string, nodes []graphNode) int {

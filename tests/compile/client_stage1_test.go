@@ -320,6 +320,26 @@ func TestStage1ExtractPromotesMacroFrameworkFromLongFormMacroMarkers(t *testing.
 	}
 }
 
+func TestRefineArticleFormDemotesShortSocialMacroFrameworkToMarketUpdate(t *testing.T) {
+	got := refineArticleFormFromExtract(Bundle{
+		Source:  "weibo",
+		Content: "AI基建推动美股上涨，美债收益率上移，美元下挫，日元升值，油价回落。",
+	}, graphState{
+		ArticleForm: "macro_framework",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "S&P500指数上涨", DiscourseRole: "market_move"},
+			{ID: "n2", Text: "纳斯达克指数暴涨", DiscourseRole: "market_move"},
+			{ID: "n3", Text: "美债收益率曲线上移", DiscourseRole: "market_move"},
+			{ID: "n4", Text: "美元指数下挫", DiscourseRole: "market_move"},
+			{ID: "n5", Text: "日元兑美元升值", DiscourseRole: "market_move"},
+			{ID: "n6", Text: "AI基建投资压倒宏观利空", DiscourseRole: "thesis"},
+		},
+	})
+	if got != "market_update" {
+		t.Fatalf("article form = %q, want market_update", got)
+	}
+}
+
 func TestSerializeRelationNodesIncludesDiscourseRole(t *testing.T) {
 	body := serializeRelationNodes([]graphNode{{
 		ID:            "n1",

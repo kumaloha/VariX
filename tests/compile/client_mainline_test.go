@@ -616,6 +616,68 @@ func TestStage3MainlineCompressesMacroFrameworkToSummarySpines(t *testing.T) {
 	}
 }
 
+func TestStage3MainlinePreservesSiblingMarketMovesInLeadMarketUpdateSpine(t *testing.T) {
+	rt := &fakeRuntime{responses: []llm.Response{{
+		Text: `{"relations":[{"from":"n1","to":"n2","source_quote":"AI capex overwhelms macro risks","reason":"AI capex sets the market narrative"},{"from":"n2","to":"n3","source_quote":"S&P rises","reason":"lead equity move"},{"from":"n2","to":"n4","source_quote":"Nasdaq rises","reason":"lead equity move"}],"spines":[{"id":"s1","level":"primary","priority":1,"policy":"market_update","thesis":"AI capex drives equity rally","node_ids":["n1","n2","n3","n4"],"edge_indexes":[0,1,2],"scope":"article","why":"lead market update"}]}`,
+	}}}
+	state, err := stage3Mainline(context.Background(), rt, "compile-model", Bundle{
+		UnitID:  "weibo:market-update-sibling-moves",
+		Source:  "weibo",
+		Content: "AI capex overwhelms macro risks. S&P and Nasdaq rise. Korean and Taiwan chip stocks rise. Treasury yields rise too.",
+	}, graphState{
+		ArticleForm: "market_update",
+		Nodes: []graphNode{
+			{ID: "n1", Text: "四大超巨狂砸AI基建", SourceQuote: "AI capex overwhelms macro risks", DiscourseRole: "thesis"},
+			{ID: "n2", Text: "AI基建投资压倒宏观利空", SourceQuote: "AI capex overwhelms macro risks", DiscourseRole: "mechanism"},
+			{ID: "n3", Text: "S&P500指数上涨", SourceQuote: "S&P rises", DiscourseRole: "market_move"},
+			{ID: "n4", Text: "纳斯达克指数上涨", SourceQuote: "Nasdaq rises", DiscourseRole: "market_move"},
+			{ID: "n5", Text: "韩股芯片板块上涨", SourceQuote: "Korean chip stocks rise", DiscourseRole: "market_move"},
+			{ID: "n6", Text: "美债收益率上移", SourceQuote: "Treasury yields rise too", DiscourseRole: "market_move"},
+			{ID: "n7", Text: "恐慌指数VIX回落", SourceQuote: "VIX falls", DiscourseRole: "market_move"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stage3Mainline() error = %v", err)
+	}
+	if len(state.Spines) != 1 {
+		t.Fatalf("Spines = %#v, want one lead market spine", state.Spines)
+	}
+	spine := state.Spines[0]
+	if !containsString(spine.NodeIDs, "n5") {
+		t.Fatalf("lead market spine node_ids = %#v, want sibling equity market move", spine.NodeIDs)
+	}
+	if containsString(spine.NodeIDs, "n6") {
+		t.Fatalf("lead market spine node_ids = %#v, want unrelated rates move left out", spine.NodeIDs)
+	}
+	if containsString(spine.NodeIDs, "n7") {
+		t.Fatalf("lead market spine node_ids = %#v, want volatility move left out", spine.NodeIDs)
+	}
+	if !hasPreviewEdge(spine.Edges, "n2", "n5") {
+		t.Fatalf("lead market spine edges = %#v, want hub -> sibling equity edge", spine.Edges)
+	}
+	if !hasGraphEdge(state.Edges, "n2", "n5") {
+		t.Fatalf("state edges = %#v, want sibling market move edge mirrored into graph", state.Edges)
+	}
+}
+
+func hasPreviewEdge(edges []PreviewEdge, from, to string) bool {
+	for _, edge := range edges {
+		if edge.From == from && edge.To == to {
+			return true
+		}
+	}
+	return false
+}
+
+func hasGraphEdge(edges []graphEdge, from, to string) bool {
+	for _, edge := range edges {
+		if edge.From == from && edge.To == to {
+			return true
+		}
+	}
+	return false
+}
+
 func TestStage3ClassifyProjectsRolesFromSpines(t *testing.T) {
 	state, err := stage3Classify(context.Background(), nil, "", Bundle{}, graphState{
 		Nodes: []graphNode{

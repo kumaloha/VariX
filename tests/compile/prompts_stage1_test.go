@@ -30,6 +30,8 @@ func TestStage1PromptAllowsNormalizationButRejectsSemanticUpgrade(t *testing.T) 
 		"`institutional_satire`",
 		"`management_qa`",
 		"`capital_allocation_discussion`",
+		"do not use this for short social/news market roundups",
+		"multi-asset social/news roundups",
 		`"article_form": "single_thesis|main_narrative_plus_investment_implication|evidence_backed_forecast|institutional_satire|satirical_financial_commentary|risk_list|macro_framework|market_update|management_qa|shareholder_meeting|earnings_call|capital_allocation_discussion"`,
 		"Node discourse roles:",
 		"Every node must include a `role`",
