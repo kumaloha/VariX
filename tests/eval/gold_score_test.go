@@ -82,6 +82,47 @@ func TestScoreGoldDatasetFlagsMissingCandidateAsReviewCase(t *testing.T) {
 	}
 }
 
+func TestScoreGoldDatasetFlagsUnmetStructuralExpectations(t *testing.T) {
+	dataset := GoldDataset{
+		Version: "test-structural-baseline",
+		Samples: []GoldSample{{
+			ID:      "ANCHOR_WEIBO_QDG3",
+			Summary: "AI资本开支推动市场反弹，但OPEC、石油美元与美债收益率仍构成并行主线",
+			Drivers: []string{"AI资本开支激增"},
+			Targets: []string{"美股反弹"},
+			Expectations: GoldExpectations{
+				MinLedgerItems:           70,
+				MinBranches:              5,
+				MinTransmissionPaths:     10,
+				MaxOmittedLedgerItems:    25,
+				RequireCoverageAudit:     true,
+				RequireRenderedOmissions: true,
+			},
+		}},
+	}
+	candidate := Output{
+		Summary: "AI资本开支推动市场反弹",
+		Drivers: []string{"AI资本开支激增"},
+		Targets: []string{"美股反弹"},
+	}
+
+	card := ScoreGoldDataset(dataset, []GoldCandidate{{SampleID: "ANCHOR_WEIBO_QDG3", Output: candidate}})
+
+	got := card.Samples[0]
+	if !hasGoldReviewItem(got.ReviewItems, "expectations", "min_ledger_items") {
+		t.Fatalf("review items missing min_ledger_items: %#v", got.ReviewItems)
+	}
+	if !hasGoldReviewItem(got.ReviewItems, "expectations", "min_transmission_paths") {
+		t.Fatalf("review items missing min_transmission_paths: %#v", got.ReviewItems)
+	}
+	if !hasGoldReviewItem(got.ReviewItems, "expectations", "require_coverage_audit") {
+		t.Fatalf("review items missing require_coverage_audit: %#v", got.ReviewItems)
+	}
+	if got.StructureScore >= 75 {
+		t.Fatalf("StructureScore = %.2f, want structural penalty", got.StructureScore)
+	}
+}
+
 func TestScoreGoldDatasetMatchesBilingualFinanceConcepts(t *testing.T) {
 	dataset := GoldDataset{
 		Version: "test-baseline",

@@ -15,12 +15,33 @@ type GoldDataset struct {
 }
 
 type GoldSample struct {
-	ID      string   `json:"id"`
-	Title   string   `json:"title,omitempty"`
-	URL     string   `json:"url,omitempty"`
-	Summary string   `json:"summary"`
-	Drivers []string `json:"drivers,omitempty"`
-	Targets []string `json:"targets,omitempty"`
+	ID           string           `json:"id"`
+	Title        string           `json:"title,omitempty"`
+	URL          string           `json:"url,omitempty"`
+	Summary      string           `json:"summary"`
+	Drivers      []string         `json:"drivers,omitempty"`
+	Targets      []string         `json:"targets,omitempty"`
+	Expectations GoldExpectations `json:"expectations,omitempty"`
+}
+
+type GoldExpectations struct {
+	MinLedgerItems           int  `json:"min_ledger_items,omitempty"`
+	MinBriefItems            int  `json:"min_brief_items,omitempty"`
+	MinBranches              int  `json:"min_branches,omitempty"`
+	MinTransmissionPaths     int  `json:"min_transmission_paths,omitempty"`
+	MaxOmittedLedgerItems    int  `json:"max_omitted_ledger_items,omitempty"`
+	RequireCoverageAudit     bool `json:"require_coverage_audit,omitempty"`
+	RequireRenderedOmissions bool `json:"require_rendered_omissions,omitempty"`
+}
+
+func (e GoldExpectations) IsZero() bool {
+	return e.MinLedgerItems == 0 &&
+		e.MinBriefItems == 0 &&
+		e.MinBranches == 0 &&
+		e.MinTransmissionPaths == 0 &&
+		e.MaxOmittedLedgerItems == 0 &&
+		!e.RequireCoverageAudit &&
+		!e.RequireRenderedOmissions
 }
 
 type GoldEvaluationSection struct {
@@ -79,6 +100,25 @@ func (d GoldDataset) Validate() error {
 		}
 		if err := validateNonEmptyStrings(fmt.Sprintf("gold dataset sample[%d] targets", i), sample.Targets); err != nil {
 			return err
+		}
+		if err := sample.Expectations.Validate(fmt.Sprintf("gold dataset sample[%d] expectations", i)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e GoldExpectations) Validate(field string) error {
+	values := map[string]int{
+		"min_ledger_items":         e.MinLedgerItems,
+		"min_brief_items":          e.MinBriefItems,
+		"min_branches":             e.MinBranches,
+		"min_transmission_paths":   e.MinTransmissionPaths,
+		"max_omitted_ledger_items": e.MaxOmittedLedgerItems,
+	}
+	for name, value := range values {
+		if value < 0 {
+			return fmt.Errorf("%s.%s must not be negative", field, name)
 		}
 	}
 	return nil

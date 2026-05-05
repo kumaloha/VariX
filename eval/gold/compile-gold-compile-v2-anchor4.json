@@ -1,0 +1,113 @@
+{
+  "version": "2026-05-05",
+  "scope": "compile_v2_anchor4",
+  "domain": "financial_analysis",
+  "samples": [
+    {
+      "id": "ANCHOR_BRK_QQ",
+      "title": "Berkshire Hathaway interview — capital allocation and macro risk",
+      "url": "https://www.youtube.com/watch?v=QQOWQcnNmr0",
+      "summary": "Greg Abel强调伯克希尔的资本配置和组合管理纪律：市场危机常常突发而非来自共识风险，恶性通胀会重塑经济环境，监管套利和过度金融化会制造系统性风险，因此伯克希尔需要保持充足现金、能力圈约束和在困境中部署资本的耐心。",
+      "drivers": [
+        "重大市场危机往往突发，而非源于市场普遍预期的风险",
+        "恶性通胀会根本性重塑经济环境并削弱货币信用",
+        "金融监管趋严会推动部分市场参与者寻找监管套利",
+        "伯克希尔保持现金和能力圈纪律以等待高质量投资机会"
+      ],
+      "targets": [
+        "宏观困境中其他买家撤离时会出现最佳投资机会",
+        "货币信用丧失会刺激过度借贷与投机性资产买入",
+        "监管套利会提高金融系统性风险",
+        "伯克希尔的资本配置应继续强调耐心、现金和长期业务质量"
+      ],
+      "expectations": {
+        "min_ledger_items": 15,
+        "min_brief_items": 8,
+        "min_branches": 3,
+        "min_transmission_paths": 3
+      }
+    },
+    {
+      "id": "ANCHOR_BRK_4V",
+      "title": "Berkshire Hathaway interview — buybacks, insurance, AI, energy, culture",
+      "url": "https://www.youtube.com/watch?v=4VwLwtiuxVQ",
+      "summary": "Greg Abel围绕资本配置、回购、保险、AI、电力和继任文化解释伯克希尔的经营纪律：回购只在价格低于内在价值时发生，保险承保需要抵御资本涌入和风险错价，AI和数据中心会改变成本与电力需求但不替代核心判断，能源和公用事业要处理监管契约与供电可靠性，伯克希尔文化和继任安排必须保持长期独立和审慎。",
+      "drivers": [
+        "新竞争者携过剩资本涌入使保险市场趋于疲软",
+        "超大规模数据中心需求加剧电网和公用事业压力",
+        "伯克希尔回购取决于价格与内在价值的安全边际",
+        "AI目前更像生产力工具而非替代保险、资本配置和管理判断的系统",
+        "伯克希尔文化和继任安排要求长期独立、现金纪律和低官僚化"
+      ],
+      "targets": [
+        "GEICO和保险业务需要保持风险定价与承保纪律",
+        "电网承压会推动增量燃气或化石机组以保障可靠性",
+        "回购不会为了分拆或短期市场情绪而发生",
+        "AI投资需要严守估值、风险边际和安全边际",
+        "Greg Abel接班后仍需维持伯克希尔的资本配置和文化连续性"
+      ],
+      "expectations": {
+        "min_ledger_items": 60,
+        "min_brief_items": 12,
+        "min_branches": 4,
+        "min_transmission_paths": 4,
+        "max_omitted_ledger_items": 60
+      }
+    },
+    {
+      "id": "ANCHOR_WEIBO_QDG3",
+      "title": "Weibo — OPEC, Fed, AI capex and dollar pricing",
+      "url": "https://weibo.com/1182426800/QDG3sum9D",
+      "summary": "这篇微博把市场反弹拆成多条并行主线：AI基建资本开支以77%的增速压倒战争、油价和弱GDP等宏观冲击，推动美股、芯片股和风险偏好反弹；鲍威尔留任、沃什和FOMC分歧提高短期利率路径不确定性；OPEC闲置产能和石油美元体系松动削弱传统能源定价秩序，同时高通胀定价推升美债收益率曲线。",
+      "drivers": [
+        "四大超巨云端服务商AI基建投资额较去年增长77%",
+        "AI叙事压倒战争威胁、油价冲击和疲弱GDP等宏观冲击",
+        "鲍威尔留任和沃什政策倾向提高FOMC短期不确定性",
+        "OPEC失去关键闲置产能并削弱平抑油价波动的能力",
+        "沙特不再续签美沙独家石油协议侵蚀石油美元体系根基",
+        "资金为更高通胀做准备"
+      ],
+      "targets": [
+        "S&P500指数和纳斯达克指数强劲反弹",
+        "ETF资金从欧洲和亚洲涌向美国",
+        "韩股与台股芯片板块暴涨",
+        "FOMC未来决策方向面临变数",
+        "未来石油市场趋向碎片化并由美国金融主导",
+        "美国国债整条收益率曲线上移"
+      ],
+      "expectations": {
+        "min_ledger_items": 70,
+        "min_branches": 5,
+        "min_transmission_paths": 14,
+        "max_omitted_ledger_items": 25,
+        "require_coverage_audit": true,
+        "require_rendered_omissions": true
+      }
+    },
+    {
+      "id": "ANCHOR_DALIO_X",
+      "title": "Ray Dalio — investing in light of the big cycle",
+      "url": "https://x.com/RayDalio/status/2026305745872998803",
+      "summary": "达利欧把投资放在大周期框架里解释：增长、通胀、风险溢价和贴现率共同决定资产回报，财政与货币政策通过债务和资本市场周期改变这些变量。当金融财富和未来索取权相对真实财富过大时，系统会通过违约、印钞、贬值、资本管制和财富没收来减轻债务压力；现金和主权债真实收益率为负时，投资者应转向跨国家、跨环境、跨资产的分散配置和真实资产保护。",
+      "drivers": [
+        "增长、通胀、风险溢价和贴现率是资产回报的核心变量",
+        "财政政策和货币政策通过长期债务与资本市场周期影响资产回报",
+        "金融财富和未来索取权相对真实财富过大时会触发违约、印钞和贬值压力",
+        "现金和主权债真实收益率为负会削弱购买力储藏功能",
+        "周期晚期还可能伴随资本管制、财富没收和市场关闭"
+      ],
+      "targets": [
+        "投资者需要从大周期视角理解资产回报和尾部风险",
+        "现金和长期主权债等金融资产相对吸引力下降",
+        "真实资产、硬资产和黄金在货币贬值阶段更有防御意义",
+        "组合配置应转向跨环境、跨国家和跨资产的分散",
+        "投资者需要防范晚周期财富毁灭和金融资产相对真实资产重估"
+      ],
+      "expectations": {
+        "min_ledger_items": 20,
+        "min_branches": 3,
+        "min_transmission_paths": 3
+      }
+    }
+  ]
+}

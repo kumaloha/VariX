@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -61,7 +62,8 @@ func scoreGoldSample(sample GoldSample, candidate Output) GoldSampleScore {
 	summaryScore := roundScore(100 * textSimilarity(sample.Summary, candidate.Summary))
 	drivers := scoreGoldList(sample.Drivers, candidate.Drivers)
 	targets := scoreGoldList(sample.Targets, candidate.Targets)
-	structureScore := scoreCandidateStructure(candidate)
+	expectationItems := reviewItemsForExpectations(sample.Expectations, candidate)
+	structureScore := scoreCandidateStructure(candidate, len(expectationItems))
 	reviewItems := make([]GoldReviewItem, 0)
 	if summaryScore < 70 {
 		reviewItems = append(reviewItems, GoldReviewItem{
@@ -76,6 +78,7 @@ func scoreGoldSample(sample GoldSample, candidate Output) GoldSampleScore {
 	}
 	reviewItems = append(reviewItems, reviewItemsForList("drivers", drivers)...)
 	reviewItems = append(reviewItems, reviewItemsForList("targets", targets)...)
+	reviewItems = append(reviewItems, expectationItems...)
 	if structureScore < 75 {
 		reviewItems = append(reviewItems, GoldReviewItem{
 			Severity: "medium",
@@ -197,7 +200,7 @@ func reviewItemsForList(field string, score GoldListScore) []GoldReviewItem {
 	return items
 }
 
-func scoreCandidateStructure(candidate Output) float64 {
+func scoreCandidateStructure(candidate Output, expectationFailures int) float64 {
 	score := 0.0
 	if strings.TrimSpace(candidate.Summary) != "" {
 		score += 25
@@ -211,7 +214,62 @@ func scoreCandidateStructure(candidate Output) float64 {
 	if len(candidate.TransmissionPaths) > 0 {
 		score += 25
 	}
+	score -= float64(expectationFailures * 15)
+	if score < 0 {
+		return 0
+	}
 	return score
+}
+
+func reviewItemsForExpectations(expectations GoldExpectations, candidate Output) []GoldReviewItem {
+	if expectations.IsZero() {
+		return nil
+	}
+	items := make([]GoldReviewItem, 0)
+	addMin := func(kind string, got, want int) {
+		if want <= 0 || got >= want {
+			return
+		}
+		items = append(items, GoldReviewItem{
+			Severity: "high",
+			Field:    "expectations",
+			Kind:     kind,
+			Score:    float64(got),
+			Message:  fmt.Sprintf("Candidate structural metric is below anchor expectation: got %d, want at least %d.", got, want),
+		})
+	}
+	addMin("min_ledger_items", len(candidate.Ledger.Items), expectations.MinLedgerItems)
+	addMin("min_brief_items", len(candidate.Brief), expectations.MinBriefItems)
+	addMin("min_branches", len(candidate.Branches), expectations.MinBranches)
+	addMin("min_transmission_paths", len(candidate.TransmissionPaths), expectations.MinTransmissionPaths)
+
+	omitted := len(candidate.CoverageAudit.OmittedLedgerIDs)
+	if expectations.MaxOmittedLedgerItems > 0 && omitted > expectations.MaxOmittedLedgerItems {
+		items = append(items, GoldReviewItem{
+			Severity: "medium",
+			Field:    "expectations",
+			Kind:     "max_omitted_ledger_items",
+			Score:    float64(omitted),
+			Message:  fmt.Sprintf("Candidate omitted too many ledger items from the rendered view: got %d, want at most %d.", omitted, expectations.MaxOmittedLedgerItems),
+		})
+	}
+	if expectations.RequireCoverageAudit && candidate.CoverageAudit.IsZero() {
+		items = append(items, GoldReviewItem{
+			Severity: "high",
+			Field:    "expectations",
+			Kind:     "require_coverage_audit",
+			Message:  "Anchor sample requires coverage audit evidence in the candidate output.",
+		})
+	}
+	if expectations.RequireRenderedOmissions && omitted == 0 {
+		items = append(items, GoldReviewItem{
+			Severity: "medium",
+			Field:    "expectations",
+			Kind:     "require_rendered_omissions",
+			Message:  "Anchor sample expects rendered-view omissions to remain visible for review.",
+		})
+	}
+	return items
 }
 
 func buildGoldScoreRollup(samples []GoldSampleScore) GoldScoreRollup {

@@ -31,6 +31,25 @@ func TestLoadGoldDatasetBatch1(t *testing.T) {
 	}
 }
 
+func TestLoadCompileV2Anchor4Dataset(t *testing.T) {
+	dataset, err := LoadGoldDataset(batch1GoldDatasetPathNamed(t, "compile-gold-compile-v2-anchor4.json"))
+	if err != nil {
+		t.Fatalf("LoadGoldDataset(anchor4) error = %v", err)
+	}
+	if got := len(dataset.Samples); got != 4 {
+		t.Fatalf("len(anchor4.Samples) = %d, want 4", got)
+	}
+	wantIDs := []string{"ANCHOR_BRK_QQ", "ANCHOR_BRK_4V", "ANCHOR_WEIBO_QDG3", "ANCHOR_DALIO_X"}
+	for i, want := range wantIDs {
+		if dataset.Samples[i].ID != want {
+			t.Fatalf("sample[%d].ID = %q, want %q", i, dataset.Samples[i].ID, want)
+		}
+		if dataset.Samples[i].Expectations.IsZero() {
+			t.Fatalf("sample[%d] expectations are empty", i)
+		}
+	}
+}
+
 func TestBuildGoldEvaluationReportBatch1(t *testing.T) {
 	dataset, err := LoadGoldDataset(batch1GoldDatasetPath(t))
 	if err != nil {
